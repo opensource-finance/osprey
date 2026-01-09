@@ -23,10 +23,11 @@ type Handler struct {
 	typologyEngine *rules.TypologyEngine
 	processor      *tadp.Processor
 	version        string
+	mode           domain.EvaluationMode // detection or compliance
 }
 
 // NewHandler creates a new API handler.
-func NewHandler(repo domain.Repository, cache domain.Cache, bus domain.EventBus, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor, version string) *Handler {
+func NewHandler(repo domain.Repository, cache domain.Cache, bus domain.EventBus, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor, version string, mode domain.EvaluationMode) *Handler {
 	return &Handler{
 		repo:           repo,
 		cache:          cache,
@@ -35,6 +36,7 @@ func NewHandler(repo domain.Repository, cache domain.Cache, bus domain.EventBus,
 		typologyEngine: typologyEngine,
 		processor:      processor,
 		version:        version,
+		mode:           mode,
 	}
 }
 
@@ -139,8 +141,9 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Synchronous Evaluation (Community Tier / Direct Mode)
-	// We execute rules directly via the engine + processor
+	// Synchronous Evaluation
+	// Detection mode: Rules → Weighted Score → Alert
+	// Compliance mode: Rules → Typologies → FATF patterns → Alert
 
 	// 1. Prepare input
 	evalInput := &rules.EvaluateInput{
@@ -151,7 +154,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		CreditorID:     tx.CreditorID,
 		Amount:         tx.Amount,
 		Currency:       tx.Currency,
-		VelocityWindow: 3600, // Default 1 hour window?
+		VelocityWindow: 3600, // Default 1 hour window
 		AdditionalData: tx.Metadata,
 	}
 
@@ -165,9 +168,9 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Evaluate typologies based on rule results
+	// 3. Evaluate typologies ONLY in Compliance mode
 	var typologyResults []domain.TypologyResult
-	if h.typologyEngine != nil && h.typologyEngine.TypologyCount() > 0 {
+	if h.mode == domain.ModeCompliance && h.typologyEngine != nil && h.typologyEngine.TypologyCount() > 0 {
 		typologyResults = h.typologyEngine.EvaluateTypologies(ruleResults)
 	}
 
@@ -226,9 +229,10 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  status,
 		"version": h.version,
+		"mode":    string(h.mode),
 	})
 }
 

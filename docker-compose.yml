@@ -1,0 +1,104 @@
+# Osprey Production-Like Stack
+# Usage: docker-compose up -d
+#
+# This creates a production-representative environment for load testing:
+# - PostgreSQL (instead of SQLite)
+# - Redis (instead of in-memory cache)
+# - NATS (instead of Go channels)
+
+services:
+  # PostgreSQL - Production database
+  postgres:
+    image: postgres:16-alpine
+    container_name: osprey-postgres
+    environment:
+      POSTGRES_USER: osprey
+      POSTGRES_PASSWORD: osprey_secret
+      POSTGRES_DB: osprey
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U osprey -d osprey"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Production cache
+  redis:
+    image: redis:7-alpine
+    container_name: osprey-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # NATS - Production message bus
+  nats:
+    image: nats:2.10-alpine
+    container_name: osprey-nats
+    ports:
+      - "4222:4222"   # Client connections
+      - "8222:8222"   # HTTP monitoring
+    command: ["--jetstream", "--store_dir=/data", "-m", "8222"]
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Osprey - The application (Pro tier config)
+  osprey:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osprey-app
+    environment:
+      # Pro tier with production backends
+      OSPREY_TIER: pro
+      OSPREY_MODE: detection
+      OSPREY_DEBUG: "false"
+
+      # PostgreSQL
+      OSPREY_DB_DRIVER: postgres
+      OSPREY_POSTGRES_HOST: postgres
+      OSPREY_POSTGRES_PORT: 5432
+      OSPREY_POSTGRES_USER: osprey
+      OSPREY_POSTGRES_PASSWORD: osprey_secret
+      OSPREY_POSTGRES_DB: osprey
+
+      # Redis
+      OSPREY_CACHE_TYPE: redis
+      OSPREY_REDIS_ADDR: redis:6379
+
+      # NATS
+      OSPREY_BUS_TYPE: nats
+      OSPREY_NATS_URL: nats://nats:4222
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:

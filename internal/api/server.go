@@ -22,8 +22,8 @@ type Server struct {
 }
 
 // NewServer creates a new API server.
-func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cache, bus domain.EventBus, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor, version string) *Server {
-	handler := NewHandler(repo, cache, bus, engine, typologyEngine, processor, version)
+func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cache, bus domain.EventBus, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor, version string, mode domain.EvaluationMode) *Server {
+	handler := NewHandler(repo, cache, bus, engine, typologyEngine, processor, version, mode)
 	router := chi.NewRouter()
 
 	// Global middleware stack

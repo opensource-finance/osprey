@@ -17,13 +17,30 @@ type Processor struct {
 
 	// Weight configuration for rule aggregation
 	UseWeightedScoring bool
+
+	// Mode determines evaluation strategy:
+	// - "detection": Rules → Weighted Score → Alert (fast, no typologies)
+	// - "compliance": Rules → Typologies → FATF patterns (requires typologies)
+	Mode string
 }
 
 // NewProcessor creates a new TADP processor with default settings.
+// Defaults to Detection mode - fast, weighted rule scoring.
 func NewProcessor() *Processor {
 	return &Processor{
-		AlertThreshold:     0.7,  // Default threshold
-		UseWeightedScoring: true, // Use rule weights in scoring
+		AlertThreshold:     0.7,         // Default threshold
+		UseWeightedScoring: true,        // Use rule weights in scoring
+		Mode:               "detection", // Default: fast fraud detection
+	}
+}
+
+// NewComplianceProcessor creates a processor for Compliance mode.
+// Requires typologies for FATF-aligned evaluation.
+func NewComplianceProcessor() *Processor {
+	return &Processor{
+		AlertThreshold:     0.7,
+		UseWeightedScoring: true,
+		Mode:               "compliance",
 	}
 }
 
@@ -52,8 +69,8 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 	// Aggregate rule results
 	aggResult := p.aggregate(input.RuleResults)
 
-	// Use typology results if provided by TypologyEngine
-	if len(input.TypologyResults) > 0 {
+	// Compliance Mode: Use typology results for FATF-aligned evaluation
+	if p.Mode == "compliance" && len(input.TypologyResults) > 0 {
 		eval.TypologyResults = input.TypologyResults
 
 		// Check if any typology triggered
@@ -78,7 +95,8 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 		// Use highest typology score as the evaluation score
 		eval.Score = maxTypologyScore
 	} else {
-		// Fallback: legacy behavior - single aggregated score
+		// Detection Mode: Fast, weighted rule aggregation (default)
+		// No typologies required - direct score-to-alert decision
 		if aggResult.HasCriticalFailure || aggResult.AggregateScore >= p.AlertThreshold {
 			eval.Status = domain.StatusAlert
 		} else {
@@ -87,8 +105,8 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 
 		eval.Score = aggResult.AggregateScore
 
-		// Build legacy typology results
-		eval.TypologyResults = p.buildTypologyResults(input.RuleResults, aggResult)
+		// Build detection summary (optional typology-like grouping for reporting)
+		eval.TypologyResults = p.buildDetectionSummary(input.RuleResults, aggResult)
 	}
 
 	// Populate metadata
@@ -154,20 +172,21 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 	return agg
 }
 
-// buildTypologyResults groups rules into typology results.
-// For now, creates a single "fraud-detection" typology.
-func (p *Processor) buildTypologyResults(rules []domain.RuleResult, agg *AggregateResult) []domain.TypologyResult {
+// buildDetectionSummary creates a summary for Detection mode.
+// Groups all rules into a single "detection" result for consistent API response.
+func (p *Processor) buildDetectionSummary(rules []domain.RuleResult, agg *AggregateResult) []domain.TypologyResult {
 	if len(rules) == 0 {
 		return nil
 	}
 
 	return []domain.TypologyResult{
 		{
-			TypologyID: "fraud-detection-001",
-			Score:      agg.AggregateScore,
-			Threshold:  p.AlertThreshold,
-			Triggered:  agg.AggregateScore >= p.AlertThreshold || agg.HasCriticalFailure,
-			Rules:      rules,
+			TypologyID:   "detection-summary",
+			TypologyName: "Detection Mode Summary",
+			Score:        agg.AggregateScore,
+			Threshold:    p.AlertThreshold,
+			Triggered:    agg.AggregateScore >= p.AlertThreshold || agg.HasCriticalFailure,
+			Rules:        rules,
 		},
 	}
 }

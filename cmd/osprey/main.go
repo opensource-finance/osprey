@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -59,8 +60,20 @@ func main() {
 		slog.Info("running in Pro tier mode")
 	}
 
+	// Check for Compliance mode via environment
+	// Default: Detection mode (fast, simple fraud detection)
+	// Compliance mode requires typologies for FATF-aligned evaluation
+	if os.Getenv("OSPREY_MODE") == "compliance" {
+		cfg.EvaluationMode = domain.ModeCompliance
+		slog.Info("running in Compliance mode - typologies required")
+	}
+
+	// Apply environment variable overrides for production deployment
+	applyEnvOverrides(cfg)
+
 	slog.Info("configuration loaded",
 		"tier", cfg.Tier,
+		"mode", cfg.EvaluationMode,
 		"repository", cfg.Repository.Driver,
 		"cache", cfg.Cache.Type,
 		"eventbus", cfg.EventBus.Type,
@@ -137,13 +150,23 @@ func main() {
 
 	// Initialize Decision Processor (TADP)
 	processor := tadp.NewProcessor()
-	processor.AlertThreshold = 0.7 // Default threshold
-	slog.Info("TADP processor initialized", "threshold", processor.AlertThreshold)
+	processor.AlertThreshold = 0.7                    // Default threshold
+	processor.Mode = string(cfg.EvaluationMode)       // Set mode from config
+	slog.Info("TADP processor initialized",
+		"mode", processor.Mode,
+		"threshold", processor.AlertThreshold,
+	)
+
+	// Compliance mode validation: require typologies
+	if cfg.EvaluationMode == domain.ModeCompliance && typologyEngine.TypologyCount() == 0 {
+		slog.Warn("Compliance mode enabled but no typologies configured",
+			"hint", "Create typologies via POST /typologies or switch to Detection mode")
+	}
 
 	// Initialize async Worker (Pro tier)
 	var asyncWorker *worker.Worker
 	if cfg.Tier == domain.TierPro || os.Getenv("OSPREY_ASYNC_WORKER") == "true" {
-		asyncWorker = worker.NewWorker(busImpl, repo, engine, typologyEngine, processor)
+		asyncWorker = worker.NewWorker(busImpl, repo, engine, typologyEngine, processor, cfg.EvaluationMode)
 
 		// Get tenant IDs to process (from environment or default)
 		tenantIDs := []string{}
@@ -165,7 +188,7 @@ func main() {
 	}
 
 	// Initialize Server
-	srv := api.NewServer(cfg.Server, repo, cacheImpl, busImpl, engine, typologyEngine, processor, Version)
+	srv := api.NewServer(cfg.Server, repo, cacheImpl, busImpl, engine, typologyEngine, processor, Version, cfg.EvaluationMode)
 
 	// Start Server in goroutine
 	go func() {
@@ -247,13 +270,27 @@ func printBanner(cfg *domain.Config, version string) {
 	fmt.Println()
 	fmt.Println("  ╔═══════════════════════════════════════════╗")
 	fmt.Println("  ║               🦅 OSPREY                   ║")
-	fmt.Println("  ║     Transaction Monitoring Engine         ║")
-	fmt.Println("  ║      Eyes on every transaction.           ║")
+	fmt.Println("  ║     Real-time Fraud Detection Engine      ║")
 	fmt.Println("  ╚═══════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Printf("  Version:  %s\n", version)
 	fmt.Printf("  Tier:     %s\n", cfg.Tier)
+	fmt.Printf("  Mode:     %s\n", cfg.EvaluationMode)
 	fmt.Printf("  Server:   http://%s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	fmt.Println()
+
+	// Mode-specific messaging
+	if cfg.EvaluationMode == domain.ModeDetection {
+		fmt.Println("  Mode: DETECTION (default)")
+		fmt.Println("    → Fast, weighted rule scoring")
+		fmt.Println("    → No typologies required")
+		fmt.Println("    → Ideal for fraud detection, startups")
+	} else {
+		fmt.Println("  Mode: COMPLIANCE")
+		fmt.Println("    → FATF-aligned typology evaluation")
+		fmt.Println("    → Full audit trails")
+		fmt.Println("    → Ideal for banks, regulated fintechs")
+	}
 	fmt.Println()
 	fmt.Println("  Endpoints:")
 	fmt.Println("    POST /evaluate          - Evaluate a transaction")
@@ -262,11 +299,82 @@ func printBanner(cfg *domain.Config, version string) {
 	fmt.Println("    GET  /rules             - List all rules")
 	fmt.Println("    POST /rules             - Create a new rule")
 	fmt.Println("    POST /rules/reload      - Hot-reload rules from database")
-	fmt.Println("    GET  /typologies        - List all typologies")
-	fmt.Println("    POST /typologies        - Create a new typology")
-	fmt.Println("    PUT  /typologies/{id}   - Update a typology")
-	fmt.Println("    DELETE /typologies/{id} - Delete a typology")
-	fmt.Println("    POST /typologies/reload - Hot-reload typologies")
+	if cfg.EvaluationMode == domain.ModeCompliance {
+		fmt.Println("    GET  /typologies        - List all typologies")
+		fmt.Println("    POST /typologies        - Create a new typology")
+		fmt.Println("    PUT  /typologies/{id}   - Update a typology")
+		fmt.Println("    DELETE /typologies/{id} - Delete a typology")
+		fmt.Println("    POST /typologies/reload - Hot-reload typologies")
+	}
 	fmt.Println("    GET  /health            - Health check")
 	fmt.Println()
+}
+
+// applyEnvOverrides applies environment variable overrides to the config.
+// This enables configuration via environment for Docker/Kubernetes deployments.
+func applyEnvOverrides(cfg *domain.Config) {
+	// Database driver override
+	if driver := os.Getenv("OSPREY_DB_DRIVER"); driver != "" {
+		cfg.Repository.Driver = driver
+	}
+
+	// PostgreSQL settings
+	if host := os.Getenv("OSPREY_POSTGRES_HOST"); host != "" {
+		cfg.Repository.PostgresHost = host
+	}
+	if port := os.Getenv("OSPREY_POSTGRES_PORT"); port != "" {
+		if p, err := strconv.Atoi(port); err == nil {
+			cfg.Repository.PostgresPort = p
+		}
+	}
+	if user := os.Getenv("OSPREY_POSTGRES_USER"); user != "" {
+		cfg.Repository.PostgresUser = user
+	}
+	if password := os.Getenv("OSPREY_POSTGRES_PASSWORD"); password != "" {
+		cfg.Repository.PostgresPassword = password
+	}
+	if db := os.Getenv("OSPREY_POSTGRES_DB"); db != "" {
+		cfg.Repository.PostgresDB = db
+	}
+	if sslMode := os.Getenv("OSPREY_POSTGRES_SSLMODE"); sslMode != "" {
+		cfg.Repository.PostgresSSLMode = sslMode
+	}
+
+	// Cache type override
+	if cacheType := os.Getenv("OSPREY_CACHE_TYPE"); cacheType != "" {
+		cfg.Cache.Type = cacheType
+	}
+
+	// Redis settings
+	if addr := os.Getenv("OSPREY_REDIS_ADDR"); addr != "" {
+		cfg.Cache.RedisAddr = addr
+	}
+	if password := os.Getenv("OSPREY_REDIS_PASSWORD"); password != "" {
+		cfg.Cache.RedisPassword = password
+	}
+	if db := os.Getenv("OSPREY_REDIS_DB"); db != "" {
+		if d, err := strconv.Atoi(db); err == nil {
+			cfg.Cache.RedisDB = d
+		}
+	}
+
+	// Event bus type override
+	if busType := os.Getenv("OSPREY_BUS_TYPE"); busType != "" {
+		cfg.EventBus.Type = busType
+	}
+
+	// NATS settings
+	if url := os.Getenv("OSPREY_NATS_URL"); url != "" {
+		cfg.EventBus.NATSUrl = url
+	}
+
+	// Server settings
+	if port := os.Getenv("OSPREY_PORT"); port != "" {
+		if p, err := strconv.Atoi(port); err == nil {
+			cfg.Server.Port = p
+		}
+	}
+	if host := os.Getenv("OSPREY_HOST"); host != "" {
+		cfg.Server.Host = host
+	}
 }

@@ -41,7 +41,7 @@ func createTestServer() *Server {
 	// Create TADP processor
 	processor := tadp.NewProcessor()
 
-	return NewServer(cfg, nil, nil, nil, engine, typologyEngine, processor, "test-v1")
+	return NewServer(cfg, nil, nil, nil, engine, typologyEngine, processor, "test-v1", domain.ModeDetection)
 }
 
 func TestEvaluateEndpoint(t *testing.T) {
@@ -222,7 +222,7 @@ func TestHealthEndpoint(t *testing.T) {
 			t.Errorf("expected status 200, got %d", rr.Code)
 		}
 
-		var resp map[string]string
+		var resp map[string]interface{}
 		json.Unmarshal(rr.Body.Bytes(), &resp)
 
 		if resp["status"] != "healthy" {
@@ -230,6 +230,9 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 		if resp["version"] != "test-v1" {
 			t.Errorf("expected version 'test-v1', got '%s'", resp["version"])
+		}
+		if resp["mode"] != "detection" {
+			t.Errorf("expected mode 'detection', got '%s'", resp["mode"])
 		}
 	})
 

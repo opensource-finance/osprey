@@ -8,6 +8,11 @@ type Config struct {
 	// Tier determines feature availability
 	Tier Tier `json:"tier"`
 
+	// EvaluationMode determines how transactions are evaluated
+	// - "detection": Rules → Weighted Score → Alert (fast, simple)
+	// - "compliance": Rules → Typologies → FATF patterns (auditable)
+	EvaluationMode EvaluationMode `json:"evaluationMode"`
+
 	// Component configurations
 	Repository RepositoryConfig `json:"repository"`
 	Cache      CacheConfig      `json:"cache"`
@@ -17,6 +22,21 @@ type Config struct {
 	Logging LoggingConfig `json:"logging"`
 	Tracing TracingConfig `json:"tracing"`
 }
+
+// EvaluationMode determines the transaction evaluation strategy.
+type EvaluationMode string
+
+const (
+	// ModeDetection evaluates rules and aggregates scores directly.
+	// Fast, developer-friendly, no typologies required.
+	// Use for: Fraud detection, startup MVPs, product teams.
+	ModeDetection EvaluationMode = "detection"
+
+	// ModeCompliance requires typologies for FATF-aligned evaluation.
+	// Full audit trails, explainability, regulatory compliance.
+	// Use for: Banks, regulated fintechs, compliance teams.
+	ModeCompliance EvaluationMode = "compliance"
+)
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
@@ -55,6 +75,7 @@ const (
 )
 
 // DefaultConfig returns a default configuration for Community tier.
+// Uses Detection mode by default - fast, simple fraud detection.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -63,7 +84,8 @@ func DefaultConfig() *Config {
 			ReadTimeout:  30,
 			WriteTimeout: 30,
 		},
-		Tier: TierCommunity,
+		Tier:           TierCommunity,
+		EvaluationMode: ModeDetection, // Default: fast fraud detection
 		Repository: RepositoryConfig{
 			Driver:     "sqlite",
 			SQLitePath: "./osprey.db",
@@ -89,9 +111,13 @@ func DefaultConfig() *Config {
 }
 
 // ProConfig returns a configuration for Pro tier.
+// Pro tier supports both Detection and Compliance modes.
+// Set OSPREY_MODE=compliance to enable Compliance mode with typologies.
 func ProConfig() *Config {
 	cfg := DefaultConfig()
 	cfg.Tier = TierPro
+	// Pro defaults to Detection, but Compliance is available
+	cfg.EvaluationMode = ModeDetection
 	cfg.Repository = RepositoryConfig{
 		Driver:       "postgres",
 		PostgresHost: "localhost",

@@ -20,6 +20,7 @@ type Worker struct {
 	engine         *rules.Engine
 	typologyEngine *rules.TypologyEngine
 	processor      *tadp.Processor
+	mode           domain.EvaluationMode // detection or compliance
 
 	subscriptions []domain.Subscription
 	wg            sync.WaitGroup
@@ -37,7 +38,7 @@ type Config struct {
 }
 
 // NewWorker creates a new async worker.
-func NewWorker(bus domain.EventBus, repo domain.Repository, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor) *Worker {
+func NewWorker(bus domain.EventBus, repo domain.Repository, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor, mode domain.EvaluationMode) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Worker{
 		bus:            bus,
@@ -45,6 +46,7 @@ func NewWorker(bus domain.EventBus, repo domain.Repository, engine *rules.Engine
 		engine:         engine,
 		typologyEngine: typologyEngine,
 		processor:      processor,
+		mode:           mode,
 		ctx:            ctx,
 		cancel:         cancel,
 	}
@@ -181,9 +183,9 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		return err
 	}
 
-	// 2. Evaluate typologies based on rule results
+	// 2. Evaluate typologies ONLY in Compliance mode
 	var typologyResults []domain.TypologyResult
-	if w.typologyEngine != nil && w.typologyEngine.TypologyCount() > 0 {
+	if w.mode == domain.ModeCompliance && w.typologyEngine != nil && w.typologyEngine.TypologyCount() > 0 {
 		typologyResults = w.typologyEngine.EvaluateTypologies(ruleResults)
 	}
 

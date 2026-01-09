@@ -1,0 +1,151 @@
+{
+  "_description": "FATF-aligned AML/CFT detection rules based on public FATF guidance",
+  "_source": "https://www.fatf-gafi.org/en/topics/methods-and-trends.html",
+  "_version": "1.0.0",
+  "rules": [
+    {
+      "id": "structuring-001",
+      "name": "Structuring Detection",
+      "description": "Detects transactions just below reporting thresholds (smurfing). FATF Recommendation 20.",
+      "expression": "amount >= 9000.0 && amount < 10000.0",
+      "weight": 0.6,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Amount just below reporting threshold"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal amount range"}
+      ]
+    },
+    {
+      "id": "high-value-001",
+      "name": "High Value Transaction",
+      "description": "Flags transactions above standard monitoring threshold. FATF Recommendation 19.",
+      "expression": "amount > 10000.0",
+      "weight": 0.3,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High value transaction"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Below threshold"}
+      ]
+    },
+    {
+      "id": "very-high-value-001",
+      "name": "Very High Value Transaction",
+      "description": "Flags unusually large transactions requiring enhanced due diligence.",
+      "expression": "amount > 50000.0",
+      "weight": 0.5,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Very high value - enhanced due diligence required"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Below threshold"}
+      ]
+    },
+    {
+      "id": "round-amount-001",
+      "name": "Round Amount Detection",
+      "description": "Detects suspiciously round transaction amounts often associated with structuring.",
+      "expression": "amount >= 1000.0 && amount == double(int(amount / 1000.0)) * 1000.0",
+      "weight": 0.2,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Suspiciously round amount"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Non-round amount"}
+      ]
+    },
+    {
+      "id": "account-drain-001",
+      "name": "Account Drain Detection",
+      "description": "Detects accounts being emptied - common in account takeover and fraud.",
+      "expression": "old_balance > 0.0 && new_balance == 0.0",
+      "weight": 0.8,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Account drained to zero"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal balance change"}
+      ]
+    },
+    {
+      "id": "partial-drain-001",
+      "name": "Significant Balance Reduction",
+      "description": "Detects large withdrawals relative to account balance.",
+      "expression": "old_balance > 0.0 && new_balance < old_balance * 0.1 && amount > 5000.0",
+      "weight": 0.5,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Significant balance reduction (>90%)"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal withdrawal"}
+      ]
+    },
+    {
+      "id": "same-party-001",
+      "name": "Same Party Transfer",
+      "description": "Detects transfers where sender and receiver are the same entity - potential layering.",
+      "expression": "debtor_id == creditor_id",
+      "weight": 1.0,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Same party transfer detected"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Different parties"}
+      ]
+    },
+    {
+      "id": "velocity-001",
+      "name": "High Transaction Velocity",
+      "description": "Detects rapid succession of transactions from same account. FATF rapid movement indicator.",
+      "expression": "velocity_count > 5",
+      "weight": 0.6,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High transaction velocity detected"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal velocity"}
+      ]
+    },
+    {
+      "id": "velocity-extreme-001",
+      "name": "Extreme Transaction Velocity",
+      "description": "Detects unusually high transaction frequency indicating automated/fraudulent activity.",
+      "expression": "velocity_count > 10",
+      "weight": 0.8,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Extreme transaction velocity - potential automation"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal velocity"}
+      ]
+    },
+    {
+      "id": "high-risk-type-001",
+      "name": "High Risk Transaction Type",
+      "description": "Flags transaction types commonly associated with fraud (CASH_OUT, TRANSFER).",
+      "expression": "tx_type == \"CASH_OUT\" || tx_type == \"TRANSFER\"",
+      "weight": 0.2,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High risk transaction type"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Low risk type"}
+      ]
+    },
+    {
+      "id": "cash-intensive-001",
+      "name": "Cash Intensive Transaction",
+      "description": "Flags cash-based transactions requiring enhanced monitoring. FATF Recommendation 22.",
+      "expression": "tx_type == \"CASH_IN\" || tx_type == \"CASH_OUT\"",
+      "weight": 0.3,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Cash intensive transaction"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Non-cash transaction"}
+      ]
+    },
+    {
+      "id": "micro-transaction-001",
+      "name": "Micro Transaction Detection",
+      "description": "Flags very small transactions that may be testing stolen credentials.",
+      "expression": "amount < 10.0",
+      "weight": 0.3,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Micro transaction - potential card testing"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal amount"}
+      ]
+    }
+  ]
+}

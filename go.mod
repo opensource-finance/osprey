@@ -7,6 +7,7 @@ require (
 	github.com/google/cel-go v0.26.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
+	github.com/nats-io/nats.go v1.48.0
 	github.com/redis/go-redis/v9 v9.17.2
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/trace v1.39.0
@@ -23,7 +24,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect

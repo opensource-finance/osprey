@@ -1,0 +1,84 @@
+{
+  "_description": "FATF-aligned typologies for AML/CFT compliance",
+  "_source": "Based on FATF Methods and Trends publications",
+  "_version": "1.0.0",
+  "_note": "These typologies are for Compliance mode. Detection mode uses weighted rule scoring without typologies.",
+  "typologies": [
+    {
+      "id": "typology-structuring",
+      "name": "Structuring (Smurfing)",
+      "description": "Detects breaking up of transactions to avoid reporting thresholds. FATF ML Typology.",
+      "alertThreshold": 0.5,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "structuring-001", "weight": 0.5},
+        {"ruleId": "round-amount-001", "weight": 0.25},
+        {"ruleId": "velocity-001", "weight": 0.25}
+      ]
+    },
+    {
+      "id": "typology-account-takeover",
+      "name": "Account Takeover",
+      "description": "Detects unauthorized access and fraudulent control of accounts.",
+      "alertThreshold": 0.6,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "account-drain-001", "weight": 0.4},
+        {"ruleId": "high-risk-type-001", "weight": 0.2},
+        {"ruleId": "velocity-001", "weight": 0.2},
+        {"ruleId": "high-value-001", "weight": 0.2}
+      ]
+    },
+    {
+      "id": "typology-mule-account",
+      "name": "Mule Account Activity",
+      "description": "Detects accounts being used as intermediaries for money laundering.",
+      "alertThreshold": 0.55,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "velocity-001", "weight": 0.3},
+        {"ruleId": "high-value-001", "weight": 0.25},
+        {"ruleId": "partial-drain-001", "weight": 0.25},
+        {"ruleId": "high-risk-type-001", "weight": 0.2}
+      ]
+    },
+    {
+      "id": "typology-rapid-movement",
+      "name": "Rapid Movement of Funds",
+      "description": "Detects quick transfer of funds through accounts - layering indicator. FATF ML Typology.",
+      "alertThreshold": 0.5,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "velocity-extreme-001", "weight": 0.4},
+        {"ruleId": "velocity-001", "weight": 0.3},
+        {"ruleId": "high-risk-type-001", "weight": 0.3}
+      ]
+    },
+    {
+      "id": "typology-cash-intensive",
+      "name": "Cash Intensive Business",
+      "description": "Detects patterns typical of cash-based money laundering. FATF Recommendation 22.",
+      "alertThreshold": 0.5,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "cash-intensive-001", "weight": 0.35},
+        {"ruleId": "high-value-001", "weight": 0.25},
+        {"ruleId": "round-amount-001", "weight": 0.2},
+        {"ruleId": "velocity-001", "weight": 0.2}
+      ]
+    },
+    {
+      "id": "typology-fraud-basic",
+      "name": "Basic Fraud Detection",
+      "description": "General fraud detection patterns for Detection mode fallback.",
+      "alertThreshold": 0.6,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "account-drain-001", "weight": 0.35},
+        {"ruleId": "same-party-001", "weight": 0.25},
+        {"ruleId": "high-value-001", "weight": 0.2},
+        {"ruleId": "velocity-001", "weight": 0.2}
+      ]
+    }
+  ]
+}

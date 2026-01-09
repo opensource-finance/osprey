@@ -12,6 +12,22 @@ cd tests/integration
 go test -v ./...
 ```
 
+## Evaluation Modes
+
+Osprey supports two evaluation modes. Tests run against whichever mode the server is started in:
+
+| Mode | Command | Behavior |
+|------|---------|----------|
+| **Detection** (default) | `./osprey` | Rules only, no typology evaluation |
+| **Compliance** | `OSPREY_MODE=compliance ./osprey` | Rules + Typologies |
+
+### Verify Current Mode
+
+```bash
+curl http://localhost:8080/health | jq .mode
+# Returns: "detection" or "compliance"
+```
+
 ## Understanding the Domain
 
 ### What is Osprey?
@@ -30,17 +46,23 @@ Osprey is a **transaction monitoring engine** for Anti-Money Laundering (AML). I
 
 ### How Evaluation Works
 
+**Detection Mode (Default):**
 ```
-Transaction → Rules → Scores → Bands → Typology → Decision
-                                                      ↓
-                                               ALRT or NALT
+Transaction → Rules → Weighted Score → Threshold → ALRT or NALT
+```
+
+**Compliance Mode:**
+```
+Transaction → Rules → Typologies → FATF Patterns → ALRT or NALT
 ```
 
 1. **Transaction arrives** with debtor, creditor, amount
 2. **Each rule evaluates** the transaction using CEL expressions
 3. **Scores map to bands** (.pass, .review, .fail)
-4. **Typology aggregates** rule scores using weights
-5. **Final decision**: If any .fail OR aggregate ≥ 0.7 → ALRT
+4. **Mode determines next step:**
+   - Detection: Weighted aggregate of rule scores
+   - Compliance: Typology engine evaluates FATF patterns
+5. **Final decision**: If any .fail OR score ≥ threshold → ALRT
 
 ### Built-in Rules
 

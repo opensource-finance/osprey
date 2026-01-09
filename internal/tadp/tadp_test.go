@@ -265,3 +265,161 @@ func TestUnweightedScoring(t *testing.T) {
 		t.Errorf("expected unweighted score ~0.4, got %.2f", eval.Score)
 	}
 }
+
+// ============================================================================
+// COMPLIANCE MODE TESTS
+// ============================================================================
+
+func TestNewComplianceProcessor(t *testing.T) {
+	proc := NewComplianceProcessor()
+
+	if proc.Mode != "compliance" {
+		t.Errorf("expected mode 'compliance', got '%s'", proc.Mode)
+	}
+	if proc.AlertThreshold != 0.7 {
+		t.Errorf("expected threshold 0.7, got %.2f", proc.AlertThreshold)
+	}
+	if !proc.UseWeightedScoring {
+		t.Error("expected UseWeightedScoring to be true")
+	}
+}
+
+func TestDetectionModeDefault(t *testing.T) {
+	proc := NewProcessor()
+
+	if proc.Mode != "detection" {
+		t.Errorf("expected default mode 'detection', got '%s'", proc.Mode)
+	}
+}
+
+func TestComplianceModeWithTypologies(t *testing.T) {
+	proc := NewComplianceProcessor()
+	ctx := context.Background()
+
+	// Typology triggered (score above threshold)
+	input := &DecisionInput{
+		TenantID:  "tenant-001",
+		TxID:      "tx-001",
+		TraceID:   "trace-001",
+		StartTime: time.Now(),
+		RuleResults: []domain.RuleResult{
+			{RuleID: "rule-1", Score: 0.8, SubRuleRef: domain.RuleOutcomeReview, Weight: 1.0},
+		},
+		TypologyResults: []domain.TypologyResult{
+			{
+				TypologyID:   "typo-structuring",
+				TypologyName: "Structuring Detection",
+				Score:        0.85,
+				Threshold:    0.6,
+				Triggered:    true, // Typology triggered
+			},
+		},
+	}
+
+	eval := proc.Process(ctx, input)
+
+	if eval.Status != domain.StatusAlert {
+		t.Errorf("expected ALRT when typology triggered in compliance mode, got %s", eval.Status)
+	}
+	if eval.Score != 0.85 {
+		t.Errorf("expected score to be max typology score 0.85, got %.2f", eval.Score)
+	}
+	if len(eval.TypologyResults) != 1 {
+		t.Errorf("expected 1 typology result, got %d", len(eval.TypologyResults))
+	}
+}
+
+func TestComplianceModeNoTypologyTriggered(t *testing.T) {
+	proc := NewComplianceProcessor()
+	ctx := context.Background()
+
+	// Typology NOT triggered (score below threshold)
+	input := &DecisionInput{
+		TenantID:  "tenant-001",
+		TxID:      "tx-002",
+		TraceID:   "trace-002",
+		StartTime: time.Now(),
+		RuleResults: []domain.RuleResult{
+			{RuleID: "rule-1", Score: 0.3, SubRuleRef: domain.RuleOutcomePass, Weight: 1.0},
+		},
+		TypologyResults: []domain.TypologyResult{
+			{
+				TypologyID:   "typo-structuring",
+				TypologyName: "Structuring Detection",
+				Score:        0.4,
+				Threshold:    0.6,
+				Triggered:    false, // Not triggered
+			},
+		},
+	}
+
+	eval := proc.Process(ctx, input)
+
+	if eval.Status != domain.StatusNoAlert {
+		t.Errorf("expected NALT when no typology triggered, got %s", eval.Status)
+	}
+}
+
+func TestComplianceModeCriticalFailureOverridesTypology(t *testing.T) {
+	proc := NewComplianceProcessor()
+	ctx := context.Background()
+
+	// Critical failure should trigger alert even if typology not triggered
+	input := &DecisionInput{
+		TenantID:  "tenant-001",
+		TxID:      "tx-003",
+		TraceID:   "trace-003",
+		StartTime: time.Now(),
+		RuleResults: []domain.RuleResult{
+			{RuleID: "rule-1", Score: 1.0, SubRuleRef: domain.RuleOutcomeFail, Weight: 1.0}, // Critical fail
+		},
+		TypologyResults: []domain.TypologyResult{
+			{
+				TypologyID: "typo-1",
+				Score:      0.3,
+				Threshold:  0.6,
+				Triggered:  false, // Typology not triggered
+			},
+		},
+	}
+
+	eval := proc.Process(ctx, input)
+
+	if eval.Status != domain.StatusAlert {
+		t.Errorf("expected ALRT on critical failure even in compliance mode, got %s", eval.Status)
+	}
+}
+
+func TestDetectionModeIgnoresTypologyResults(t *testing.T) {
+	proc := NewProcessor() // Detection mode
+	ctx := context.Background()
+
+	// Even if typology results are passed, detection mode should use weighted scoring
+	input := &DecisionInput{
+		TenantID:  "tenant-001",
+		TxID:      "tx-001",
+		TraceID:   "trace-001",
+		StartTime: time.Now(),
+		RuleResults: []domain.RuleResult{
+			{RuleID: "rule-1", Score: 0.3, SubRuleRef: domain.RuleOutcomePass, Weight: 1.0},
+		},
+		TypologyResults: []domain.TypologyResult{
+			{
+				TypologyID: "typo-1",
+				Score:      0.9, // High typology score
+				Threshold:  0.6,
+				Triggered:  true, // Typology would trigger
+			},
+		},
+	}
+
+	eval := proc.Process(ctx, input)
+
+	// Detection mode should use rule score (0.3), not typology score (0.9)
+	if eval.Score > 0.5 {
+		t.Errorf("detection mode should use rule score, not typology score; got %.2f", eval.Score)
+	}
+	if eval.Status != domain.StatusNoAlert {
+		t.Errorf("detection mode should be NALT with low rule score, got %s", eval.Status)
+	}
+}

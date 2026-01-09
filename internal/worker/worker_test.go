@@ -47,7 +47,7 @@ func TestWorker(t *testing.T) {
 	processor := tadp.NewProcessor()
 
 	// Create worker
-	worker := NewWorker(eventBus, nil, engine, typologyEngine, processor)
+	worker := NewWorker(eventBus, nil, engine, typologyEngine, processor, domain.ModeDetection)
 
 	t.Run("StartAndStop", func(t *testing.T) {
 		cfg := Config{
@@ -78,7 +78,7 @@ func TestWorker(t *testing.T) {
 
 	t.Run("ProcessTransaction", func(t *testing.T) {
 		// Create fresh worker for this test
-		w := NewWorker(eventBus, nil, engine, typologyEngine, processor)
+		w := NewWorker(eventBus, nil, engine, typologyEngine, processor, domain.ModeDetection)
 
 		cfg := Config{
 			TenantIDs: []string{"tenant-test"},
@@ -149,7 +149,7 @@ func TestWorker(t *testing.T) {
 			UseWeightedScoring: true,
 		}
 
-		w := NewWorker(eventBus, nil, engine, typologyEngine, lowThresholdProcessor)
+		w := NewWorker(eventBus, nil, engine, typologyEngine, lowThresholdProcessor, domain.ModeDetection)
 
 		cfg := Config{
 			TenantIDs: []string{"tenant-alert"},
@@ -189,7 +189,7 @@ func TestWorker(t *testing.T) {
 	})
 
 	t.Run("MultiTenant", func(t *testing.T) {
-		w := NewWorker(eventBus, nil, engine, typologyEngine, processor)
+		w := NewWorker(eventBus, nil, engine, typologyEngine, processor, domain.ModeDetection)
 
 		cfg := Config{
 			TenantIDs: []string{"tenant-a", "tenant-b"},

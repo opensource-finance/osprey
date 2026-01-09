@@ -1,0 +1,48 @@
+# Binaries
+osprey
+benchmark
+*.exe
+*.dll
+*.so
+*.dylib
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Test output
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# K6 test results
+k6/results/
+k6/*.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go workspace
+go.work
+go.work.sum
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local

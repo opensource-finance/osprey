@@ -301,15 +301,6 @@ func TestConcurrencyLimit(t *testing.T) {
 	// This test mainly verifies the worker pool doesn't crash
 }
 
-func TestBuiltinRulesEmpty(t *testing.T) {
-	// BuiltinRules now returns empty - all rules from database
-	rules := BuiltinRules()
-
-	if len(rules) != 0 {
-		t.Errorf("expected 0 builtin rules (database-driven), got %d", len(rules))
-	}
-}
-
 func TestHighValueTransferRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
 	defer engine.Close()
