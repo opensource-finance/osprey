@@ -46,3 +46,10 @@ go.work.sum
 .env
 .env.local
 .env.*.local
+
+# AI tools
+.taskwing
+.codex
+.claude
+.gemini
+.opencode

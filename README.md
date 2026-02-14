@@ -8,26 +8,26 @@
 
 ## What is Osprey?
 
-Osprey is an open-source transaction monitoring engine built for fintechs, crypto platforms, e-commerce, and gaming companies who need fraud detection without enterprise complexity.
+Osprey is an open-source transaction monitoring engine built for fintechs, crypto platforms, e-commerce, and gaming companies who need fraud detection without platform sprawl.
 
-**Two evaluation modes to match your needs:**
+**Two evaluation modes:**
 
 | Mode | Description | Best For |
 |------|-------------|----------|
 | **Detection** (default) | Fast, weighted rule scoring | Fraud detection, startups, product teams |
-| **Compliance** | FATF-aligned typology evaluation | Banks, regulated fintechs, compliance teams |
+| **Compliance** | FATF-aligned typology evaluation | Regulated fintechs and compliance teams |
 
 **From the founding engineers of [Tazama](https://github.com/tazama-lf) (Gates Foundation -> Linux Foundation).**
 
 ## Why Osprey?
 
-| Enterprise Solutions | Osprey |
-|---------------------|--------|
+| Traditional Platforms | Osprey |
+|----------------------|--------|
 | 7+ microservices | Single binary |
-| Kubernetes required | Run anywhere |
+| Kubernetes-heavy setup | Run anywhere |
 | Weeks to deploy | 60 seconds |
-| DevOps team needed | Any developer |
-| $50K+/year | Free to start |
+| Dedicated DevOps needed | Any developer can start |
+| Expensive licensing + ops | Open source core |
 
 ## Quick Start
 
@@ -48,13 +48,6 @@ curl -X POST http://localhost:8080/evaluate \
     "creditor": {"id": "user-789", "accountId": "acc-012"},
     "amount": {"value": 1000, "currency": "USD"}
   }'
-
-# Response
-{
-  "status": "NALT",
-  "score": 0.12,
-  "evaluationId": "eval-abc123"
-}
 ```
 
 ## Starter Kit
@@ -65,115 +58,70 @@ Osprey includes pre-built rules and typologies based on public FATF guidance:
 # Load FATF-aligned rules (Detection mode)
 ./scripts/seed-starter-kit.sh
 
-# Load with typologies (Compliance mode)
+# Load rules + typologies (Compliance mode)
 ./scripts/seed-starter-kit.sh --compliance
 ```
 
-**Included rules:** Structuring detection, high-value transactions, account drain, velocity checks, same-party transfers, and more.
-
-**Included typologies:** Account Takeover, Structuring (Smurfing), Mule Account, Rapid Movement of Funds, Cash Intensive Business.
-
-See [docs/STARTER_KIT.md](docs/STARTER_KIT.md) for the complete list and customization options.
+See [docs/STARTER_KIT.md](docs/STARTER_KIT.md) for complete rule/typology lists.
 
 ## Evaluation Modes
 
 ### Detection Mode (Default)
 
-Fast fraud detection with weighted rule scoring. No typologies required.
+Fast fraud detection with weighted rule scoring.
 
 ```
 Transaction -> Rules -> Weighted Score -> Alert/Pass
 ```
 
-- Sub-5ms evaluation latency
-- Simple weighted rule aggregation
-- Start detecting fraud immediately
-- Upgrade to Compliance mode when needed
+- No typologies required
+- Low-latency evaluation
+- Good default for product-led fraud prevention
 
 ```bash
-# Detection mode is the default
 ./osprey
-
-# Or explicitly
+# or
 OSPREY_MODE=detection ./osprey
 ```
 
 ### Compliance Mode
 
-FATF-aligned evaluation with typologies for regulated entities.
+FATF-aligned evaluation with typologies.
 
 ```
 Transaction -> Rules -> Typologies -> FATF Patterns -> Alert/Pass
 ```
 
-- Typologies required (Account Takeover, Structuring, Mule Account, etc.)
-- Full audit trails for SAR filing
-- Pattern-based detection aligned with FATF guidance
+- Typologies are required for evaluation
+- If Compliance mode is enabled with no typologies loaded:
+- `/evaluate` returns `503 Service Unavailable`
+- `/health` reports `status: "degraded"`
+- `/ready` returns `503` with `{"ready":"false"}`
 
 ```bash
-# Enable Compliance mode (requires typologies to be configured)
 OSPREY_MODE=compliance ./osprey
 ```
 
-## Architecture
+## Runtime Profiles
 
-```
-                          OSPREY (Single Binary)
-+------------------------------------------------------------------+
-|  +---------+    +--------+    +-----------+    +--------+        |
-|  | Ingest  | -> | Rules  | -> |Aggregation| -> |  TADP  | -> OUT |
-|  |  (API)  |    | (CEL)  |    |           |    |(Decide)|        |
-|  +---------+    +--------+    +-----------+    +--------+        |
-|                                     |                             |
-|                    +----------------+----------------+            |
-|                    |                                 |            |
-|              Detection Mode                 Compliance Mode       |
-|               (default)                    (typologies)           |
-+------------------------------------------------------------------+
-|  SQLite (Community)  |  PostgreSQL + Redis + NATS (Pro)          |
-+------------------------------------------------------------------+
-```
+Osprey supports two runtime profiles:
 
-## Tiers
+| Profile | Infrastructure |
+|---------|----------------|
+| **Community** (default) | SQLite + in-memory cache + channel bus |
+| **Pro profile** (`OSPREY_TIER=pro`) | PostgreSQL + Redis + NATS |
 
-| Feature | Community (Free) | Pro ($299/mo) | Enterprise |
-|---------|-----------------|---------------|------------|
-| Detection Mode | Yes | Yes | Yes |
-| Compliance Mode | Yes | Yes | Yes |
-| SQLite | Yes | Yes | Yes |
-| PostgreSQL | - | Yes | Yes |
-| NATS (horizontal scale) | - | Yes | Yes |
-| Redis caching | - | Yes | Yes |
-| Rules | 3 | Unlimited | Unlimited |
-| Multi-node | - | - | Yes |
-| SSO | - | - | Yes |
-| Support | Community | Email | Dedicated |
+`OSPREY_TIER=enterprise` is currently treated as unsupported in the open-source build and falls back to community defaults with a warning.
 
 ## Tech Stack
 
-- **Language:** Go 1.22+
+- **Language:** Go 1.25+
 - **Rule Engine:** Google CEL-Go
-- **Web Framework:** Chi (stdlib-compatible)
-- **Database:** SQLite (default) / PostgreSQL (Pro)
-- **Caching:** In-memory LRU / Redis (Pro)
-- **Messaging:** Go channels / NATS (Pro)
+- **Web Framework:** Chi
+- **Database:** SQLite (default) / PostgreSQL (pro profile)
+- **Caching:** In-memory LRU / Redis (pro profile)
+- **Messaging:** Go channels / NATS (pro profile)
 - **Observability:** slog + OpenTelemetry
-
-## Project Structure
-
-```
-osprey/
-├── cmd/osprey/          # Application entrypoint
-├── internal/
-│   ├── domain/          # Core interfaces and types
-│   ├── repository/      # SQLite + PostgreSQL implementations
-│   ├── cache/           # LRU + Redis implementations
-│   ├── bus/             # Channels + NATS implementations
-│   ├── rules/           # CEL-Go rule engine + typology engine
-│   ├── tadp/            # Decision engine (Detection/Compliance modes)
-│   └── api/             # Chi HTTP handlers
-└── docs/                # Architecture documentation
-```
 
 ## Development
 
@@ -185,24 +133,19 @@ cd osprey
 # Build
 go build -o osprey ./cmd/osprey
 
-# Run (Detection mode)
-./osprey
-
-# Run (Compliance mode)
-OSPREY_MODE=compliance ./osprey
-
-# Test
+# Unit + package tests (default)
 go test ./...
+
+# Integration tests (explicit)
+./scripts/test-integration.sh
 ```
 
 ## Configuration
 
-Environment variables:
-
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OSPREY_MODE` | `detection` | Evaluation mode: `detection` or `compliance` |
-| `OSPREY_TIER` | `community` | Tier: `community`, `pro`, `enterprise` |
+| `OSPREY_TIER` | `community` | Runtime profile: `community` or `pro` |
 | `OSPREY_DEBUG` | `false` | Enable debug logging |
 | `OSPREY_PORT` | `8080` | HTTP server port |
 | `OSPREY_DB_DRIVER` | `sqlite` | Database: `sqlite`, `postgres` |
@@ -211,41 +154,26 @@ Environment variables:
 
 ## API Endpoints
 
-### Core (Both Modes)
+### Core
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/evaluate` | Evaluate a transaction |
-| GET | `/rules` | List all rules |
-| POST | `/rules` | Create a new rule |
-| POST | `/rules/reload` | Hot-reload rules |
-| GET | `/health` | Health check (includes mode) |
+| GET | `/rules` | List loaded rules |
+| POST | `/rules` | Create a rule (stored, requires reload to apply) |
+| POST | `/rules/reload` | Reload rules from database |
+| GET | `/health` | Health status |
+| GET | `/ready` | Readiness status |
 
-### Health Check Response
-
-```bash
-curl http://localhost:8080/health
-```
-
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "mode": "detection"
-}
-```
-
-The `mode` field confirms which evaluation mode the server is running in.
-
-### Compliance Mode Only
+### Typology Management
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/typologies` | List all typologies |
-| POST | `/typologies` | Create a new typology |
+| GET | `/typologies` | List loaded typologies |
+| POST | `/typologies` | Create a typology |
 | PUT | `/typologies/{id}` | Update a typology |
 | DELETE | `/typologies/{id}` | Delete a typology |
-| POST | `/typologies/reload` | Hot-reload typologies |
+| POST | `/typologies/reload` | Reload typologies from database |
 
 ## License
 

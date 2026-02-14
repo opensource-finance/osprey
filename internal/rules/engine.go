@@ -62,31 +62,30 @@ func NewEngine(velocityGetter VelocityGetter, maxWorkers int) (*Engine, error) {
 	}, nil
 }
 
+// ValidateRule compiles and validates a rule without mutating loaded engine rules.
+func (e *Engine) ValidateRule(cfg *domain.RuleConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("rule config is required")
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	_, err := e.compileRule(cfg)
+	return err
+}
+
 // LoadRule compiles and loads a rule into the engine.
 func (e *Engine) LoadRule(cfg *domain.RuleConfig) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	ast, issues := e.env.Compile(cfg.Expression)
-	if issues != nil && issues.Err() != nil {
-		return fmt.Errorf("failed to compile rule %s: %w", cfg.ID, issues.Err())
-	}
-
-	// Check output type is bool or numeric
-	outputType := ast.OutputType()
-	if outputType != cel.BoolType && outputType != cel.DoubleType && outputType != cel.IntType {
-		return fmt.Errorf("rule %s: expression must return bool, int, or double, got %s", cfg.ID, outputType)
-	}
-
-	program, err := e.env.Program(ast)
+	compiled, err := e.compileRule(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create program for rule %s: %w", cfg.ID, err)
+		return err
 	}
 
-	e.compiledRules[cfg.ID] = &CompiledRule{
-		Config:  cfg,
-		Program: program,
-	}
+	e.compiledRules[cfg.ID] = compiled
 
 	return nil
 }
@@ -105,15 +104,15 @@ func (e *Engine) LoadRules(configs []*domain.RuleConfig) error {
 
 // EvaluateInput holds the transaction data for rule evaluation.
 type EvaluateInput struct {
-	TenantID        string
-	TxID            string
-	Type            string
-	DebtorID        string
-	CreditorID      string
-	Amount          float64
-	Currency        string
-	VelocityWindow  int // seconds
-	AdditionalData  map[string]any
+	TenantID       string
+	TxID           string
+	Type           string
+	DebtorID       string
+	CreditorID     string
+	Amount         float64
+	Currency       string
+	VelocityWindow int // seconds
+	AdditionalData map[string]any
 }
 
 // EvaluateAll evaluates all loaded rules in parallel.
@@ -283,8 +282,7 @@ func (e *Engine) ReloadRules(configs []*domain.RuleConfig) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Clear existing rules
-	e.compiledRules = make(map[string]*CompiledRule)
+	newRules := make(map[string]*CompiledRule)
 
 	// Load new rules
 	for _, cfg := range configs {
@@ -292,21 +290,14 @@ func (e *Engine) ReloadRules(configs []*domain.RuleConfig) error {
 			continue
 		}
 
-		ast, issues := e.env.Compile(cfg.Expression)
-		if issues != nil && issues.Err() != nil {
-			return fmt.Errorf("failed to compile rule %s: %w", cfg.ID, issues.Err())
-		}
-
-		program, err := e.env.Program(ast)
+		compiled, err := e.compileRule(cfg)
 		if err != nil {
-			return fmt.Errorf("failed to create program for rule %s: %w", cfg.ID, err)
+			return err
 		}
-
-		e.compiledRules[cfg.ID] = &CompiledRule{
-			Config:  cfg,
-			Program: program,
-		}
+		newRules[cfg.ID] = compiled
 	}
+
+	e.compiledRules = newRules
 
 	return nil
 }
@@ -329,4 +320,26 @@ func (e *Engine) Close() error {
 	defer e.mu.Unlock()
 	e.compiledRules = make(map[string]*CompiledRule)
 	return nil
+}
+
+func (e *Engine) compileRule(cfg *domain.RuleConfig) (*CompiledRule, error) {
+	ast, issues := e.env.Compile(cfg.Expression)
+	if issues != nil && issues.Err() != nil {
+		return nil, fmt.Errorf("failed to compile rule %s: %w", cfg.ID, issues.Err())
+	}
+
+	outputType := ast.OutputType()
+	if outputType != cel.BoolType && outputType != cel.DoubleType && outputType != cel.IntType {
+		return nil, fmt.Errorf("rule %s: expression must return bool, int, or double, got %s", cfg.ID, outputType)
+	}
+
+	program, err := e.env.Program(ast)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create program for rule %s: %w", cfg.ID, err)
+	}
+
+	return &CompiledRule{
+		Config:  cfg,
+		Program: program,
+	}, nil
 }

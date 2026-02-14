@@ -4,6 +4,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -115,21 +116,31 @@ func (w *Worker) handleMessage(ctx context.Context, msg *domain.Message) error {
 
 // TransactionMessage is the message payload for transaction processing.
 type TransactionMessage struct {
-	TxID            string         `json:"txId"`
-	TenantID        string         `json:"tenantId"`
-	TraceID         string         `json:"traceId"`
-	Type            string         `json:"type"`
-	DebtorID        string         `json:"debtorId"`
-	CreditorID      string         `json:"creditorId"`
-	Amount          float64        `json:"amount"`
-	Currency        string         `json:"currency"`
-	VelocityWindow  int            `json:"velocityWindow,omitempty"`
-	AdditionalData  map[string]any `json:"additionalData,omitempty"`
+	TxID           string         `json:"txId"`
+	TenantID       string         `json:"tenantId"`
+	TraceID        string         `json:"traceId"`
+	Type           string         `json:"type"`
+	DebtorID       string         `json:"debtorId"`
+	CreditorID     string         `json:"creditorId"`
+	Amount         float64        `json:"amount"`
+	Currency       string         `json:"currency"`
+	VelocityWindow int            `json:"velocityWindow,omitempty"`
+	AdditionalData map[string]any `json:"additionalData,omitempty"`
 }
 
 // processTransaction evaluates a transaction through the pipeline.
 func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *domain.Message) error {
 	start := time.Now()
+
+	if w.mode == domain.ModeCompliance && (w.typologyEngine == nil || w.typologyEngine.TypologyCount() == 0) {
+		err := fmt.Errorf("compliance mode requires typologies to be loaded")
+		slog.Error("skipping transaction in compliance mode",
+			"message_id", msg.ID,
+			"tenant_id", tenantID,
+			"error", err,
+		)
+		return err
+	}
 
 	// Parse message
 	var txMsg TransactionMessage

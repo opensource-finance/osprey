@@ -93,4 +93,4 @@ curl -s "$BASE_URL/rules" \
 echo ""
 echo "Done! You can now run:"
 echo "  - k6 run k6/quick-test.js"
-echo "  - go test ./tests/integration/..."
+echo "  - go test -tags=integration ./tests/integration/..."

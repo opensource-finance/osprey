@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -54,10 +55,17 @@ func main() {
 	// Load configuration
 	cfg := domain.DefaultConfig()
 
-	// Check for Pro tier via environment
-	if os.Getenv("OSPREY_TIER") == "pro" {
+	// Resolve tier selection.
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OSPREY_TIER"))) {
+	case "", "community":
+		// Community defaults already applied.
+	case "pro":
 		cfg = domain.ProConfig()
 		slog.Info("running in Pro tier mode")
+	case "enterprise":
+		slog.Warn("OSPREY_TIER=enterprise is not available in the open-source build; falling back to community tier")
+	default:
+		slog.Warn("unsupported OSPREY_TIER value; falling back to community tier", "value", os.Getenv("OSPREY_TIER"))
 	}
 
 	// Check for Compliance mode via environment
@@ -150,8 +158,8 @@ func main() {
 
 	// Initialize Decision Processor (TADP)
 	processor := tadp.NewProcessor()
-	processor.AlertThreshold = 0.7                    // Default threshold
-	processor.Mode = string(cfg.EvaluationMode)       // Set mode from config
+	processor.AlertThreshold = 0.7              // Default threshold
+	processor.Mode = string(cfg.EvaluationMode) // Set mode from config
 	slog.Info("TADP processor initialized",
 		"mode", processor.Mode,
 		"threshold", processor.AlertThreshold,

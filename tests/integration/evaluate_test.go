@@ -1,26 +1,30 @@
+//go:build integration
+// +build integration
+
 // Package integration provides end-to-end tests for the Osprey transaction monitoring engine.
 //
 // These tests verify the COMPLETE evaluation pipeline:
-//   Transaction → Rules → Bands → Typology → Final Decision
 //
-// Run with: go test -v ./tests/integration/...
+//	Transaction → Rules → Bands → Typology → Final Decision
+//
+// Run with: go test -tags=integration -v ./tests/integration/...
 //
 // UNDERSTANDING THE DOMAIN:
 //
 // 1. TRANSACTION: A financial transfer between two parties (debtor → creditor)
 //
 // 2. RULE: A fraud detection pattern. Each rule has:
-//    - Expression: A CEL formula that computes a score (0.0 to 1.0+)
-//    - Bands: Thresholds that map scores to outcomes (.pass, .review, .fail)
-//    - Weight: Importance when aggregating with other rules (0.0 to 1.0)
+//   - Expression: A CEL formula that computes a score (0.0 to 1.0+)
+//   - Bands: Thresholds that map scores to outcomes (.pass, .review, .fail)
+//   - Weight: Importance when aggregating with other rules (0.0 to 1.0)
 //
 // 3. BAND: Score-to-outcome mapping:
-//    - Score 0.0 - 0.5  → .pass (transaction is okay)
-//    - Score 0.5 - 1.0  → .review (needs human review)
-//    - Score 1.0+       → .fail (critical alert)
+//   - Score 0.0 - 0.5  → .pass (transaction is okay)
+//   - Score 0.5 - 1.0  → .review (needs human review)
+//   - Score 1.0+       → .fail (critical alert)
 //
-// 4. TYPOLOGY: A group of related rules. Computes weighted aggregate score.
-//    If ANY rule returns .fail OR aggregate ≥ 0.7 → ALERT
+//  4. TYPOLOGY: A group of related rules. Computes weighted aggregate score.
+//     If ANY rule returns .fail OR aggregate ≥ 0.7 → ALERT
 //
 // 5. EVALUATION: Final verdict - "ALRT" (alert) or "NALT" (no alert)
 //
@@ -35,7 +39,6 @@
 // | amount-check-001    | Basic amount validation           | amount <= 0          |
 //
 // NOTE: Rules are now database-driven. No built-in rules exist.
-//
 package integration
 
 import (
@@ -72,11 +75,11 @@ func getTestConfig() TestConfig {
 
 // EvaluateRequest is the transaction sent to POST /evaluate
 type EvaluateRequest struct {
-	Type     string            `json:"type"`
-	Debtor   Party             `json:"debtor"`
-	Creditor Party             `json:"creditor"`
-	Amount   Amount            `json:"amount"`
-	Metadata map[string]any    `json:"metadata,omitempty"`
+	Type     string         `json:"type"`
+	Debtor   Party          `json:"debtor"`
+	Creditor Party          `json:"creditor"`
+	Amount   Amount         `json:"amount"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type Party struct {
@@ -160,8 +163,8 @@ func TestNormalTransaction_NoAlert(t *testing.T) {
 
 	   EXPECTED BEHAVIOR:
 	   - high-value-001: amount ($500) < $10,000 → score 0.0 → .pass
-	   - velocity-check-001: first transaction → velocity_count=1 → score 0.0 → .pass
 	   - same-account-001: different parties → score 0.0 → .pass
+	   - amount-check-001: valid amount → score 0.0 → .pass
 
 	   FINAL DECISION: No rules triggered, aggregate score ≈ 0.0 → "NALT" (no alert)
 	*/
@@ -212,12 +215,12 @@ func TestHighValueTransaction_RuleTriggered(t *testing.T) {
 	   EXPECTED BEHAVIOR:
 	   - high-value-001 rule fires with score 1.0
 	   - BUT aggregate score is weighted across ALL rules
-	   - With 3 rules and only 1 firing, aggregate ≈ 0.29 (below 0.7 threshold)
+	   - With seed-rules weights, 1 rule firing yields aggregate ≈ 0.19 (below 0.7 threshold)
 	   - Single high-value alone does NOT trigger ALRT
 
 	   ACTUAL BEHAVIOR (discovered by this test):
 	   - Status: NALT (no alert) - single rule insufficient
-	   - Score: ~0.29 (weighted average)
+	   - Score: ~0.19 (weighted average)
 	   - Reasons: Still includes "High value transfer" explanation
 
 	   IMPLICATION:
@@ -415,11 +418,11 @@ func TestMultipleRulesTriggered_CompoundRisk(t *testing.T) {
 	   EXPECTED BEHAVIOR:
 	   - high-value-001: $50,000 > $10,000 → fires
 	   - same-account-001: same person → fires
-	   - velocity-check-001: first transaction → does not fire
+	   - amount-check-001: valid amount → does not fire
 
 	   ACTUAL BEHAVIOR (discovered by test):
 	   - 2 out of 3 rules fire
-	   - Aggregate score ≈ 0.64 (weighted average)
+	   - Aggregate score ≈ 0.81 (weighted average)
 	   - This IS enough to trigger ALRT (close to 0.7 threshold)
 
 	   WHY THIS MATTERS:

@@ -83,6 +83,13 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	tenantID := GetTenantID(ctx)
 	traceID := GetTraceID(ctx)
 
+	if h.mode == domain.ModeCompliance && !h.hasLoadedTypologies() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "compliance mode requires typologies to be loaded",
+		})
+		return
+	}
+
 	// Parse request
 	var req TransactionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -229,6 +236,10 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if h.mode == domain.ModeCompliance && !h.hasLoadedTypologies() {
+		status = "degraded"
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  status,
 		"version": h.version,
@@ -238,6 +249,14 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 // Ready returns whether the server is ready to accept traffic.
 func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
+	if h.mode == domain.ModeCompliance && !h.hasLoadedTypologies() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"ready": "false",
+			"error": "compliance mode requires typologies to be loaded",
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"ready": "true",
 	})
@@ -390,8 +409,8 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		Enabled:     req.Enabled,
 	}
 
-	// Validate CEL expression by attempting to load
-	if err := h.engine.LoadRule(ruleConfig); err != nil {
+	// Validate CEL expression without mutating loaded engine rules.
+	if err := h.engine.ValidateRule(ruleConfig); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "invalid CEL expression: " + err.Error(),
 		})
@@ -461,6 +480,10 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) hasLoadedTypologies() bool {
+	return h.typologyEngine != nil && h.typologyEngine.TypologyCount() > 0
 }
 
 // ============================================================================

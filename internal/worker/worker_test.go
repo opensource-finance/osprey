@@ -239,3 +239,44 @@ func TestTransactionMessageParsing(t *testing.T) {
 		t.Errorf("expected VelocityWindow %d, got %d", msg.VelocityWindow, parsed.VelocityWindow)
 	}
 }
+
+func TestProcessTransaction_ComplianceModeRequiresTypologies(t *testing.T) {
+	eventBus := bus.NewChannelBus(10)
+	defer eventBus.Close()
+
+	engine, _ := rules.NewEngine(nil, 2)
+	engine.LoadRules([]*domain.RuleConfig{
+		{
+			ID:         "test-rule-001",
+			Name:       "Test Rule",
+			Expression: "amount > 0.0",
+			Weight:     1.0,
+			Enabled:    true,
+		},
+	})
+
+	typologyEngine := rules.NewTypologyEngine() // intentionally empty
+	processor := tadp.NewComplianceProcessor()
+
+	w := NewWorker(eventBus, nil, engine, typologyEngine, processor, domain.ModeCompliance)
+
+	payload, _ := json.Marshal(TransactionMessage{
+		TxID:       "tx-compliance-no-typologies",
+		TenantID:   "tenant-001",
+		Type:       "transfer",
+		DebtorID:   "debtor-001",
+		CreditorID: "creditor-001",
+		Amount:     100,
+		Currency:   "USD",
+	})
+
+	err := w.processTransaction(context.Background(), "tenant-001", &domain.Message{
+		ID:       "msg-001",
+		TenantID: "tenant-001",
+		Topic:    domain.TopicTransactionIngested,
+		Payload:  payload,
+	})
+	if err == nil {
+		t.Fatal("expected error when compliance mode has no typologies")
+	}
+}
