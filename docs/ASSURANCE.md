@@ -16,7 +16,7 @@ Run before deploying or updating the customer sandbox:
 VERSION=sandbox-YYYYMMDD ./scripts/assure-sandbox.sh
 ```
 
-Run after Coolify deploys the public domain:
+Run after the public sandbox is deployed:
 
 ```bash
 OSPREY_URL=https://sandbox.osprey.opensource.finance \
@@ -37,7 +37,6 @@ EXPECTED_VERSION=sandbox-YYYYMMDD \
 | Readiness responses are modeled precisely | `docs/api/openapi.yaml` defines separate `ReadyResponse` and `NotReadyResponse` schemas for `/ready` `200` and `503`. |
 | CI gate is wired correctly | `assure-sandbox.sh` validates `.github/workflows/sandbox-assurance.yml` runs the assurance gate and installs required tools. |
 | Customer docs do not have broken local links | `assure-sandbox.sh` validates `README.md` and `docs/**/*.md` links and PNG assets. |
-| Coolify config is reproducible | `assure-sandbox.sh` validates Coolify env/build-arg templates and checks generated `EXPECTED_VERSION` matches `VERSION`. |
 | Code compiles and core tests pass | `assure-sandbox.sh` runs `go test ./...`, `go vet ./...`, and `go test -race ./...`. |
 | HTTP behavior works end-to-end | `assure-sandbox.sh` runs `scripts/test-integration.sh`. |
 | Docker image is deployable | `assure-sandbox.sh` builds the Dockerfile, verifies image metadata for non-root user, exposed port, volume, and healthcheck, then runs the image with a named `/app/data` volume. |

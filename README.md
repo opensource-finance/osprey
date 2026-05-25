@@ -87,10 +87,6 @@ OSPREY_ADMIN_TOKEN=<strong-random-token>
 Mount `/app/data` as persistent storage for the sandbox SQLite database. After deployment, verify the public endpoint before sharing it:
 
 ```bash
-# Generate the Coolify build args and matching EXPECTED_VERSION.
-./scripts/print-sandbox-build-args.sh
-
-# Use the generated VERSION value for local assurance and post-deploy verification.
 VERSION=sandbox-YYYYMMDD \
 ./scripts/assure-sandbox.sh
 
@@ -103,7 +99,7 @@ EXPECTED_VERSION=sandbox-YYYYMMDD \
 ./scripts/verify-sandbox.sh
 ```
 
-Customer quickstart lives in [docs/CUSTOMER_QUICKSTART.md](docs/CUSTOMER_QUICKSTART.md). Full API usage and response examples live in [docs/SANDBOX.md](docs/SANDBOX.md). Rule and typology authoring lives in [docs/RULE_TYPOLOGY_AUTHORING.md](docs/RULE_TYPOLOGY_AUTHORING.md). Assurance evidence lives in [docs/ASSURANCE.md](docs/ASSURANCE.md). The Coolify operator checklist is [docs/COOLIFY_SANDBOX_CHECKLIST.md](docs/COOLIFY_SANDBOX_CHECKLIST.md), and the sandbox OpenAPI contract is [docs/api/openapi.yaml](docs/api/openapi.yaml).
+Customer quickstart lives in [docs/CUSTOMER_QUICKSTART.md](docs/CUSTOMER_QUICKSTART.md). Full API usage and response examples live in [docs/SANDBOX.md](docs/SANDBOX.md). Rule and typology authoring lives in [docs/RULE_TYPOLOGY_AUTHORING.md](docs/RULE_TYPOLOGY_AUTHORING.md). Assurance evidence lives in [docs/ASSURANCE.md](docs/ASSURANCE.md), and the sandbox OpenAPI contract is [docs/api/openapi.yaml](docs/api/openapi.yaml).
 
 The `Sandbox Assurance` GitHub Actions workflow runs the same pre-deploy gate on pull requests and pushes to `main`.
 

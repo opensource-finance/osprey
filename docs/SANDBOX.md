@@ -210,11 +210,9 @@ Both endpoints return the active engine state, not merely stored database rows.
 | `500` | Internal persistence or evaluation error. |
 | `503` | Repository unavailable, or compliance mode is not ready because typologies are missing. |
 
-## Coolify Deployment
+## Docker Deployment
 
 Use the repository Dockerfile and expose port `8080`.
-
-For an operator checklist, use [docs/COOLIFY_SANDBOX_CHECKLIST.md](COOLIFY_SANDBOX_CHECKLIST.md).
 
 Recommended environment variables for a simple sandbox:
 
@@ -227,18 +225,13 @@ OSPREY_ADMIN_TOKEN=<strong-random-token>
 OSPREY_DEBUG=false
 ```
 
-The copy-paste Coolify templates are:
-
-- [docs/coolify-sandbox.env.example](coolify-sandbox.env.example)
-- [docs/coolify-sandbox.build-args.example](coolify-sandbox.build-args.example)
-
 Mount a persistent volume at:
 
 ```text
 /app/data
 ```
 
-The image creates `/app/data` with ownership for the non-root `osprey` user. Use a persistent Coolify volume for this path so SQLite data, rules, typologies, transactions, and evaluations survive restarts.
+The image creates `/app/data` with ownership for the non-root `osprey` user. Use persistent storage for this path so SQLite data, rules, typologies, transactions, and evaluations survive restarts.
 
 Set the public domain to:
 
@@ -246,20 +239,12 @@ Set the public domain to:
 sandbox.osprey.opensource.finance
 ```
 
-Coolify should route HTTPS traffic to container port `8080`.
-
 Recommended Docker build arguments:
 
 ```env
 VERSION=sandbox-YYYYMMDD
 COMMIT=<git-sha>
 BUILD_DATE=<utc-build-time>
-```
-
-Generate consistent build and verification values with:
-
-```bash
-./scripts/print-sandbox-build-args.sh
 ```
 
 `GET /health` exposes the deployed `version`, so customers and operators can confirm which sandbox image is running.

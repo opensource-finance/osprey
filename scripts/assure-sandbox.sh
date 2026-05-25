@@ -243,80 +243,36 @@ abort(errors.join("\n")) unless errors.empty?
 puts "   Markdown links OK"
 '
 
-echo "5. Validating Coolify templates..."
-if [[ ! -x scripts/print-sandbox-build-args.sh ]]; then
-  echo "ERROR: scripts/print-sandbox-build-args.sh must be executable" >&2
-  exit 1
-fi
+echo "5. Checking shell script syntax..."
+bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh
 
-for required_key in \
-  OSPREY_MODE \
-  OSPREY_TIER \
-  OSPREY_DB_DRIVER \
-  OSPREY_SQLITE_PATH \
-  OSPREY_ADMIN_TOKEN \
-  OSPREY_DEBUG
-do
-  if ! grep -q "^${required_key}=" docs/coolify-sandbox.env.example; then
-    echo "ERROR: docs/coolify-sandbox.env.example missing $required_key" >&2
-    exit 1
-  fi
-done
-
-for required_key in VERSION COMMIT BUILD_DATE
-do
-  if ! grep -q "^${required_key}=" docs/coolify-sandbox.build-args.example; then
-    echo "ERROR: docs/coolify-sandbox.build-args.example missing $required_key" >&2
-    exit 1
-  fi
-done
-
-build_args_output="$(VERSION="$VERSION" COMMIT="$COMMIT" BUILD_DATE="$BUILD_DATE" ./scripts/print-sandbox-build-args.sh)"
-for required_key in VERSION COMMIT BUILD_DATE EXPECTED_VERSION
-do
-  if ! grep -q "^${required_key}=" <<<"$build_args_output"; then
-    echo "ERROR: scripts/print-sandbox-build-args.sh output missing $required_key" >&2
-    exit 1
-  fi
-done
-generated_version="$(grep "^VERSION=" <<<"$build_args_output" | cut -d= -f2-)"
-generated_expected_version="$(grep "^EXPECTED_VERSION=" <<<"$build_args_output" | cut -d= -f2-)"
-if [[ "$generated_version" != "$generated_expected_version" ]]; then
-  echo "ERROR: generated EXPECTED_VERSION does not match VERSION" >&2
-  exit 1
-fi
-echo "   Coolify templates and build args OK"
-
-echo "6. Checking shell script syntax..."
-bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/print-sandbox-build-args.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh
-
-echo "7. Running Go tests..."
+echo "6. Running Go tests..."
 go test ./...
 
-echo "8. Running go vet..."
+echo "7. Running go vet..."
 go vet ./...
 
 if [[ "$SKIP_RACE" != "true" ]]; then
-  echo "9. Running race detector..."
+  echo "8. Running race detector..."
   go test -race ./...
 else
-  echo "9. Skipping race detector (SKIP_RACE=true)."
+  echo "8. Skipping race detector (SKIP_RACE=true)."
 fi
 
-echo "10. Checking diff whitespace..."
+echo "9. Checking diff whitespace..."
 git diff --check
 
 if [[ "$SKIP_INTEGRATION" != "true" ]]; then
-  echo "11. Running HTTP integration tests..."
+  echo "10. Running HTTP integration tests..."
   ./scripts/test-integration.sh
 else
-  echo "11. Skipping integration tests (SKIP_INTEGRATION=true)."
+  echo "10. Skipping integration tests (SKIP_INTEGRATION=true)."
 fi
 
 if [[ "$SKIP_DOCKER" != "true" ]]; then
   require_command docker
 
-  echo "12. Building Docker image ($IMAGE_NAME)..."
+  echo "11. Building Docker image ($IMAGE_NAME)..."
   docker build \
     --build-arg VERSION="$VERSION" \
     --build-arg COMMIT="$COMMIT" \
@@ -334,7 +290,7 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   }
   echo "   Docker image metadata verified"
 
-  echo "13. Running Docker sandbox verification..."
+  echo "12. Running Docker sandbox verification..."
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
   docker volume create "$VOLUME_NAME" >/dev/null
@@ -383,7 +339,7 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   TENANT_ID="$TENANT_ID" \
     ./scripts/verify-sandbox.sh
 else
-  echo "12. Skipping Docker build/runtime verification (SKIP_DOCKER=true)."
+  echo "11. Skipping Docker build/runtime verification (SKIP_DOCKER=true)."
 fi
 
 echo
