@@ -1,0 +1,13 @@
+{
+  "id": "sandbox-verification-typology",
+  "name": "Sandbox Verification Typology",
+  "description": "Simple typology used to verify sandbox typology authoring.",
+  "alertThreshold": 0.5,
+  "enabled": true,
+  "rules": [
+    {
+      "ruleId": "sandbox-verification-same-party",
+      "weight": 1
+    }
+  ]
+}

@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +14,24 @@ import (
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
 )
+
+type failingEvaluationRepository struct {
+	domain.Repository
+	err error
+}
+
+func (r *failingEvaluationRepository) SaveEvaluation(_ context.Context, _ string, _ *domain.Evaluation) error {
+	return r.err
+}
+
+type failingPublishBus struct {
+	domain.EventBus
+	err error
+}
+
+func (b *failingPublishBus) Publish(_ context.Context, _ string, _ string, _ []byte) error {
+	return b.err
+}
 
 func TestWorker(t *testing.T) {
 	// Create channel bus
@@ -279,4 +299,71 @@ func TestProcessTransaction_ComplianceModeRequiresTypologies(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when compliance mode has no typologies")
 	}
+}
+
+func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
+	engine, _ := rules.NewEngine(nil, 2)
+	if err := engine.LoadRule(&domain.RuleConfig{
+		ID:         "test-rule-001",
+		Name:       "Test Rule",
+		Expression: "amount > 0.0",
+		Weight:     1.0,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("failed to load test rule: %v", err)
+	}
+
+	payload, err := json.Marshal(TransactionMessage{
+		TxID:       "tx-failure",
+		TenantID:   "tenant-001",
+		Type:       "transfer",
+		DebtorID:   "debtor-001",
+		CreditorID: "creditor-001",
+		Amount:     100,
+		Currency:   "USD",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal transaction message: %v", err)
+	}
+	msg := &domain.Message{
+		ID:       "msg-failure",
+		TenantID: "tenant-001",
+		Topic:    domain.TopicTransactionIngested,
+		Payload:  payload,
+	}
+
+	t.Run("SaveEvaluationFailure", func(t *testing.T) {
+		eventBus := bus.NewChannelBus(10)
+		defer eventBus.Close()
+
+		w := NewWorker(
+			eventBus,
+			&failingEvaluationRepository{err: errors.New("repository unavailable")},
+			engine,
+			rules.NewTypologyEngine(),
+			tadp.NewProcessor(),
+			domain.ModeDetection,
+		)
+
+		err := w.processTransaction(context.Background(), "tenant-001", msg)
+		if err == nil || !strings.Contains(err.Error(), "failed to save evaluation") {
+			t.Fatalf("expected save evaluation error, got %v", err)
+		}
+	})
+
+	t.Run("PublishDecisionFailure", func(t *testing.T) {
+		w := NewWorker(
+			&failingPublishBus{err: errors.New("bus unavailable")},
+			nil,
+			engine,
+			rules.NewTypologyEngine(),
+			tadp.NewProcessor(),
+			domain.ModeDetection,
+		)
+
+		err := w.processTransaction(context.Background(), "tenant-001", msg)
+		if err == nil || !strings.Contains(err.Error(), "failed to publish decision") {
+			t.Fatalf("expected publish decision error, got %v", err)
+		}
+	})
 }

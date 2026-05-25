@@ -95,13 +95,18 @@ sequenceDiagram
 | `OSPREY_MODE` | `detection` | `detection` or `compliance` |
 | `OSPREY_TIER` | `community` | runtime profile: `community` or `pro` |
 | `OSPREY_DEBUG` | `false` | debug logging |
+| `OSPREY_ADMIN_TOKEN` | unset | optional token for rule and typology mutation endpoints |
 | `OSPREY_DB_DRIVER` | `sqlite` | `sqlite` or `postgres` |
+| `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite database file path |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis` |
 | `OSPREY_BUS_TYPE` | `channel` | `channel` or `nats` |
+| `OSPREY_TENANTS` | unset | optional comma-separated tenants for async worker subscriptions |
 
 ## Database-Driven Config
 
-Rules and typologies are loaded from the database at startup and via reload endpoints.
+Rules and typologies are loaded from the database at startup. Create, update, and delete operations apply to the active engines immediately; reload endpoints exist for manual recovery.
+
+If `OSPREY_ADMIN_TOKEN` is configured, rule and typology mutation endpoints require an admin token. Evaluation and read endpoints stay tenant-scoped via `X-Tenant-ID`.
 
 ### `rule_configs`
 
@@ -148,8 +153,8 @@ CREATE TABLE typologies (
 |--------|----------|-------|
 | POST | `/evaluate` | compliance requires loaded typologies |
 | GET | `/rules` | loaded rules |
-| POST | `/rules` | persists rule config (reload to apply) |
-| POST | `/rules/reload` | hot reload rules |
+| POST | `/rules` | persists and loads rule config |
+| POST | `/rules/reload` | manually reload rules |
 | GET | `/health` | readiness signal + mode |
 | GET | `/ready` | traffic readiness gate |
 
@@ -158,10 +163,10 @@ CREATE TABLE typologies (
 | Method | Endpoint |
 |--------|----------|
 | GET | `/typologies` |
-| POST | `/typologies` |
-| PUT | `/typologies/{id}` |
-| DELETE | `/typologies/{id}` |
-| POST | `/typologies/reload` |
+| POST | `/typologies` | persists and loads typology |
+| PUT | `/typologies/{id}` | persists and loads typology changes |
+| DELETE | `/typologies/{id}` | deletes and unloads typology |
+| POST | `/typologies/reload` | manually reload typologies |
 
 ## Scoring
 

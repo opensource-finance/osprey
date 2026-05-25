@@ -1,0 +1,6 @@
+# Docker build arguments for the public Osprey sandbox.
+# Paste these into Coolify build arguments and replace placeholders.
+
+VERSION=sandbox-YYYYMMDD
+COMMIT=replace-with-git-sha
+BUILD_DATE=replace-with-utc-build-time

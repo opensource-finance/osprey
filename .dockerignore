@@ -1,0 +1,17 @@
+.claude/
+.codex/
+.git/
+.taskwing/
+
+configs/
+demos/
+docs/
+k6/
+scripts/
+tests/
+
+*.db
+*.db-shm
+*.db-wal
+*.log
+osprey

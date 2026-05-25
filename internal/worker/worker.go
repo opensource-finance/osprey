@@ -219,16 +219,21 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 				"tx_id", txMsg.TxID,
 				"error", err,
 			)
+			return fmt.Errorf("failed to save evaluation: %w", err)
 		}
 	}
 
 	// 5. Publish result to decision topic
-	resultPayload, _ := json.Marshal(evaluation)
+	resultPayload, err := json.Marshal(evaluation)
+	if err != nil {
+		return fmt.Errorf("failed to encode evaluation: %w", err)
+	}
 	if err := w.bus.Publish(ctx, tenantID, domain.TopicDecision, resultPayload); err != nil {
 		slog.Error("failed to publish decision",
 			"tx_id", txMsg.TxID,
 			"error", err,
 		)
+		return fmt.Errorf("failed to publish decision: %w", err)
 	}
 
 	// 6. If alert, publish to alert topic
@@ -238,6 +243,7 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 				"tx_id", txMsg.TxID,
 				"error", err,
 			)
+			return fmt.Errorf("failed to publish alert: %w", err)
 		}
 	}
 

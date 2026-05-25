@@ -68,16 +68,16 @@ func main() {
 		slog.Warn("unsupported OSPREY_TIER value; falling back to community tier", "value", os.Getenv("OSPREY_TIER"))
 	}
 
-	// Check for Compliance mode via environment
-	// Default: Detection mode (fast, simple fraud detection)
-	// Compliance mode requires typologies for FATF-aligned evaluation
-	if os.Getenv("OSPREY_MODE") == "compliance" {
-		cfg.EvaluationMode = domain.ModeCompliance
-		slog.Info("running in Compliance mode - typologies required")
+	if err := applyModeOverride(cfg); err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
 	}
 
 	// Apply environment variable overrides for production deployment
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 
 	slog.Info("configuration loaded",
 		"tier", cfg.Tier,
@@ -179,8 +179,7 @@ func main() {
 		// Get tenant IDs to process (from environment or default)
 		tenantIDs := []string{}
 		if envTenants := os.Getenv("OSPREY_TENANTS"); envTenants != "" {
-			// Could parse comma-separated list here
-			tenantIDs = []string{envTenants}
+			tenantIDs = parseTenantIDs(envTenants)
 		}
 
 		workerCfg := worker.Config{
@@ -232,6 +231,18 @@ func main() {
 	}
 
 	slog.Info("osprey shutdown complete")
+}
+
+func parseTenantIDs(value string) []string {
+	parts := strings.Split(value, ",")
+	tenantIDs := make([]string, 0, len(parts))
+	for _, part := range parts {
+		tenantID := strings.TrimSpace(part)
+		if tenantID != "" {
+			tenantIDs = append(tenantIDs, tenantID)
+		}
+	}
+	return tenantIDs
 }
 
 // GlobalTenantID is used for rules that apply to all tenants.
@@ -305,14 +316,14 @@ func printBanner(cfg *domain.Config, version string) {
 	fmt.Println("    GET  /evaluations/{id}  - Get evaluation by ID")
 	fmt.Println("    GET  /transactions/{id} - Get transaction by ID")
 	fmt.Println("    GET  /rules             - List all rules")
-	fmt.Println("    POST /rules             - Create a new rule")
-	fmt.Println("    POST /rules/reload      - Hot-reload rules from database")
+	fmt.Println("    POST /rules             - Save and activate a rule")
+	fmt.Println("    POST /rules/reload      - Reload rules from database")
 	if cfg.EvaluationMode == domain.ModeCompliance {
 		fmt.Println("    GET  /typologies        - List all typologies")
-		fmt.Println("    POST /typologies        - Create a new typology")
-		fmt.Println("    PUT  /typologies/{id}   - Update a typology")
-		fmt.Println("    DELETE /typologies/{id} - Delete a typology")
-		fmt.Println("    POST /typologies/reload - Hot-reload typologies")
+		fmt.Println("    POST /typologies        - Save and activate a typology")
+		fmt.Println("    PUT  /typologies/{id}   - Update and activate a typology")
+		fmt.Println("    DELETE /typologies/{id} - Delete and deactivate a typology")
+		fmt.Println("    POST /typologies/reload - Reload typologies from database")
 	}
 	fmt.Println("    GET  /health            - Health check")
 	fmt.Println()
@@ -320,69 +331,122 @@ func printBanner(cfg *domain.Config, version string) {
 
 // applyEnvOverrides applies environment variable overrides to the config.
 // This enables configuration via environment for Docker/Kubernetes deployments.
-func applyEnvOverrides(cfg *domain.Config) {
+func applyModeOverride(cfg *domain.Config) error {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("OSPREY_MODE")))
+	switch mode {
+	case "":
+		return nil
+	case string(domain.ModeDetection):
+		cfg.EvaluationMode = domain.ModeDetection
+	case string(domain.ModeCompliance):
+		cfg.EvaluationMode = domain.ModeCompliance
+		slog.Info("running in Compliance mode - typologies required")
+	default:
+		return fmt.Errorf("OSPREY_MODE must be %q or %q", domain.ModeDetection, domain.ModeCompliance)
+	}
+	return nil
+}
+
+func applyEnvOverrides(cfg *domain.Config) error {
 	// Database driver override
-	if driver := os.Getenv("OSPREY_DB_DRIVER"); driver != "" {
+	if driver := strings.TrimSpace(os.Getenv("OSPREY_DB_DRIVER")); driver != "" {
 		cfg.Repository.Driver = driver
+	}
+	if sqlitePath := strings.TrimSpace(os.Getenv("OSPREY_SQLITE_PATH")); sqlitePath != "" {
+		cfg.Repository.SQLitePath = sqlitePath
 	}
 
 	// PostgreSQL settings
-	if host := os.Getenv("OSPREY_POSTGRES_HOST"); host != "" {
+	if host := strings.TrimSpace(os.Getenv("OSPREY_POSTGRES_HOST")); host != "" {
 		cfg.Repository.PostgresHost = host
 	}
-	if port := os.Getenv("OSPREY_POSTGRES_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.Repository.PostgresPort = p
-		}
+	if p, err := parseIntEnv("OSPREY_POSTGRES_PORT"); err != nil {
+		return err
+	} else if p > 0 {
+		cfg.Repository.PostgresPort = p
 	}
-	if user := os.Getenv("OSPREY_POSTGRES_USER"); user != "" {
+	if user := strings.TrimSpace(os.Getenv("OSPREY_POSTGRES_USER")); user != "" {
 		cfg.Repository.PostgresUser = user
 	}
 	if password := os.Getenv("OSPREY_POSTGRES_PASSWORD"); password != "" {
 		cfg.Repository.PostgresPassword = password
 	}
-	if db := os.Getenv("OSPREY_POSTGRES_DB"); db != "" {
+	if db := strings.TrimSpace(os.Getenv("OSPREY_POSTGRES_DB")); db != "" {
 		cfg.Repository.PostgresDB = db
 	}
-	if sslMode := os.Getenv("OSPREY_POSTGRES_SSLMODE"); sslMode != "" {
+	if sslMode := strings.TrimSpace(os.Getenv("OSPREY_POSTGRES_SSLMODE")); sslMode != "" {
 		cfg.Repository.PostgresSSLMode = sslMode
 	}
 
 	// Cache type override
-	if cacheType := os.Getenv("OSPREY_CACHE_TYPE"); cacheType != "" {
+	if cacheType := strings.TrimSpace(os.Getenv("OSPREY_CACHE_TYPE")); cacheType != "" {
 		cfg.Cache.Type = cacheType
 	}
 
 	// Redis settings
-	if addr := os.Getenv("OSPREY_REDIS_ADDR"); addr != "" {
+	if addr := strings.TrimSpace(os.Getenv("OSPREY_REDIS_ADDR")); addr != "" {
 		cfg.Cache.RedisAddr = addr
 	}
 	if password := os.Getenv("OSPREY_REDIS_PASSWORD"); password != "" {
 		cfg.Cache.RedisPassword = password
 	}
-	if db := os.Getenv("OSPREY_REDIS_DB"); db != "" {
-		if d, err := strconv.Atoi(db); err == nil {
-			cfg.Cache.RedisDB = d
-		}
+	if d, ok, err := parseNonNegativeIntEnv("OSPREY_REDIS_DB"); err != nil {
+		return err
+	} else if ok {
+		cfg.Cache.RedisDB = d
 	}
 
 	// Event bus type override
-	if busType := os.Getenv("OSPREY_BUS_TYPE"); busType != "" {
+	if busType := strings.TrimSpace(os.Getenv("OSPREY_BUS_TYPE")); busType != "" {
 		cfg.EventBus.Type = busType
 	}
 
 	// NATS settings
-	if url := os.Getenv("OSPREY_NATS_URL"); url != "" {
+	if url := strings.TrimSpace(os.Getenv("OSPREY_NATS_URL")); url != "" {
 		cfg.EventBus.NATSUrl = url
 	}
 
 	// Server settings
-	if port := os.Getenv("OSPREY_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.Server.Port = p
-		}
+	if p, err := parseIntEnv("OSPREY_PORT"); err != nil {
+		return err
+	} else if p > 0 {
+		cfg.Server.Port = p
 	}
-	if host := os.Getenv("OSPREY_HOST"); host != "" {
+	if adminToken := strings.TrimSpace(os.Getenv("OSPREY_ADMIN_TOKEN")); adminToken != "" {
+		cfg.Server.AdminToken = adminToken
+	}
+	if host := strings.TrimSpace(os.Getenv("OSPREY_HOST")); host != "" {
 		cfg.Server.Host = host
 	}
+	return nil
+}
+
+func parseIntEnv(name string) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero", name)
+	}
+	return value, nil
+}
+
+func parseNonNegativeIntEnv(name string) (int, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0, false, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false, fmt.Errorf("%s must be an integer", name)
+	}
+	if value < 0 {
+		return 0, false, fmt.Errorf("%s must be zero or greater", name)
+	}
+	return value, true, nil
 }

@@ -22,10 +22,13 @@ BASE_URL="${OSPREY_URL:-http://localhost:8080}"
 TENANT_ID="${OSPREY_TENANT:-default}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RULES_FILE="$SCRIPT_DIR/../configs/rules/paysim-rules.json"
+ADMIN_HEADER=()
+if [ -n "${OSPREY_ADMIN_TOKEN:-}" ]; then
+    ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
+fi
 
 # Counters
 RULES_CREATED=0
-RULES_SKIPPED=0
 RULES_FAILED=0
 
 # Parse arguments
@@ -78,38 +81,34 @@ echo -e "${YELLOW}Loading PaySim rules...${NC}"
 
 while IFS= read -r rule; do
     rule_id=$(echo "$rule" | jq -r '.id')
-    response=$(curl -s -X POST "$BASE_URL/rules" \
+    response=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/rules" \
         -H "Content-Type: application/json" \
         -H "X-Tenant-ID: $TENANT_ID" \
+        "${ADMIN_HEADER[@]}" \
         -d "$rule")
+    http_code="${response##*$'\n'}"
+    body="${response%$'\n'*}"
 
-    if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
-        error=$(echo "$response" | jq -r '.error')
-        if echo "$error" | grep -qi "already exists"; then
-            echo -e "  ${YELLOW}○${NC} $rule_id (exists)"
-            ((RULES_SKIPPED++)) || true
-        else
-            echo -e "  ${RED}✗${NC} $rule_id: $error"
-            ((RULES_FAILED++)) || true
-        fi
-    else
+    if [[ "$http_code" =~ ^2 ]] && echo "$body" | jq -e '.rule' > /dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} $rule_id"
         ((RULES_CREATED++)) || true
+    else
+        error=$(echo "$body" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "$body")
+        echo -e "  ${RED}✗${NC} $rule_id: HTTP $http_code: $error"
+        ((RULES_FAILED++)) || true
     fi
 done < <(jq -c '.rules[]' "$RULES_FILE")
 
-# Reload
 echo ""
-echo -e "${YELLOW}Reloading rules...${NC}"
-reload_response=$(curl -s -X POST "$BASE_URL/rules/reload" -H "X-Tenant-ID: $TENANT_ID")
-loaded_count=$(echo "$reload_response" | jq -r '.count // 0')
-echo -e "${GREEN}✓${NC} $loaded_count rules loaded"
+echo -e "${YELLOW}Verifying active rules...${NC}"
+rules_response=$(curl -s "$BASE_URL/rules" -H "X-Tenant-ID: $TENANT_ID")
+loaded_count=$(echo "$rules_response" | jq -r '.count // 0')
+echo -e "${GREEN}✓${NC} $loaded_count active rules"
 
 # Summary
 echo ""
 echo -e "${BLUE}Summary:${NC}"
-echo -e "  Created: ${GREEN}$RULES_CREATED${NC}"
-echo -e "  Skipped: ${YELLOW}$RULES_SKIPPED${NC}"
+echo -e "  Loaded:  ${GREEN}$RULES_CREATED${NC}"
 echo -e "  Failed:  ${RED}$RULES_FAILED${NC}"
 
 if [ "$RULES_FAILED" -gt 0 ]; then

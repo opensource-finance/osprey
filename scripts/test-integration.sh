@@ -9,6 +9,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_PATH="/tmp/osprey-integration-$$"
 LOG_PATH="/tmp/osprey-integration-$$.log"
 PID_FILE="/tmp/osprey-integration-$$.pid"
+PORT="${OSPREY_TEST_PORT:-18080}"
+BASE_URL="http://localhost:$PORT"
 
 cleanup() {
   if [[ -f "$PID_FILE" ]]; then
@@ -39,31 +41,31 @@ fi
 echo "Building Osprey binary..."
 go -C "$REPO_ROOT" build -o "$BIN_PATH" ./cmd/osprey
 
-echo "Starting Osprey from /tmp (clean sqlite state)..."
+echo "Starting Osprey from /tmp on $BASE_URL (clean sqlite state)..."
 (
   cd /tmp
-  "$BIN_PATH" >"$LOG_PATH" 2>&1 &
+  OSPREY_PORT="$PORT" "$BIN_PATH" >"$LOG_PATH" 2>&1 &
   echo $! >"$PID_FILE"
 )
 
 echo "Waiting for health endpoint..."
 for _ in $(seq 1 30); do
-  if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+  if curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if ! curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+if ! curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
   echo "ERROR: Osprey failed to start" >&2
   tail -n 50 "$LOG_PATH" >&2 || true
   exit 1
 fi
 
 echo "Seeding minimal integration rules..."
-OSPREY_URL="http://localhost:8080" "$REPO_ROOT/scripts/seed-rules.sh"
+OSPREY_URL="$BASE_URL" "$REPO_ROOT/scripts/seed-rules.sh"
 
 echo "Running integration tests..."
-go -C "$REPO_ROOT" test -tags=integration -v ./tests/integration/...
+OSPREY_TEST_URL="$BASE_URL" go -C "$REPO_ROOT" test -tags=integration -v ./tests/integration/...
 
 echo "Integration tests passed."

@@ -54,16 +54,22 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 		// Rule management
 		r.Get("/rules", handler.ListRules)
 		r.Get("/rules/{id}", handler.GetRule)
-		r.Post("/rules", handler.CreateRule)
-		r.Post("/rules/reload", handler.ReloadRules)
+		r.Group(func(r chi.Router) {
+			r.Use(AdminMiddleware(cfg.AdminToken))
+			r.Post("/rules", handler.CreateRule)
+			r.Post("/rules/reload", handler.ReloadRules)
+		})
 
 		// Typology management
 		r.Get("/typologies", handler.ListTypologies)
 		r.Get("/typologies/{id}", handler.GetTypology)
-		r.Post("/typologies", handler.CreateTypology)
-		r.Put("/typologies/{id}", handler.UpdateTypology)
-		r.Delete("/typologies/{id}", handler.DeleteTypology)
-		r.Post("/typologies/reload", handler.ReloadTypologies)
+		r.Group(func(r chi.Router) {
+			r.Use(AdminMiddleware(cfg.AdminToken))
+			r.Post("/typologies", handler.CreateTypology)
+			r.Put("/typologies/{id}", handler.UpdateTypology)
+			r.Delete("/typologies/{id}", handler.DeleteTypology)
+			r.Post("/typologies/reload", handler.ReloadTypologies)
+		})
 	})
 
 	return &Server{

@@ -44,6 +44,7 @@ type ServerConfig struct {
 	Port         int    `json:"port"`
 	ReadTimeout  int    `json:"readTimeout"`  // seconds
 	WriteTimeout int    `json:"writeTimeout"` // seconds
+	AdminToken   string `json:"-"`            // optional token for config mutation endpoints
 }
 
 // LoggingConfig holds logging settings.

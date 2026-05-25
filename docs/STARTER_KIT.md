@@ -68,9 +68,8 @@ Typologies are for **Compliance mode** only. They combine multiple rules to dete
 
 All rules and typologies are based on publicly available guidance:
 
-- **FATF Recommendations**: https://www.fatf-gafi.org/en/publications/Fatfrecommendations.html
+- **FATF Recommendations**: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Fatf-recommendations.html
 - **FATF Methods and Trends**: https://www.fatf-gafi.org/en/topics/methods-and-trends.html
-- **Trade-Based ML Indicators**: https://www.fatf-gafi.org/en/publications/Methodsandtrends/Trade-based-money-laundering-indicators.html
 - **PaySim Dataset**: Lopez-Rojas et al., "PaySim: A financial mobile money simulator for fraud detection" (2016)
 
 ## Usage Examples
@@ -89,10 +88,12 @@ curl -X POST http://localhost:8080/evaluate \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: default" \
   -d '{
+    "id": "starter-tx-001",
     "type": "TRANSFER",
     "debtor": {"id": "user1", "accountId": "acc1"},
     "creditor": {"id": "user2", "accountId": "acc2"},
-    "amount": {"value": 9500, "currency": "USD"}
+    "amount": {"value": 9500, "currency": "USD"},
+    "timestamp": "2026-05-25T09:15:30Z"
   }'
 
 # Response: score based on weighted rule results
@@ -156,8 +157,7 @@ curl -X POST http://localhost:8080/rules \
     ]
   }'
 
-# Reload to apply
-curl -X POST http://localhost:8080/rules/reload -H "X-Tenant-ID: default"
+# Rule saves apply immediately. Use /rules/reload only for manual recovery.
 ```
 
 ### CEL Expression Reference

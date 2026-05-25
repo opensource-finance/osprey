@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +35,9 @@ const (
 
 	// TraceIDHeader is the HTTP header for trace ID.
 	TraceIDHeader = "X-Trace-ID"
+
+	// AdminTokenHeader is an optional token header for configuration changes.
+	AdminTokenHeader = "X-Osprey-Admin-Token"
 )
 
 var tracer = otel.Tracer("osprey-api")
@@ -41,15 +46,50 @@ var tracer = otel.Tracer("osprey-api")
 // and adds it to the request context.
 func TenantMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tenantID := r.Header.Get(TenantIDHeader)
+		tenantID := strings.TrimSpace(r.Header.Get(TenantIDHeader))
 		if tenantID == "" {
-			http.Error(w, `{"error":"X-Tenant-ID header is required"}`, http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "X-Tenant-ID header is required",
+			})
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), TenantIDKey, tenantID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// AdminMiddleware protects configuration mutation endpoints when a token is configured.
+func AdminMiddleware(adminToken string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if adminToken == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if !validAdminToken(r, adminToken) {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{
+					"error": "admin token is required",
+				})
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func validAdminToken(r *http.Request, expected string) bool {
+	provided := r.Header.Get(AdminTokenHeader)
+	if provided == "" {
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			provided = strings.TrimSpace(auth[len("bearer "):])
+		}
+	}
+
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
 // TracingMiddleware creates OpenTelemetry spans and propagates trace context.
@@ -103,6 +143,9 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		// Extract context values for logging
 		tenantID, _ := r.Context().Value(TenantIDKey).(string)
+		if tenantID == "" {
+			tenantID = r.Header.Get(TenantIDHeader)
+		}
 		requestID, _ := r.Context().Value(RequestIDKey).(string)
 		traceID, _ := r.Context().Value(TraceIDKey).(string)
 
@@ -121,18 +164,10 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 // CORSMiddleware handles Cross-Origin Resource Sharing for browser clients.
 func CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Allow requests from any origin in development
-		// In production, this should be restricted to specific origins
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
-		}
-
-		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-ID, X-Request-ID, X-Trace-ID, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Tenant-ID, X-Request-ID, X-Trace-ID, X-Osprey-Admin-Token, Authorization")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Trace-ID")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		// Handle preflight requests
@@ -154,7 +189,9 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 					"error", err,
 					"path", r.URL.Path,
 				)
-				http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{
+					"error": "internal server error",
+				})
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -186,4 +223,3 @@ func GetTraceID(ctx context.Context) string {
 	}
 	return ""
 }
-

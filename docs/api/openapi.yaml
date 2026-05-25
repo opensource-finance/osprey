@@ -1,0 +1,852 @@
+openapi: 3.1.0
+info:
+  title: Osprey Sandbox API
+  version: 0.1.0
+  description: Customer-facing API contract for the Osprey sandbox environment.
+servers:
+  - url: https://sandbox.osprey.opensource.finance
+    description: Osprey sandbox
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Health
+  - name: Evaluation
+  - name: Rules
+  - name: Typologies
+security:
+  - TenantHeader: []
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health status.
+      security: []
+      responses:
+        "200":
+          description: Service health.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness gate for traffic.
+      security: []
+      responses:
+        "200":
+          description: Ready for traffic.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: Not ready, for example compliance mode without typologies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotReadyResponse"
+  /evaluate:
+    post:
+      tags: [Evaluation]
+      summary: Evaluate a transaction.
+      security:
+        - TenantHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRequest"
+            examples:
+              normal:
+                summary: Normal transaction.
+                externalValue: ../examples/evaluate-normal.json
+              alert:
+                summary: Same-party alert transaction.
+                externalValue: ../examples/evaluate-alert.json
+      responses:
+        "200":
+          description: Evaluation decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateResponse"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate transaction ID for this tenant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request body too large.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Evaluation or persistence failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Compliance mode is not ready because typologies are missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /evaluations/{id}:
+    get:
+      tags: [Evaluation]
+      summary: Retrieve a persisted evaluation.
+      security:
+        - TenantHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Persisted evaluation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evaluation"
+        "404":
+          description: Evaluation not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Repository read failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /transactions/{id}:
+    get:
+      tags: [Evaluation]
+      summary: Retrieve a persisted transaction.
+      security:
+        - TenantHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Persisted transaction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Transaction not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Repository read failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /rules:
+    get:
+      tags: [Rules]
+      summary: List rules loaded in the active engine.
+      security:
+        - TenantHeader: []
+      responses:
+        "200":
+          description: Active rules.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListRulesResponse"
+    post:
+      tags: [Rules]
+      summary: Create or update a rule and activate it immediately.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleConfig"
+            examples:
+              sameParty:
+                summary: Same-party verification rule.
+                externalValue: ../examples/rule-same-party.json
+      responses:
+        "201":
+          description: Rule saved and loaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleMutationResponse"
+        "400":
+          description: Invalid rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Repository unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /rules/{id}:
+    get:
+      tags: [Rules]
+      summary: Retrieve an active rule.
+      security:
+        - TenantHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Active rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleConfig"
+        "404":
+          description: Rule not found in active engine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /rules/reload:
+    post:
+      tags: [Rules]
+      summary: Reload rules from the repository into the active engine.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      responses:
+        "200":
+          description: Rules reloaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReloadResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Repository unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /typologies:
+    get:
+      tags: [Typologies]
+      summary: List typologies loaded in the active engine.
+      security:
+        - TenantHeader: []
+      responses:
+        "200":
+          description: Active typologies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTypologiesResponse"
+    post:
+      tags: [Typologies]
+      summary: Create a typology and activate it immediately.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Typology"
+            examples:
+              sameParty:
+                summary: Verification typology.
+                externalValue: ../examples/typology-same-party.json
+      responses:
+        "201":
+          description: Typology saved and loaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TypologyMutationResponse"
+        "400":
+          description: Invalid typology.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Repository unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /typologies/{id}:
+    get:
+      tags: [Typologies]
+      summary: Retrieve an active typology.
+      security:
+        - TenantHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Active typology.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Typology"
+        "404":
+          description: Typology not found in active engine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Typologies]
+      summary: Update a typology and activate changes immediately.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Typology"
+      responses:
+        "200":
+          description: Typology updated and loaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TypologyMutationResponse"
+        "400":
+          description: Invalid typology.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Typologies]
+      summary: Delete a typology and unload it from the active engine.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Typology deleted and engine reloaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Typology not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /typologies/reload:
+    post:
+      tags: [Typologies]
+      summary: Reload typologies from the repository into the active engine.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      responses:
+        "200":
+          description: Typologies reloaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReloadResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Repository unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    TenantHeader:
+      type: apiKey
+      in: header
+      name: X-Tenant-ID
+    AdminHeader:
+      type: apiKey
+      in: header
+      name: X-Osprey-Admin-Token
+    AdminBearer:
+      type: http
+      scheme: bearer
+  parameters:
+    PathID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    HealthResponse:
+      type: object
+      required: [status, version, mode]
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded]
+        version:
+          type: string
+        mode:
+          type: string
+          enum: [detection, compliance]
+    ReadyResponse:
+      type: object
+      required: [ready]
+      additionalProperties: false
+      properties:
+        ready:
+          type: string
+          enum: ["true"]
+    NotReadyResponse:
+      type: object
+      required: [ready, error]
+      additionalProperties: false
+      properties:
+        ready:
+          type: string
+          enum: ["false"]
+        error:
+          type: string
+    EvaluateRequest:
+      type: object
+      additionalProperties: false
+      required: [type, debtor, creditor, amount]
+      properties:
+        id:
+          type: string
+          description: Optional client transaction ID. Generated when omitted.
+        type:
+          type: string
+          description: Transaction type. Osprey normalizes it to uppercase.
+        debtor:
+          $ref: "#/components/schemas/PartyInfo"
+        creditor:
+          $ref: "#/components/schemas/PartyInfo"
+        amount:
+          $ref: "#/components/schemas/AmountInfo"
+        timestamp:
+          type: string
+          format: date-time
+          description: Optional RFC3339 transaction timestamp.
+        metadata:
+          type: object
+          additionalProperties: true
+    PartyInfo:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+    AmountInfo:
+      type: object
+      additionalProperties: false
+      required: [value, currency]
+      properties:
+        value:
+          type: number
+          exclusiveMinimum: 0
+        currency:
+          type: string
+    EvaluateResponse:
+      type: object
+      required: [evaluationId, txId, status, score, metadata]
+      properties:
+        evaluationId:
+          type: string
+        txId:
+          type: string
+        status:
+          type: string
+          enum: [ALRT, NALT]
+        score:
+          type: number
+        reasons:
+          type: array
+          items:
+            type: string
+        metadata:
+          $ref: "#/components/schemas/EvaluateResponseMetadata"
+    EvaluateResponseMetadata:
+      type: object
+      required: [traceId, ingestMs, totalMs, version]
+      properties:
+        traceId:
+          type: string
+        ingestMs:
+          type: integer
+        totalMs:
+          type: integer
+        version:
+          type: string
+    Transaction:
+      type: object
+      required:
+        - id
+        - tenantId
+        - type
+        - debtorId
+        - debtorAccountId
+        - creditorId
+        - creditorAccountId
+        - amount
+        - currency
+        - timestamp
+        - createdAt
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        type:
+          type: string
+        debtorId:
+          type: string
+        debtorAccountId:
+          type: string
+        creditorId:
+          type: string
+        creditorAccountId:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    Evaluation:
+      type: object
+      required:
+        - id
+        - tenantId
+        - txId
+        - status
+        - score
+        - timestamp
+        - ruleResults
+        - metadata
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        txId:
+          type: string
+        status:
+          type: string
+          enum: [ALRT, NALT]
+        score:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+        ruleResults:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleResult"
+        typologyResults:
+          type: array
+          items:
+            $ref: "#/components/schemas/TypologyResult"
+        metadata:
+          $ref: "#/components/schemas/EvaluationMetadata"
+    EvaluationMetadata:
+      type: object
+      properties:
+        traceId:
+          type: string
+        ingestMs:
+          type: integer
+        rulesMs:
+          type: integer
+        decisionMs:
+          type: integer
+        totalMs:
+          type: integer
+        rulesEvaluated:
+          type: integer
+        typologiesEvaluated:
+          type: integer
+        engineVersion:
+          type: string
+    RuleResult:
+      type: object
+      properties:
+        ruleId:
+          type: string
+        tenantId:
+          type: string
+        txId:
+          type: string
+        subRuleRef:
+          type: string
+        score:
+          type: number
+        reason:
+          type: string
+        weight:
+          type: number
+        processMs:
+          type: integer
+    RuleContribution:
+      type: object
+      properties:
+        ruleId:
+          type: string
+        ruleScore:
+          type: number
+        weight:
+          type: number
+        contribution:
+          type: number
+        triggered:
+          type: boolean
+    TypologyResult:
+      type: object
+      properties:
+        typologyId:
+          type: string
+        typologyName:
+          type: string
+        score:
+          type: number
+        threshold:
+          type: number
+        triggered:
+          type: boolean
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleResult"
+        contributions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleContribution"
+        processMs:
+          type: integer
+    RuleConfig:
+      type: object
+      additionalProperties: false
+      required: [id, name, expression, weight, enabled]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+          readOnly: true
+        expression:
+          type: string
+        bands:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleBand"
+        weight:
+          type: number
+          minimum: 0
+          maximum: 1
+        enabled:
+          type: boolean
+    RuleBand:
+      type: object
+      additionalProperties: false
+      required: [subRuleRef, reason]
+      properties:
+        lowerLimit:
+          type: number
+        upperLimit:
+          type: number
+        subRuleRef:
+          type: string
+        reason:
+          type: string
+    ListRulesResponse:
+      type: object
+      required: [rules, count, source]
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleConfig"
+        count:
+          type: integer
+        source:
+          type: string
+          enum: [active-engine]
+    RuleMutationResponse:
+      type: object
+      required: [rule, message]
+      properties:
+        rule:
+          $ref: "#/components/schemas/RuleConfig"
+        message:
+          type: string
+    Typology:
+      type: object
+      additionalProperties: false
+      required: [id, name, alertThreshold, enabled, rules]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+          readOnly: true
+        alertThreshold:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1
+        enabled:
+          type: boolean
+        rules:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TypologyRuleWeight"
+    TypologyRuleWeight:
+      type: object
+      additionalProperties: false
+      required: [ruleId, weight]
+      properties:
+        ruleId:
+          type: string
+        weight:
+          type: number
+          minimum: 0
+          maximum: 1
+    ListTypologiesResponse:
+      type: object
+      required: [typologies, count, source]
+      properties:
+        typologies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Typology"
+        count:
+          type: integer
+        source:
+          type: string
+          enum: [active-engine]
+    TypologyMutationResponse:
+      type: object
+      required: [typology, message]
+      properties:
+        typology:
+          $ref: "#/components/schemas/Typology"
+        message:
+          type: string
+    ReloadResponse:
+      type: object
+      required: [message, count]
+      properties:
+        message:
+          type: string
+        count:
+          type: integer

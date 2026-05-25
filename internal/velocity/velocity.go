@@ -25,7 +25,6 @@ func NewService(repo domain.Repository, cache domain.Cache) *Service {
 	}
 }
 
-
 // GetTransactionCount returns the number of transactions for an entity within a time window.
 // This is the VelocityGetter function signature expected by the rule engine.
 func (s *Service) GetTransactionCount(ctx context.Context, tenantID, entityID string, windowSecs int) (int64, error) {
@@ -34,7 +33,7 @@ func (s *Service) GetTransactionCount(ctx context.Context, tenantID, entityID st
 	}
 
 	// Query database for actual count (caching would require careful TTL management)
-	since := time.Now().Add(-time.Duration(windowSecs) * time.Second)
+	since := time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
 
 	if s.db != nil {
 		return s.countFromDB(ctx, tenantID, entityID, since)
