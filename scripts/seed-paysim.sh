@@ -23,9 +23,11 @@ TENANT_ID="${OSPREY_TENANT:-default}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RULES_FILE="$SCRIPT_DIR/../configs/rules/paysim-rules.json"
 ADMIN_HEADER=()
-if [ -n "${OSPREY_ADMIN_TOKEN:-}" ]; then
-    ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
+if [ -z "${OSPREY_ADMIN_TOKEN:-}" ]; then
+    echo -e "${RED}ERROR: OSPREY_ADMIN_TOKEN is required for rule mutation endpoints${NC}" >&2
+    exit 1
 fi
+ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
 
 # Counters
 RULES_CREATED=0

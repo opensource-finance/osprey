@@ -15,9 +15,11 @@ set -e
 BASE_URL="${OSPREY_URL:-http://localhost:8080}"
 TENANT_ID="${OSPREY_TENANT:-default}"
 ADMIN_HEADER=()
-if [ -n "${OSPREY_ADMIN_TOKEN:-}" ]; then
-  ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
+if [ -z "${OSPREY_ADMIN_TOKEN:-}" ]; then
+  echo "ERROR: OSPREY_ADMIN_TOKEN is required for rule mutation endpoints" >&2
+  exit 1
 fi
+ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
 
 echo "Seeding rules to $BASE_URL (tenant: $TENANT_ID)..."
 echo ""

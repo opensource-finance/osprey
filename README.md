@@ -191,7 +191,7 @@ go test ./...
 | `OSPREY_TIER` | `community` | Runtime profile: `community` or `pro` |
 | `OSPREY_DEBUG` | `false` | Enable debug logging |
 | `OSPREY_PORT` | `8080` | HTTP server port |
-| `OSPREY_ADMIN_TOKEN` | unset | Optional bearer token required for rule/typology mutation endpoints |
+| `OSPREY_ADMIN_TOKEN` | required | Bearer token required for rule/typology mutation endpoints |
 | `OSPREY_DB_DRIVER` | `sqlite` | Database: `sqlite`, `postgres` |
 | `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite database file path |
 | `OSPREY_CACHE_TYPE` | `memory` | Cache: `memory`, `redis` |
@@ -223,7 +223,7 @@ go test ./...
 | DELETE | `/typologies/{id}` | Delete a typology |
 | POST | `/typologies/reload` | Reload typologies from database manually |
 
-When `OSPREY_ADMIN_TOKEN` is set, mutation endpoints require either `Authorization: Bearer <token>` or `X-Osprey-Admin-Token: <token>`. Evaluation and read endpoints only require `X-Tenant-ID`.
+Mutation endpoints require either `Authorization: Bearer <token>` or `X-Osprey-Admin-Token: <token>`. Osprey refuses to start without `OSPREY_ADMIN_TOKEN`; evaluation and read endpoints only require `X-Tenant-ID`.
 
 ## License
 

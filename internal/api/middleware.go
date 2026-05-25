@@ -36,7 +36,7 @@ const (
 	// TraceIDHeader is the HTTP header for trace ID.
 	TraceIDHeader = "X-Trace-ID"
 
-	// AdminTokenHeader is an optional token header for configuration changes.
+	// AdminTokenHeader is an alternate token header for configuration changes.
 	AdminTokenHeader = "X-Osprey-Admin-Token"
 )
 
@@ -59,18 +59,20 @@ func TenantMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// AdminMiddleware protects configuration mutation endpoints when a token is configured.
+// AdminMiddleware protects configuration mutation endpoints.
 func AdminMiddleware(adminToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if adminToken == "" {
-				next.ServeHTTP(w, r)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+					"error": "admin token is not configured",
+				})
 				return
 			}
 
 			if !validAdminToken(r, adminToken) {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{
-					"error": "admin token is required",
+					"error": "admin token is invalid or missing",
 				})
 				return
 			}

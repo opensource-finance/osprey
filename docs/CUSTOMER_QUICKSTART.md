@@ -53,7 +53,7 @@ The response includes:
 
 ## 3. Create a Rule
 
-Rule and typology writes require an admin token when the sandbox is protected.
+Rule and typology writes require an admin token.
 
 ```bash
 curl -fsS -X POST https://sandbox.osprey.opensource.finance/rules \

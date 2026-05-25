@@ -95,7 +95,7 @@ sequenceDiagram
 | `OSPREY_MODE` | `detection` | `detection` or `compliance` |
 | `OSPREY_TIER` | `community` | runtime profile: `community` or `pro` |
 | `OSPREY_DEBUG` | `false` | debug logging |
-| `OSPREY_ADMIN_TOKEN` | unset | optional token for rule and typology mutation endpoints |
+| `OSPREY_ADMIN_TOKEN` | required | token for rule and typology mutation endpoints |
 | `OSPREY_DB_DRIVER` | `sqlite` | `sqlite` or `postgres` |
 | `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite database file path |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis` |
@@ -106,7 +106,7 @@ sequenceDiagram
 
 Rules and typologies are loaded from the database at startup. Create, update, and delete operations apply to the active engines immediately; reload endpoints exist for manual recovery.
 
-If `OSPREY_ADMIN_TOKEN` is configured, rule and typology mutation endpoints require an admin token. Evaluation and read endpoints stay tenant-scoped via `X-Tenant-ID`.
+Osprey refuses to start without `OSPREY_ADMIN_TOKEN`. Rule and typology mutation endpoints require an admin token; evaluation and read endpoints stay tenant-scoped via `X-Tenant-ID`.
 
 ### `rule_configs`
 

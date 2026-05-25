@@ -11,6 +11,7 @@ LOG_PATH="/tmp/osprey-integration-$$.log"
 PID_FILE="/tmp/osprey-integration-$$.pid"
 PORT="${OSPREY_TEST_PORT:-18080}"
 BASE_URL="http://localhost:$PORT"
+ADMIN_TOKEN="${OSPREY_ADMIN_TOKEN:-integration-admin-token}"
 
 cleanup() {
   if [[ -f "$PID_FILE" ]]; then
@@ -44,7 +45,7 @@ go -C "$REPO_ROOT" build -o "$BIN_PATH" ./cmd/osprey
 echo "Starting Osprey from /tmp on $BASE_URL (clean sqlite state)..."
 (
   cd /tmp
-  OSPREY_PORT="$PORT" "$BIN_PATH" >"$LOG_PATH" 2>&1 &
+  OSPREY_PORT="$PORT" OSPREY_ADMIN_TOKEN="$ADMIN_TOKEN" "$BIN_PATH" >"$LOG_PATH" 2>&1 &
   echo $! >"$PID_FILE"
 )
 
@@ -63,7 +64,7 @@ if ! curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
 fi
 
 echo "Seeding minimal integration rules..."
-OSPREY_URL="$BASE_URL" "$REPO_ROOT/scripts/seed-rules.sh"
+OSPREY_URL="$BASE_URL" OSPREY_ADMIN_TOKEN="$ADMIN_TOKEN" "$REPO_ROOT/scripts/seed-rules.sh"
 
 echo "Running integration tests..."
 OSPREY_TEST_URL="$BASE_URL" go -C "$REPO_ROOT" test -tags=integration -v ./tests/integration/...

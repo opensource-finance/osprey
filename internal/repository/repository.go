@@ -7,14 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
 var (
-	ErrNotFound     = errors.New("record not found")
-	ErrInvalidInput = errors.New("invalid input")
+	ErrNotFound             = errors.New("record not found")
+	ErrInvalidInput         = errors.New("invalid input")
+	ErrDuplicateTransaction = errors.New("transaction id already exists")
 )
 
 // SQLRepository implements domain.Repository using database/sql.
@@ -107,11 +109,17 @@ func (r *SQLRepository) migrateSQLiteTransactionsPrimaryKey() error {
 		return err
 	}
 
+	if len(primaryKey) == 0 {
+		return errors.New("transactions table schema is missing")
+	}
 	if primaryKey["id"] > 0 && primaryKey["tenant_id"] > 0 {
 		return nil
 	}
-	if primaryKey["id"] == 0 || primaryKey["tenant_id"] > 0 {
-		return nil
+	if primaryKey["id"] == 0 {
+		return fmt.Errorf("unexpected transactions primary key schema: id is not a primary key column")
+	}
+	if primaryKey["tenant_id"] > 0 {
+		return fmt.Errorf("unexpected transactions primary key schema: tenant_id is primary key but id/tenant_id composite key is incomplete")
 	}
 
 	tx, err := r.db.Begin()
@@ -192,7 +200,24 @@ func (r *SQLRepository) SaveTransaction(ctx context.Context, tenantID string, tx
 		tx.Timestamp, tx.CreatedAt,
 		string(metadata), tx.OriginalMessage,
 	)
+	if isDuplicateTransactionError(err) {
+		return ErrDuplicateTransaction
+	}
 	return err
+}
+
+func isDuplicateTransactionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := err.Error()
+	if strings.Contains(message, "UNIQUE constraint failed: transactions.id, transactions.tenant_id") ||
+		strings.Contains(message, "duplicate key value violates unique constraint") {
+		return true
+	}
+
+	return false
 }
 
 // GetTransaction retrieves a transaction by ID with tenant isolation.

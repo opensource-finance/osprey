@@ -21,6 +21,11 @@ do
   fi
 done
 
+if [[ -z "$ADMIN_TOKEN" ]]; then
+  echo "ERROR: OSPREY_ADMIN_TOKEN is required for sandbox verification" >&2
+  exit 1
+fi
+
 fail() {
   echo "ERROR: $*" >&2
   exit 1
@@ -131,18 +136,14 @@ rule_payload="$(jq -c . "$EXAMPLES_DIR/rule-same-party.json")"
 typology_id="sandbox-verification-typology"
 typology_payload="$(jq -c . "$EXAMPLES_DIR/typology-same-party.json")"
 
-if [[ -n "$ADMIN_TOKEN" ]]; then
-  echo "3. Verifying configuration mutations require admin token..."
-  unauth_rule_response="$(request_json POST /rules "$rule_payload" false)"
-  expect_status 401 "$unauth_rule_response" "unauthorized POST /rules"
-  unauth_typology_response="$(request_json POST /typologies "$typology_payload" false)"
-  expect_status 401 "$unauth_typology_response" "unauthorized POST /typologies"
-  header_auth_response="$(request_json POST /rules/reload "" true "$TENANT_ID" header)"
-  expect_status 200 "$header_auth_response" "X-Osprey-Admin-Token POST /rules/reload"
-  echo "   unauthorized mutations blocked; X-Osprey-Admin-Token accepted"
-else
-  echo "3. Skipping admin protection check (OSPREY_ADMIN_TOKEN not set)."
-fi
+echo "3. Verifying configuration mutations require admin token..."
+unauth_rule_response="$(request_json POST /rules "$rule_payload" false)"
+expect_status 401 "$unauth_rule_response" "unauthorized POST /rules"
+unauth_typology_response="$(request_json POST /typologies "$typology_payload" false)"
+expect_status 401 "$unauth_typology_response" "unauthorized POST /typologies"
+header_auth_response="$(request_json POST /rules/reload "" true "$TENANT_ID" header)"
+expect_status 200 "$header_auth_response" "X-Osprey-Admin-Token POST /rules/reload"
+echo "   unauthorized mutations blocked; X-Osprey-Admin-Token accepted"
 
 echo "4. Creating verification rule ($rule_id)..."
 rule_response="$(request_json POST /rules "$rule_payload")"

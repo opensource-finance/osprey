@@ -44,7 +44,7 @@ type ServerConfig struct {
 	Port         int    `json:"port"`
 	ReadTimeout  int    `json:"readTimeout"`  // seconds
 	WriteTimeout int    `json:"writeTimeout"` // seconds
-	AdminToken   string `json:"-"`            // optional token for config mutation endpoints
+	AdminToken   string `json:"-"`            // required token for config mutation endpoints
 }
 
 // LoggingConfig holds logging settings.
@@ -65,6 +65,9 @@ type TracingConfig struct {
 type Tier string
 
 const (
+	// GlobalTenantID is used for rules and typologies that apply to all tenants.
+	GlobalTenantID = "*"
+
 	// TierCommunity is the free tier with SQLite + channels
 	TierCommunity Tier = "community"
 

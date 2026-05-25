@@ -75,6 +75,13 @@ type failingRepository struct {
 	saveEvaluationErr  error
 	getTransactionErr  error
 	getEvaluationErr   error
+	deleteTypologyErr  error
+}
+
+const testAdminToken = "test-admin-token"
+
+func setAdminAuth(req *http.Request) {
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 }
 
 func (r *failingRepository) GetTransaction(_ context.Context, _ string, _ string) (*domain.Transaction, error) {
@@ -99,11 +106,18 @@ func (r *failingRepository) SaveEvaluation(_ context.Context, _ string, _ *domai
 	return r.saveEvaluationErr
 }
 
+func (r *failingRepository) DeleteTypology(_ context.Context, _ string, _ string) error {
+	return r.deleteTypologyErr
+}
+
 func createTestServerWithRepository(repo domain.Repository) *Server {
 	return createTestServerWithRepositoryAndAdminToken(repo, "")
 }
 
 func createTestServerWithRepositoryAndAdminToken(repo domain.Repository, adminToken string) *Server {
+	if adminToken == "" {
+		adminToken = testAdminToken
+	}
 	cfg := domain.ServerConfig{
 		Host:         "localhost",
 		Port:         8080,
@@ -128,6 +142,9 @@ func createPersistentTestServerWithEngine(t *testing.T, engine *rules.Engine) (*
 
 func createPersistentTestServerWithEngineAndAdminToken(t *testing.T, engine *rules.Engine, adminToken string) (*Server, func()) {
 	t.Helper()
+	if adminToken == "" {
+		adminToken = testAdminToken
+	}
 
 	dbFile, err := os.CreateTemp("", "osprey-api-*.db")
 	if err != nil {
@@ -738,6 +755,7 @@ func TestEvaluateEndpoint(t *testing.T) {
 		createReq := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(createBody))
 		createReq.Header.Set("Content-Type", "application/json")
 		createReq.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(createReq)
 
 		createResp := httptest.NewRecorder()
 		server.Router().ServeHTTP(createResp, createReq)
@@ -832,6 +850,22 @@ func TestEvaluateEndpoint(t *testing.T) {
 		if createResp.Code != http.StatusUnauthorized {
 			t.Fatalf("expected rule mutation without admin token to return 401, got %d", createResp.Code)
 		}
+		if !strings.Contains(createResp.Body.String(), "admin token is invalid or missing") {
+			t.Fatalf("expected invalid-or-missing admin token error, got %s", createResp.Body.String())
+		}
+
+		wrongTokenReq := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+		wrongTokenReq.Header.Set("Content-Type", "application/json")
+		wrongTokenReq.Header.Set("X-Tenant-ID", "tenant-001")
+		wrongTokenReq.Header.Set("Authorization", "Bearer wrong-token")
+		wrongTokenResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(wrongTokenResp, wrongTokenReq)
+		if wrongTokenResp.Code != http.StatusUnauthorized {
+			t.Fatalf("expected wrong admin token to return 401, got %d", wrongTokenResp.Code)
+		}
+		if !strings.Contains(wrongTokenResp.Body.String(), "admin token is invalid or missing") {
+			t.Fatalf("expected invalid-or-missing admin token error, got %s", wrongTokenResp.Body.String())
+		}
 
 		evalReqBody := TransactionRequest{
 			Type:     "transfer",
@@ -869,6 +903,39 @@ func TestEvaluateEndpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("UnconfiguredAdminTokenRejectsMutations", func(t *testing.T) {
+		cfg := domain.ServerConfig{
+			Host:         "localhost",
+			Port:         8080,
+			ReadTimeout:  30,
+			WriteTimeout: 30,
+		}
+		engine, _ := rules.NewEngine(nil, 5)
+		processor := tadp.NewProcessor()
+		server := NewServer(cfg, nil, nil, nil, engine, rules.NewTypologyEngine(), processor, "test-v1", domain.ModeDetection)
+
+		rulePayload := map[string]interface{}{
+			"id":         "unconfigured-admin-rule",
+			"name":       "Unconfigured Admin Rule",
+			"expression": "1 == 1",
+			"weight":     1.0,
+			"enabled":    true,
+		}
+		body, _ := json.Marshal(rulePayload)
+		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected unconfigured admin token to return 503, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if !strings.Contains(resp.Body.String(), "admin token is not configured") {
+			t.Fatalf("expected unconfigured admin token error, got %s", resp.Body.String())
+		}
+	})
+
 	t.Run("RuleMutationRequiresRepository", func(t *testing.T) {
 		server := createTestServerWithRepository(nil)
 
@@ -883,6 +950,7 @@ func TestEvaluateEndpoint(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 
@@ -919,6 +987,7 @@ func TestTypologyMutationValidation(t *testing.T) {
 	createReq := httptest.NewRequest(http.MethodPost, "/typologies", bytes.NewBuffer(createBody))
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.Header.Set("X-Tenant-ID", "tenant-001")
+	setAdminAuth(createReq)
 	createResp := httptest.NewRecorder()
 	server.Router().ServeHTTP(createResp, createReq)
 	if createResp.Code != http.StatusCreated {
@@ -958,6 +1027,7 @@ func TestTypologyMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/typologies/typology-001", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 
@@ -979,6 +1049,7 @@ func TestTypologyMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/typologies/typology-001", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 
@@ -1003,6 +1074,7 @@ func TestTypologyMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/typologies/typology-001", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 
@@ -1027,11 +1099,34 @@ func TestTypologyMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/typologies", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		noRepoServer.Router().ServeHTTP(resp, req)
 
 		if resp.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected missing repository to return 503, got %d: %s", resp.Code, resp.Body.String())
+		}
+	})
+
+	t.Run("DeleteTypologyMapsNotFoundOnlyTo404", func(t *testing.T) {
+		notFoundServer := createTestServerWithRepository(&failingRepository{deleteTypologyErr: repository.ErrNotFound})
+		notFoundReq := httptest.NewRequest(http.MethodDelete, "/typologies/missing-typology", nil)
+		notFoundReq.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(notFoundReq)
+		notFoundResp := httptest.NewRecorder()
+		notFoundServer.Router().ServeHTTP(notFoundResp, notFoundReq)
+		if notFoundResp.Code != http.StatusNotFound {
+			t.Fatalf("expected not-found delete error to return 404, got %d: %s", notFoundResp.Code, notFoundResp.Body.String())
+		}
+
+		dbErrServer := createTestServerWithRepository(&failingRepository{deleteTypologyErr: errors.New("database unavailable")})
+		dbErrReq := httptest.NewRequest(http.MethodDelete, "/typologies/broken-typology", nil)
+		dbErrReq.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(dbErrReq)
+		dbErrResp := httptest.NewRecorder()
+		dbErrServer.Router().ServeHTTP(dbErrResp, dbErrReq)
+		if dbErrResp.Code != http.StatusInternalServerError {
+			t.Fatalf("expected operational delete error to return 500, got %d: %s", dbErrResp.Code, dbErrResp.Body.String())
 		}
 	})
 }
@@ -1052,6 +1147,7 @@ func TestRuleMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 
@@ -1075,6 +1171,7 @@ func TestRuleMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 
@@ -1098,6 +1195,7 @@ func TestRuleMutationValidation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
 		resp := httptest.NewRecorder()
 		server.Router().ServeHTTP(resp, req)
 

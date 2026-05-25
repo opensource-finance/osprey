@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -116,6 +117,28 @@ func TestSQLiteRepository(t *testing.T) {
 		}
 		if gotA.TenantID != "tenant-a" || gotB.TenantID != "tenant-b" {
 			t.Fatalf("expected tenant-scoped transaction IDs, got %q and %q", gotA.TenantID, gotB.TenantID)
+		}
+	})
+
+	t.Run("DuplicateTransactionReturnsSentinel", func(t *testing.T) {
+		tx := &domain.Transaction{
+			ID:              "duplicate-client-id",
+			Type:            "transfer",
+			DebtorID:        "debtor-dup",
+			DebtorAccountID: "acc-dup-1",
+			CreditorID:      "creditor-dup",
+			CreditorAcctID:  "acc-dup-2",
+			Amount:          100,
+			Currency:        "USD",
+			Timestamp:       time.Now().UTC(),
+			CreatedAt:       time.Now().UTC(),
+		}
+
+		if err := repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+			t.Fatalf("SaveTransaction failed: %v", err)
+		}
+		if err := repo.SaveTransaction(ctx, tenantID, tx); !errors.Is(err, ErrDuplicateTransaction) {
+			t.Fatalf("expected ErrDuplicateTransaction, got %v", err)
 		}
 	})
 

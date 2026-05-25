@@ -170,4 +170,4 @@ Rollback or pause handoff if any of these fail:
 - `./scripts/verify-sandbox.sh` fails against the public domain.
 - `/ready` returns `503` in detection mode.
 - Rule or typology mutation returns `401` with the expected admin token.
-- Rule or typology mutation succeeds without an admin token when `OSPREY_ADMIN_TOKEN` is configured.
+- Rule or typology mutation succeeds without an admin token.

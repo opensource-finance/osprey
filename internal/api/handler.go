@@ -171,20 +171,12 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 
 	// Save transaction if repository is available
 	if h.repo != nil {
-		if existing, err := h.repo.GetTransaction(ctx, tenantID, txID); err == nil && existing != nil {
+		if err := h.repo.SaveTransaction(ctx, tenantID, tx); errors.Is(err, repository.ErrDuplicateTransaction) {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "transaction id already exists",
 			})
 			return
-		} else if err != nil && !errors.Is(err, repository.ErrNotFound) {
-			slog.Error("failed to check transaction id", "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{
-				"error": "failed to check transaction id",
-			})
-			return
-		}
-
-		if err := h.repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+		} else if err != nil {
 			slog.Error("failed to save transaction", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "failed to persist transaction",
@@ -457,7 +449,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	// Create rule config (global tenant)
 	ruleConfig := &domain.RuleConfig{
 		ID:          req.ID,
-		TenantID:    GlobalTenantID,
+		TenantID:    domain.GlobalTenantID,
 		Name:        req.Name,
 		Description: req.Description,
 		Version:     "1.0.0",
@@ -476,7 +468,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to repository (global tenant ID)
-	if err := h.repo.SaveRuleConfig(ctx, GlobalTenantID, ruleConfig); err != nil {
+	if err := h.repo.SaveRuleConfig(ctx, domain.GlobalTenantID, ruleConfig); err != nil {
 		slog.Error("failed to save rule config", "id", ruleConfig.ID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "failed to save rule",
@@ -553,9 +545,6 @@ func validateRuleRequest(w http.ResponseWriter, req *CreateRuleRequest) bool {
 	return true
 }
 
-// GlobalTenantID is used for rules that apply to all tenants.
-const GlobalTenantID = "*"
-
 // ReloadRules reloads all rules from the database into the engine.
 // CreateRule already reloads automatically; this endpoint is for manual recovery.
 func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
@@ -585,7 +574,7 @@ func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) reloadRulesFromRepository(ctx context.Context) (int, error) {
-	dbRules, err := h.repo.ListRuleConfigs(ctx, GlobalTenantID)
+	dbRules, err := h.repo.ListRuleConfigs(ctx, domain.GlobalTenantID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load rules from database: %w", err)
 	}
@@ -746,7 +735,7 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 	// Create typology config (global tenant)
 	typology := &domain.Typology{
 		ID:             req.ID,
-		TenantID:       GlobalTenantID,
+		TenantID:       domain.GlobalTenantID,
 		Name:           req.Name,
 		Description:    req.Description,
 		Version:        "1.0.0",
@@ -756,7 +745,7 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to repository
-	if err := h.repo.SaveTypology(ctx, GlobalTenantID, typology); err != nil {
+	if err := h.repo.SaveTypology(ctx, domain.GlobalTenantID, typology); err != nil {
 		slog.Error("failed to save typology", "id", typology.ID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "failed to save typology",
@@ -809,7 +798,7 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 	// Update typology
 	typology := &domain.Typology{
 		ID:             typologyID,
-		TenantID:       GlobalTenantID,
+		TenantID:       domain.GlobalTenantID,
 		Name:           req.Name,
 		Description:    req.Description,
 		Version:        "1.0.0",
@@ -818,7 +807,7 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 		Enabled:        req.Enabled,
 	}
 
-	if err := h.repo.SaveTypology(ctx, GlobalTenantID, typology); err != nil {
+	if err := h.repo.SaveTypology(ctx, domain.GlobalTenantID, typology); err != nil {
 		slog.Error("failed to update typology", "id", typologyID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "failed to update typology",
@@ -929,10 +918,16 @@ func (h *Handler) DeleteTypology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.DeleteTypology(ctx, GlobalTenantID, typologyID); err != nil {
+	if err := h.repo.DeleteTypology(ctx, domain.GlobalTenantID, typologyID); errors.Is(err, repository.ErrNotFound) {
 		slog.Error("failed to delete typology", "id", typologyID, "error", err)
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			"error": "typology not found",
+		})
+		return
+	} else if err != nil {
+		slog.Error("failed to delete typology", "id", typologyID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to delete typology",
 		})
 		return
 	}
@@ -991,7 +986,7 @@ func (h *Handler) reloadTypologiesFromRepository(ctx context.Context) (int, erro
 	if h.typologyEngine == nil {
 		return 0, fmt.Errorf("typology engine not available")
 	}
-	dbTypologies, err := h.repo.ListTypologies(ctx, GlobalTenantID)
+	dbTypologies, err := h.repo.ListTypologies(ctx, domain.GlobalTenantID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load typologies from database: %w", err)
 	}

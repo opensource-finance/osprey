@@ -29,9 +29,11 @@ TENANT_ID="${OSPREY_TENANT:-default}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIGS_DIR="$SCRIPT_DIR/../configs"
 ADMIN_HEADER=()
-if [ -n "${OSPREY_ADMIN_TOKEN:-}" ]; then
-    ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
+if [ -z "${OSPREY_ADMIN_TOKEN:-}" ]; then
+    echo -e "${RED}ERROR: OSPREY_ADMIN_TOKEN is required for rule/typology mutation endpoints${NC}" >&2
+    exit 1
 fi
+ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
 
 # Counters for tracking success/failure
 RULES_CREATED=0
@@ -66,7 +68,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  OSPREY_URL        Base URL (default: http://localhost:8080)"
             echo "  OSPREY_TENANT     Tenant ID (default: default)"
-            echo "  OSPREY_ADMIN_TOKEN Optional token for rule/typology mutation"
+            echo "  OSPREY_ADMIN_TOKEN Required token for rule/typology mutation"
             exit 0
             ;;
         *)

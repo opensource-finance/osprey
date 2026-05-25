@@ -35,7 +35,7 @@ JSON requests must include:
 Content-Type: application/json
 ```
 
-Rule and typology mutation endpoints require an admin token when `OSPREY_ADMIN_TOKEN` is configured:
+Rule and typology mutation endpoints require the configured `OSPREY_ADMIN_TOKEN`:
 
 ```http
 Authorization: Bearer <admin-token>
@@ -305,7 +305,7 @@ This verifies:
 - `/health`
 - `/ready`
 - expected health status, mode, and version when provided
-- admin-token protection for rule and typology mutation when `OSPREY_ADMIN_TOKEN` is set
+- admin-token protection for rule and typology mutation
 - rule creation and immediate activation
 - typology creation and immediate activation
 - `NALT` response for a normal transaction

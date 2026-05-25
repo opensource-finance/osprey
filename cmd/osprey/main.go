@@ -78,6 +78,10 @@ func main() {
 		slog.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	if strings.TrimSpace(cfg.Server.AdminToken) == "" {
+		slog.Error("OSPREY_ADMIN_TOKEN is required for configuration mutation endpoints")
+		os.Exit(1)
+	}
 
 	slog.Info("configuration loaded",
 		"tier", cfg.Tier,
@@ -245,13 +249,10 @@ func parseTenantIDs(value string) []string {
 	return tenantIDs
 }
 
-// GlobalTenantID is used for rules that apply to all tenants.
-const GlobalTenantID = "*"
-
 // loadRulesFromDatabase loads rules from the database into the engine.
 // All rules must be configured via POST /rules API - no hardcoded defaults.
 func loadRulesFromDatabase(ctx context.Context, repo domain.Repository, engine *rules.Engine) error {
-	dbRules, err := repo.ListRuleConfigs(ctx, GlobalTenantID)
+	dbRules, err := repo.ListRuleConfigs(ctx, domain.GlobalTenantID)
 	if err != nil {
 		slog.Warn("failed to list rules from database", "error", err)
 		return nil // Start with empty rules - they can be added via API
@@ -269,7 +270,7 @@ func loadRulesFromDatabase(ctx context.Context, repo domain.Repository, engine *
 // loadTypologiesFromDatabase loads typologies from the database into the engine.
 // All typologies must be configured via POST /typologies API - no hardcoded defaults.
 func loadTypologiesFromDatabase(ctx context.Context, repo domain.Repository, engine *rules.TypologyEngine) error {
-	dbTypologies, err := repo.ListTypologies(ctx, GlobalTenantID)
+	dbTypologies, err := repo.ListTypologies(ctx, domain.GlobalTenantID)
 	if err != nil {
 		slog.Warn("failed to list typologies from database", "error", err)
 		return nil // Start with empty typologies - they can be added via API
