@@ -106,7 +106,7 @@ curl -X POST http://localhost:8080/evaluate \
 ```bash
 # Start server in Compliance mode
 export OSPREY_ADMIN_TOKEN=local-admin-token
-OSPREY_MODE=compliance go run ./cmd/osprey
+OSPREY_MODE=compliance go run ./cmd/osprey &
 
 # Load FATF rules AND typologies
 ./scripts/seed-starter-kit.sh --compliance

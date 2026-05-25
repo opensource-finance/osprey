@@ -87,10 +87,12 @@ seed_rules() {
         if OSPREY_URL="$url" OSPREY_ADMIN_TOKEN="$admin_token" ./scripts/seed-rules.sh > /dev/null 2>&1; then
             echo -e "  ${GREEN}✓${NC} Rules seeded"
         else
-            echo -e "  ${YELLOW}⚠${NC} Rule seeding failed; set OSPREY_ADMIN_TOKEN to match the target server"
+            echo -e "  ${RED}✗${NC} Rule seeding failed; set OSPREY_ADMIN_TOKEN to match the target server"
+            exit 1
         fi
     else
-        echo -e "  ${YELLOW}⚠${NC} Seed script not found, skipping"
+        echo -e "  ${RED}✗${NC} Seed script not found"
+        exit 1
     fi
 }
 
