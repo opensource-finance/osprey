@@ -221,7 +221,7 @@ OSPREY_MODE=detection
 OSPREY_TIER=community
 OSPREY_DB_DRIVER=sqlite
 OSPREY_SQLITE_PATH=/app/data/osprey.db
-OSPREY_ADMIN_TOKEN=<strong-random-token>
+OSPREY_ADMIN_TOKEN=replace-with-strong-random-token
 OSPREY_DEBUG=false
 ```
 
@@ -243,8 +243,8 @@ Recommended Docker build arguments:
 
 ```env
 VERSION=sandbox-YYYYMMDD
-COMMIT=<git-sha>
-BUILD_DATE=<utc-build-time>
+COMMIT=replace-with-git-sha
+BUILD_DATE=2026-05-25T12:00:00Z
 ```
 
 `GET /health` exposes the deployed `version`, so customers and operators can confirm which sandbox image is running.
@@ -259,7 +259,7 @@ Then load both rules and typologies:
 
 ```bash
 OSPREY_URL=https://sandbox.osprey.opensource.finance \
-OSPREY_ADMIN_TOKEN=<admin-token> \
+OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 ./scripts/seed-starter-kit.sh --compliance
 ```
 
@@ -278,7 +278,7 @@ After deployment, run:
 ```bash
 OSPREY_URL=https://sandbox.osprey.opensource.finance \
 TENANT_ID=demo-client \
-OSPREY_ADMIN_TOKEN=<admin-token> \
+OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 EXPECTED_STATUS=healthy \
 EXPECTED_MODE=detection \
 EXPECTED_VERSION=sandbox-YYYYMMDD \

@@ -27,7 +27,7 @@ echo ""
 # Check if server is running
 if ! curl -s "$BASE_URL/health" > /dev/null 2>&1; then
   echo "ERROR: Server not reachable at $BASE_URL"
-  echo "Start the server first: go run ./cmd/osprey"
+  echo "Start the server first: OSPREY_ADMIN_TOKEN=replace-with-admin-token go run ./cmd/osprey"
   exit 1
 fi
 

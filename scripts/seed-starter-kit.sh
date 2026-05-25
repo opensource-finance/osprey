@@ -95,7 +95,7 @@ check_server() {
 
     if ! curl -s "$BASE_URL/health" > /dev/null 2>&1; then
         echo -e "${RED}ERROR: Server not reachable at $BASE_URL${NC}"
-        echo "Start Osprey first: go run ./cmd/osprey"
+        echo "Start Osprey first: OSPREY_ADMIN_TOKEN=replace-with-admin-token go run ./cmd/osprey"
         exit 1
     fi
 

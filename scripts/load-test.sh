@@ -79,12 +79,16 @@ wait_for_healthy() {
 
 seed_rules() {
     local url=$1
+    local admin_token="${OSPREY_ADMIN_TOKEN:-local-admin-token}"
 
     echo -e "${YELLOW}Seeding rules...${NC}"
 
     if [ -f "scripts/seed-rules.sh" ]; then
-        OSPREY_URL="$url" ./scripts/seed-rules.sh > /dev/null 2>&1 || true
-        echo -e "  ${GREEN}✓${NC} Rules seeded"
+        if OSPREY_URL="$url" OSPREY_ADMIN_TOKEN="$admin_token" ./scripts/seed-rules.sh > /dev/null 2>&1; then
+            echo -e "  ${GREEN}✓${NC} Rules seeded"
+        else
+            echo -e "  ${YELLOW}⚠${NC} Rule seeding failed; set OSPREY_ADMIN_TOKEN to match the target server"
+        fi
     else
         echo -e "  ${YELLOW}⚠${NC} Seed script not found, skipping"
     fi
@@ -99,7 +103,7 @@ run_local() {
 
     if ! curl -s "${url}/health" > /dev/null 2>&1; then
         echo -e "${RED}Server not running at $url${NC}"
-        echo "Start it with: go run ./cmd/osprey"
+        echo "Start it with: OSPREY_ADMIN_TOKEN=local-admin-token go run ./cmd/osprey"
         exit 1
     fi
 

@@ -57,6 +57,8 @@ curl -X POST http://localhost:8080/evaluate \
 Osprey includes pre-built rules and typologies based on public FATF guidance:
 
 ```bash
+export OSPREY_ADMIN_TOKEN=replace-with-admin-token
+
 # Load FATF-aligned rules (Detection mode)
 ./scripts/seed-starter-kit.sh
 
@@ -81,7 +83,7 @@ OSPREY_MODE=detection
 OSPREY_TIER=community
 OSPREY_DB_DRIVER=sqlite
 OSPREY_SQLITE_PATH=/app/data/osprey.db
-OSPREY_ADMIN_TOKEN=<strong-random-token>
+OSPREY_ADMIN_TOKEN=replace-with-strong-random-token
 ```
 
 Mount `/app/data` as persistent storage for the sandbox SQLite database. After deployment, verify the public endpoint before sharing it:
@@ -92,7 +94,7 @@ VERSION=sandbox-YYYYMMDD \
 
 OSPREY_URL=https://sandbox.osprey.opensource.finance \
 TENANT_ID=demo-client \
-OSPREY_ADMIN_TOKEN=<admin-token> \
+OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 EXPECTED_STATUS=healthy \
 EXPECTED_MODE=detection \
 EXPECTED_VERSION=sandbox-YYYYMMDD \

@@ -244,7 +244,7 @@ puts "   Markdown links OK"
 '
 
 echo "5. Checking shell script syntax..."
-bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh
+bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/load-test.sh
 
 echo "6. Running Go tests..."
 go test ./...

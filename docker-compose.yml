@@ -67,6 +67,7 @@ services:
       OSPREY_TIER: pro
       OSPREY_MODE: detection
       OSPREY_DEBUG: "false"
+      OSPREY_ADMIN_TOKEN: ${OSPREY_ADMIN_TOKEN:-local-admin-token}
 
       # PostgreSQL
       OSPREY_DB_DRIVER: postgres

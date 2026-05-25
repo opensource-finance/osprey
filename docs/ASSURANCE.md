@@ -21,7 +21,7 @@ Run after the public sandbox is deployed:
 ```bash
 OSPREY_URL=https://sandbox.osprey.opensource.finance \
 TENANT_ID=demo-client \
-OSPREY_ADMIN_TOKEN=<admin-token> \
+OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 EXPECTED_STATUS=healthy \
 EXPECTED_MODE=detection \
 EXPECTED_VERSION=sandbox-YYYYMMDD \

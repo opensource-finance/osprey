@@ -6,13 +6,14 @@ Osprey includes pre-built rules and typologies based on public FATF (Financial A
 
 ```bash
 # Start Osprey
+export OSPREY_ADMIN_TOKEN=local-admin-token
 go run ./cmd/osprey
 
 # Load FATF-aligned rules (Detection mode)
 ./scripts/seed-starter-kit.sh
 
 # Or load with typologies (Compliance mode)
-OSPREY_MODE=compliance go run ./cmd/osprey &
+OSPREY_MODE=compliance OSPREY_ADMIN_TOKEN=local-admin-token go run ./cmd/osprey &
 ./scripts/seed-starter-kit.sh --compliance
 ```
 
@@ -78,6 +79,7 @@ All rules and typologies are based on publicly available guidance:
 
 ```bash
 # Start server
+export OSPREY_ADMIN_TOKEN=local-admin-token
 go run ./cmd/osprey
 
 # Load FATF rules
@@ -103,6 +105,7 @@ curl -X POST http://localhost:8080/evaluate \
 
 ```bash
 # Start server in Compliance mode
+export OSPREY_ADMIN_TOKEN=local-admin-token
 OSPREY_MODE=compliance go run ./cmd/osprey
 
 # Load FATF rules AND typologies
@@ -144,6 +147,7 @@ curl -X POST http://localhost:8080/evaluate \
 curl -X POST http://localhost:8080/rules \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: default" \
+  -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
   -d '{
     "id": "my-custom-rule",
     "name": "Custom Rule",

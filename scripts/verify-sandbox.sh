@@ -150,7 +150,7 @@ rule_response="$(request_json POST /rules "$rule_payload")"
 rule_code="$(printf '%s\n' "$rule_response" | code_from_response)"
 if [[ ! "$rule_code" =~ ^2 ]]; then
   echo "$rule_response" | body_from_response >&2
-  fail "rule creation failed with HTTP $rule_code; set OSPREY_ADMIN_TOKEN if the sandbox is protected"
+  fail "rule creation failed with HTTP $rule_code; verify OSPREY_ADMIN_TOKEN matches the sandbox"
 fi
 echo "$rule_response" | body_from_response | jq -e '.rule.id == "'"$rule_id"'"' >/dev/null ||
   fail "rule creation response did not include $rule_id"
