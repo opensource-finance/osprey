@@ -67,6 +67,7 @@ services:
       OSPREY_TIER: pro
       OSPREY_MODE: detection
       OSPREY_DEBUG: "false"
+      OSPREY_ADMIN_TOKEN: ${OSPREY_ADMIN_TOKEN:-local-admin-token}
 
       # PostgreSQL
       OSPREY_DB_DRIVER: postgres
@@ -93,7 +94,7 @@ services:
       nats:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 3

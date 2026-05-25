@@ -1,15 +1,20 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/opensource-finance/osprey/internal/domain"
+	"github.com/opensource-finance/osprey/internal/repository"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
 )
@@ -25,6 +30,8 @@ type Handler struct {
 	version        string
 	mode           domain.EvaluationMode // detection or compliance
 }
+
+const maxJSONBodyBytes = 1 << 20
 
 // NewHandler creates a new API handler.
 func NewHandler(repo domain.Repository, cache domain.Cache, bus domain.EventBus, engine *rules.Engine, typologyEngine *rules.TypologyEngine, processor *tadp.Processor, version string, mode domain.EvaluationMode) *Handler {
@@ -42,11 +49,13 @@ func NewHandler(repo domain.Repository, cache domain.Cache, bus domain.EventBus,
 
 // TransactionRequest is the request body for POST /evaluate.
 type TransactionRequest struct {
-	Type     string                 `json:"type"`
-	Debtor   PartyInfo              `json:"debtor"`
-	Creditor PartyInfo              `json:"creditor"`
-	Amount   AmountInfo             `json:"amount"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	ID        string                 `json:"id,omitempty"`
+	Type      string                 `json:"type"`
+	Debtor    PartyInfo              `json:"debtor"`
+	Creditor  PartyInfo              `json:"creditor"`
+	Amount    AmountInfo             `json:"amount"`
+	Timestamp string                 `json:"timestamp,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // PartyInfo represents a debtor or creditor.
@@ -92,14 +101,12 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request
 	var req TransactionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid JSON request body",
-		})
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
 	// Validate required fields
+	req.Type = strings.ToUpper(strings.TrimSpace(req.Type))
 	if req.Type == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "type is required",
@@ -118,9 +125,31 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	req.Amount.Currency = strings.ToUpper(strings.TrimSpace(req.Amount.Currency))
+	if req.Amount.Currency == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "amount.currency is required",
+		})
+		return
+	}
 
-	// Generate IDs
-	txID := uuid.New().String()
+	txID := strings.TrimSpace(req.ID)
+	if txID == "" {
+		txID = uuid.New().String()
+	}
+
+	now := time.Now().UTC()
+	txTimestamp := now
+	if strings.TrimSpace(req.Timestamp) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(req.Timestamp))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "timestamp must be RFC3339",
+			})
+			return
+		}
+		txTimestamp = parsed.UTC()
+	}
 
 	ingestMs := time.Since(start).Milliseconds()
 
@@ -135,16 +164,24 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		CreditorAcctID:  req.Creditor.AccountID,
 		Amount:          req.Amount.Value,
 		Currency:        req.Amount.Currency,
-		Timestamp:       time.Now().UTC(),
-		CreatedAt:       time.Now().UTC(),
+		Timestamp:       txTimestamp,
+		CreatedAt:       now,
 		Metadata:        req.Metadata,
 	}
 
 	// Save transaction if repository is available
 	if h.repo != nil {
-		if err := h.repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+		if err := h.repo.SaveTransaction(ctx, tenantID, tx); errors.Is(err, repository.ErrDuplicateTransaction) {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "transaction id already exists",
+			})
+			return
+		} else if err != nil {
 			slog.Error("failed to save transaction", "error", err)
-			// Continue even if save fails? For now, yes, to prioritize evaluation.
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "failed to persist transaction",
+			})
+			return
 		}
 	}
 
@@ -197,6 +234,10 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	if h.repo != nil {
 		if err := h.repo.SaveEvaluation(ctx, tenantID, evaluation); err != nil {
 			slog.Error("failed to save evaluation", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "failed to persist evaluation",
+			})
+			return
 		}
 	}
 
@@ -284,9 +325,15 @@ func (h *Handler) GetEvaluation(w http.ResponseWriter, r *http.Request) {
 
 	eval, err := h.repo.GetEvaluation(ctx, tenantID, evalID)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": "evaluation not found",
+			})
+			return
+		}
 		slog.Error("failed to get evaluation", "id", evalID, "error", err)
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "evaluation not found",
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to get evaluation",
 		})
 		return
 	}
@@ -316,9 +363,15 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.repo.GetTransaction(ctx, tenantID, txID)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": "transaction not found",
+			})
+			return
+		}
 		slog.Error("failed to get transaction", "id", txID, "error", err)
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "transaction not found",
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to get transaction",
 		})
 		return
 	}
@@ -326,20 +379,18 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tx)
 }
 
-// ListRules returns all loaded rules from the engine.
-// Rules are loaded from the database at startup and can be reloaded via POST /rules/reload.
+// ListRules returns the rules currently active in the evaluation engine.
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
-	// Return rules currently loaded in the engine (sourced from database)
 	loadedRules := h.engine.GetLoadedRules()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"rules":  loadedRules,
 		"count":  len(loadedRules),
-		"source": "database",
+		"source": "active-engine",
 	})
 }
 
-// GetRule retrieves a rule by ID from the loaded engine rules.
+// GetRule retrieves an active rule by ID from the evaluation engine.
 func (h *Handler) GetRule(w http.ResponseWriter, r *http.Request) {
 	ruleID := chi.URLParam(r, "id")
 
@@ -350,7 +401,6 @@ func (h *Handler) GetRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check rules loaded in the engine (from database)
 	for _, rule := range h.engine.GetLoadedRules() {
 		if rule.ID == ruleID {
 			writeJSON(w, http.StatusOK, rule)
@@ -376,30 +426,30 @@ type CreateRuleRequest struct {
 
 // CreateRule creates a new rule and saves it to the database.
 // Rules are saved globally (tenant_id = "*") so they apply to all tenants.
-// After saving, call POST /rules/reload to hot-reload into the engine.
+// The active rule engine is reloaded after persistence succeeds.
 func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req CreateRuleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid JSON request body",
-		})
+	if !h.requireRepository(w) {
 		return
 	}
 
-	// Validate
-	if req.ID == "" || req.Name == "" || req.Expression == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "id, name, and expression are required",
-		})
+	var req CreateRuleRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	req.Name = strings.TrimSpace(req.Name)
+	req.Expression = strings.TrimSpace(req.Expression)
+
+	if !validateRuleRequest(w, &req) {
 		return
 	}
 
 	// Create rule config (global tenant)
 	ruleConfig := &domain.RuleConfig{
 		ID:          req.ID,
-		TenantID:    GlobalTenantID,
+		TenantID:    domain.GlobalTenantID,
 		Name:        req.Name,
 		Description: req.Description,
 		Version:     "1.0.0",
@@ -418,28 +468,85 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to repository (global tenant ID)
-	if h.repo != nil {
-		if err := h.repo.SaveRuleConfig(ctx, GlobalTenantID, ruleConfig); err != nil {
-			slog.Error("failed to save rule config", "id", ruleConfig.ID, "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{
-				"error": "failed to save rule",
-			})
-			return
-		}
+	if err := h.repo.SaveRuleConfig(ctx, domain.GlobalTenantID, ruleConfig); err != nil {
+		slog.Error("failed to save rule config", "id", ruleConfig.ID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to save rule",
+		})
+		return
 	}
+	loadedCount, err := h.reloadRulesFromRepository(ctx)
+	if err != nil {
+		slog.Error("failed to reload rule engine", "id", ruleConfig.ID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "rule saved but failed to reload engine: " + err.Error(),
+		})
+		return
+	}
+	slog.Info("rule engine reloaded after rule save", "count", loadedCount)
 
 	slog.Info("rule created", "id", ruleConfig.ID, "name", ruleConfig.Name)
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"rule":    ruleConfig,
-		"message": "Rule created. Call POST /rules/reload to apply changes.",
+		"message": "rule saved and loaded",
 	})
 }
 
-// GlobalTenantID is used for rules that apply to all tenants.
-const GlobalTenantID = "*"
+func validateRuleRequest(w http.ResponseWriter, req *CreateRuleRequest) bool {
+	if req.ID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "id is required",
+		})
+		return false
+	}
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "name is required",
+		})
+		return false
+	}
+	if req.Expression == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "expression is required",
+		})
+		return false
+	}
+	if req.Weight < 0 || req.Weight > 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "weight must be between 0 and 1",
+		})
+		return false
+	}
+
+	for i, band := range req.Bands {
+		req.Bands[i].SubRuleRef = strings.TrimSpace(band.SubRuleRef)
+		req.Bands[i].Reason = strings.TrimSpace(band.Reason)
+
+		if req.Bands[i].SubRuleRef == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "bands.subRuleRef is required",
+			})
+			return false
+		}
+		if req.Bands[i].Reason == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "bands.reason is required",
+			})
+			return false
+		}
+		if band.LowerLimit != nil && band.UpperLimit != nil && *band.LowerLimit >= *band.UpperLimit {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "bands.lowerLimit must be less than bands.upperLimit",
+			})
+			return false
+		}
+	}
+
+	return true
+}
 
 // ReloadRules reloads all rules from the database into the engine.
-// This enables hot-reloading without server restart.
+// CreateRule already reloads automatically; this endpoint is for manual recovery.
 func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -450,18 +557,8 @@ func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load rules from database (global rules)
-	dbRules, err := h.repo.ListRuleConfigs(ctx, GlobalTenantID)
+	loadedCount, err := h.reloadRulesFromRepository(ctx)
 	if err != nil {
-		slog.Error("failed to list rules from database", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "failed to load rules from database",
-		})
-		return
-	}
-
-	// Reload into engine
-	if err := h.engine.ReloadRules(dbRules); err != nil {
 		slog.Error("failed to reload rules into engine", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "failed to reload rules: " + err.Error(),
@@ -469,17 +566,85 @@ func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("rules reloaded from database", "count", len(dbRules))
+	slog.Info("rules reloaded from database", "count", loadedCount)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "rules reloaded successfully",
-		"count":   len(dbRules),
+		"count":   loadedCount,
 	})
+}
+
+func (h *Handler) reloadRulesFromRepository(ctx context.Context) (int, error) {
+	dbRules, err := h.repo.ListRuleConfigs(ctx, domain.GlobalTenantID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load rules from database: %w", err)
+	}
+	if err := h.engine.ReloadRules(dbRules); err != nil {
+		return 0, err
+	}
+	return len(dbRules), nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) requireRepository(w http.ResponseWriter) bool {
+	if h.repo != nil {
+		return true
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+		"error": "repository not available",
+	})
+	return false
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(dst); err != nil {
+		writeJSONDecodeError(w, err)
+		return false
+	}
+
+	var extra struct{}
+	if err := decoder.Decode(&extra); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		writeJSONDecodeError(w, err)
+		return false
+	}
+
+	writeJSON(w, http.StatusBadRequest, map[string]string{
+		"error": "request body must contain a single JSON object",
+	})
+	return false
+}
+
+func writeJSONDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+			"error": "request body too large",
+		})
+		return
+	}
+
+	if errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "request body is required",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusBadRequest, map[string]string{
+		"error": "invalid JSON request body: " + err.Error(),
+	})
 }
 
 func (h *Handler) hasLoadedTypologies() bool {
@@ -500,7 +665,7 @@ type CreateTypologyRequest struct {
 	Enabled        bool                        `json:"enabled"`
 }
 
-// ListTypologies returns all loaded typologies.
+// ListTypologies returns the typologies currently active in the typology engine.
 func (h *Handler) ListTypologies(w http.ResponseWriter, r *http.Request) {
 	if h.typologyEngine == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -514,11 +679,11 @@ func (h *Handler) ListTypologies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"typologies": typologies,
 		"count":      len(typologies),
-		"source":     "database",
+		"source":     "active-engine",
 	})
 }
 
-// GetTypology retrieves a typology by ID.
+// GetTypology retrieves an active typology by ID from the typology engine.
 func (h *Handler) GetTypology(w http.ResponseWriter, r *http.Request) {
 	typologyID := chi.URLParam(r, "id")
 
@@ -536,7 +701,6 @@ func (h *Handler) GetTypology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check typologies loaded in the engine
 	for _, t := range h.typologyEngine.GetLoadedTypologies() {
 		if t.ID == typologyID {
 			writeJSON(w, http.StatusOK, t)
@@ -553,79 +717,25 @@ func (h *Handler) GetTypology(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	if !h.requireRepository(w) {
+		return
+	}
+
 	var req CreateTypologyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid JSON request body",
-		})
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
+	req.ID = strings.TrimSpace(req.ID)
+	req.Name = strings.TrimSpace(req.Name)
 
-	// Validate required fields
-	if req.ID == "" || req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "id and name are required",
-		})
-		return
-	}
-
-	if len(req.Rules) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "at least one rule is required",
-		})
-		return
-	}
-
-	// Validate rules exist in engine and weights are valid
-	loadedRules := h.engine.GetLoadedRules()
-	ruleIDSet := make(map[string]bool, len(loadedRules))
-	for _, r := range loadedRules {
-		ruleIDSet[r.ID] = true
-	}
-
-	var totalWeight float64
-	for _, rule := range req.Rules {
-		if rule.RuleID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "rule_id cannot be empty",
-			})
-			return
-		}
-		if !ruleIDSet[rule.RuleID] {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("rule_id '%s' does not exist in rule engine", rule.RuleID),
-			})
-			return
-		}
-		if rule.Weight < 0 || rule.Weight > 1 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "rule weight must be between 0 and 1",
-			})
-			return
-		}
-		totalWeight += rule.Weight
-	}
-
-	// Warn if weights don't sum to approximately 1.0 (allow 0.01 tolerance)
-	if totalWeight < 0.99 || totalWeight > 1.01 {
-		slog.Warn("typology weights do not sum to 1.0",
-			"typology_id", req.ID,
-			"total_weight", totalWeight,
-		)
-	}
-
-	// Validate threshold - must be > 0 to avoid triggering on every transaction
-	if req.AlertThreshold <= 0 || req.AlertThreshold > 1 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "alertThreshold must be between 0 (exclusive) and 1",
-		})
+	if !h.validateTypologyRequest(w, &req, true) {
 		return
 	}
 
 	// Create typology config (global tenant)
 	typology := &domain.Typology{
 		ID:             req.ID,
-		TenantID:       GlobalTenantID,
+		TenantID:       domain.GlobalTenantID,
 		Name:           req.Name,
 		Description:    req.Description,
 		Version:        "1.0.0",
@@ -635,20 +745,27 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to repository
-	if h.repo != nil {
-		if err := h.repo.SaveTypology(ctx, GlobalTenantID, typology); err != nil {
-			slog.Error("failed to save typology", "id", typology.ID, "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{
-				"error": "failed to save typology",
-			})
-			return
-		}
+	if err := h.repo.SaveTypology(ctx, domain.GlobalTenantID, typology); err != nil {
+		slog.Error("failed to save typology", "id", typology.ID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to save typology",
+		})
+		return
 	}
+	loadedCount, err := h.reloadTypologiesFromRepository(ctx)
+	if err != nil {
+		slog.Error("failed to reload typology engine", "id", typology.ID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "typology saved but failed to reload engine: " + err.Error(),
+		})
+		return
+	}
+	slog.Info("typology engine reloaded after typology save", "count", loadedCount)
 
 	slog.Info("typology created", "id", typology.ID, "name", typology.Name)
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"typology": typology,
-		"message":  "Typology created. Call POST /typologies/reload to apply changes.",
+		"message":  "typology saved and loaded",
 	})
 }
 
@@ -656,6 +773,10 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	typologyID := chi.URLParam(r, "id")
+
+	if !h.requireRepository(w) {
+		return
+	}
 
 	if typologyID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -665,33 +786,19 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateTypologyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid JSON request body",
-		})
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 
-	// Validate rules
-	for _, rule := range req.Rules {
-		if rule.RuleID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "rule_id cannot be empty",
-			})
-			return
-		}
-		if rule.Weight < 0 || rule.Weight > 1 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "rule weight must be between 0 and 1",
-			})
-			return
-		}
+	if !h.validateTypologyRequest(w, &req, false) {
+		return
 	}
 
 	// Update typology
 	typology := &domain.Typology{
 		ID:             typologyID,
-		TenantID:       GlobalTenantID,
+		TenantID:       domain.GlobalTenantID,
 		Name:           req.Name,
 		Description:    req.Description,
 		Version:        "1.0.0",
@@ -700,27 +807,109 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 		Enabled:        req.Enabled,
 	}
 
-	if h.repo != nil {
-		if err := h.repo.SaveTypology(ctx, GlobalTenantID, typology); err != nil {
-			slog.Error("failed to update typology", "id", typologyID, "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{
-				"error": "failed to update typology",
-			})
-			return
-		}
+	if err := h.repo.SaveTypology(ctx, domain.GlobalTenantID, typology); err != nil {
+		slog.Error("failed to update typology", "id", typologyID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to update typology",
+		})
+		return
 	}
+	loadedCount, err := h.reloadTypologiesFromRepository(ctx)
+	if err != nil {
+		slog.Error("failed to reload typology engine", "id", typologyID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "typology updated but failed to reload engine: " + err.Error(),
+		})
+		return
+	}
+	slog.Info("typology engine reloaded after typology update", "count", loadedCount)
 
 	slog.Info("typology updated", "id", typologyID)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"typology": typology,
-		"message":  "Typology updated. Call POST /typologies/reload to apply changes.",
+		"message":  "typology updated and loaded",
 	})
+}
+
+func (h *Handler) validateTypologyRequest(w http.ResponseWriter, req *CreateTypologyRequest, requireID bool) bool {
+	if requireID && req.ID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "id is required",
+		})
+		return false
+	}
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "name is required",
+		})
+		return false
+	}
+	if len(req.Rules) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "at least one rule is required",
+		})
+		return false
+	}
+
+	ruleIDSet := make(map[string]bool)
+	if h.engine != nil {
+		loadedRules := h.engine.GetLoadedRules()
+		ruleIDSet = make(map[string]bool, len(loadedRules))
+		for _, r := range loadedRules {
+			ruleIDSet[r.ID] = true
+		}
+	}
+
+	var totalWeight float64
+	for i, rule := range req.Rules {
+		ruleID := strings.TrimSpace(rule.RuleID)
+		if ruleID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "ruleId cannot be empty",
+			})
+			return false
+		}
+		if !ruleIDSet[ruleID] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("ruleId %q does not exist in rule engine", ruleID),
+			})
+			return false
+		}
+		req.Rules[i].RuleID = ruleID
+		if rule.Weight < 0 || rule.Weight > 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "rule weight must be between 0 and 1",
+			})
+			return false
+		}
+		totalWeight += rule.Weight
+	}
+
+	if totalWeight < 0.99 || totalWeight > 1.01 {
+		slog.Warn("typology weights do not sum to 1.0",
+			"typology_id", req.ID,
+			"total_weight", totalWeight,
+		)
+	}
+
+	if req.AlertThreshold <= 0 || req.AlertThreshold > 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "alertThreshold must be between 0 (exclusive) and 1",
+		})
+		return false
+	}
+
+	return true
 }
 
 // DeleteTypology deletes a typology and auto-reloads the engine.
 func (h *Handler) DeleteTypology(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	typologyID := chi.URLParam(r, "id")
+
+	if !h.requireRepository(w) {
+		return
+	}
 
 	if typologyID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -729,26 +918,29 @@ func (h *Handler) DeleteTypology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.repo != nil {
-		if err := h.repo.DeleteTypology(ctx, GlobalTenantID, typologyID); err != nil {
-			slog.Error("failed to delete typology", "id", typologyID, "error", err)
-			writeJSON(w, http.StatusNotFound, map[string]string{
-				"error": "typology not found",
-			})
-			return
-		}
-
-		// Auto-reload typology engine after delete
-		if h.typologyEngine != nil {
-			dbTypologies, err := h.repo.ListTypologies(ctx, GlobalTenantID)
-			if err != nil {
-				slog.Error("failed to reload typologies after delete", "error", err)
-			} else {
-				h.typologyEngine.ReloadTypologies(dbTypologies)
-				slog.Info("typologies auto-reloaded after delete", "count", len(dbTypologies))
-			}
-		}
+	if err := h.repo.DeleteTypology(ctx, domain.GlobalTenantID, typologyID); errors.Is(err, repository.ErrNotFound) {
+		slog.Error("failed to delete typology", "id", typologyID, "error", err)
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "typology not found",
+		})
+		return
+	} else if err != nil {
+		slog.Error("failed to delete typology", "id", typologyID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to delete typology",
+		})
+		return
 	}
+
+	loadedCount, err := h.reloadTypologiesFromRepository(ctx)
+	if err != nil {
+		slog.Error("failed to reload typologies after delete", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "typology deleted but failed to reload engine: " + err.Error(),
+		})
+		return
+	}
+	slog.Info("typologies reloaded after delete", "count", loadedCount)
 
 	slog.Info("typology deleted", "id", typologyID)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -774,22 +966,30 @@ func (h *Handler) ReloadTypologies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load typologies from database (global)
-	dbTypologies, err := h.repo.ListTypologies(ctx, GlobalTenantID)
+	loadedCount, err := h.reloadTypologiesFromRepository(ctx)
 	if err != nil {
-		slog.Error("failed to list typologies from database", "error", err)
+		slog.Error("failed to reload typologies into engine", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "failed to load typologies from database",
+			"error": "failed to reload typologies: " + err.Error(),
 		})
 		return
 	}
 
-	// Reload into engine
-	h.typologyEngine.ReloadTypologies(dbTypologies)
-
-	slog.Info("typologies reloaded from database", "count", len(dbTypologies))
+	slog.Info("typologies reloaded from database", "count", loadedCount)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "typologies reloaded successfully",
-		"count":   len(dbTypologies),
+		"count":   loadedCount,
 	})
+}
+
+func (h *Handler) reloadTypologiesFromRepository(ctx context.Context) (int, error) {
+	if h.typologyEngine == nil {
+		return 0, fmt.Errorf("typology engine not available")
+	}
+	dbTypologies, err := h.repo.ListTypologies(ctx, domain.GlobalTenantID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load typologies from database: %w", err)
+	}
+	h.typologyEngine.ReloadTypologies(dbTypologies)
+	return len(dbTypologies), nil
 }

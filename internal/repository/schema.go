@@ -5,7 +5,7 @@ package repository
 
 const schemaTransactions = `
 CREATE TABLE IF NOT EXISTS transactions (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     type TEXT NOT NULL,
     debtor_id TEXT NOT NULL,
@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     timestamp TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL,
     metadata TEXT,
-    original_message BLOB
+    original_message BLOB,
+    PRIMARY KEY (id, tenant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_tenant ON transactions(tenant_id);

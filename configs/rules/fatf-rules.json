@@ -1,6 +1,6 @@
 {
   "_description": "FATF-aligned AML/CFT detection rules based on public FATF guidance",
-  "_source": "https://www.fatf-gafi.org/en/topics/methods-and-trends.html",
+  "_source": "https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Fatf-recommendations.html",
   "_version": "1.0.0",
   "rules": [
     {

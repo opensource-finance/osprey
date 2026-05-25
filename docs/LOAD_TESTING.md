@@ -25,13 +25,13 @@ This gives you production-like infrastructure locally:
 
 ```bash
 # Start the full stack (PostgreSQL, Redis, NATS, Osprey)
-docker-compose up -d
+OSPREY_ADMIN_TOKEN=local-admin-token docker-compose up -d
 
 # Wait for healthy
 curl http://localhost:8080/health
 
 # Seed rules
-./scripts/seed-rules.sh
+OSPREY_ADMIN_TOKEN=local-admin-token ./scripts/seed-rules.sh
 
 # Run load test
 k6 run k6/production-load-test.js
@@ -43,7 +43,7 @@ docker-compose down
 ### Option 2: One-Command Test
 
 ```bash
-./scripts/load-test.sh docker
+OSPREY_ADMIN_TOKEN=local-admin-token ./scripts/load-test.sh docker
 ```
 
 ### Option 3: Test Remote Server

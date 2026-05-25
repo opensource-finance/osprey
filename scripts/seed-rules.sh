@@ -14,6 +14,12 @@ set -e
 
 BASE_URL="${OSPREY_URL:-http://localhost:8080}"
 TENANT_ID="${OSPREY_TENANT:-default}"
+ADMIN_HEADER=()
+if [ -z "${OSPREY_ADMIN_TOKEN:-}" ]; then
+  echo "ERROR: OSPREY_ADMIN_TOKEN is required for rule mutation endpoints" >&2
+  exit 1
+fi
+ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
 
 echo "Seeding rules to $BASE_URL (tenant: $TENANT_ID)..."
 echo ""
@@ -21,15 +27,16 @@ echo ""
 # Check if server is running
 if ! curl -s "$BASE_URL/health" > /dev/null 2>&1; then
   echo "ERROR: Server not reachable at $BASE_URL"
-  echo "Start the server first: go run ./cmd/osprey"
+  echo "Start the server first: OSPREY_ADMIN_TOKEN=replace-with-admin-token go run ./cmd/osprey"
   exit 1
 fi
 
 # Rule 1: High value transfer check (weight 0.3 - contributes to score)
 echo "Creating high-value-001..."
-curl -s -X POST "$BASE_URL/rules" \
+curl -fsS -X POST "$BASE_URL/rules" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: $TENANT_ID" \
+  "${ADMIN_HEADER[@]}" \
   -d '{
     "id": "high-value-001",
     "name": "High Value Transfer Check",
@@ -46,9 +53,10 @@ curl -s -X POST "$BASE_URL/rules" \
 # Rule 2: Same account check (weight 1.0 - CRITICAL, triggers .fail)
 # This rule alone must trigger ALRT when debtor_id == creditor_id
 echo "Creating same-account-001..."
-curl -s -X POST "$BASE_URL/rules" \
+curl -fsS -X POST "$BASE_URL/rules" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: $TENANT_ID" \
+  "${ADMIN_HEADER[@]}" \
   -d '{
     "id": "same-account-001",
     "name": "Same Account Transfer Check",
@@ -64,9 +72,10 @@ curl -s -X POST "$BASE_URL/rules" \
 
 # Rule 3: Amount check (weight 0.3 - basic validation)
 echo "Creating amount-check-001..."
-curl -s -X POST "$BASE_URL/rules" \
+curl -fsS -X POST "$BASE_URL/rules" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: $TENANT_ID" \
+  "${ADMIN_HEADER[@]}" \
   -d '{
     "id": "amount-check-001",
     "name": "Amount Validation",
@@ -81,12 +90,7 @@ curl -s -X POST "$BASE_URL/rules" \
   }' | jq -r '.message // .error // .'
 
 echo ""
-echo "Reloading rules into engine..."
-curl -s -X POST "$BASE_URL/rules/reload" \
-  -H "X-Tenant-ID: $TENANT_ID" | jq -r '.message // .error // .'
-
-echo ""
-echo "Verifying loaded rules:"
+echo "Verifying active rules:"
 curl -s "$BASE_URL/rules" \
   -H "X-Tenant-ID: $TENANT_ID" | jq '{count: .count, rules: [.rules[] | {id, weight, enabled}]}'
 

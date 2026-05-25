@@ -43,10 +43,12 @@ curl -X POST http://localhost:8080/evaluate \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: demo" \
   -d '{
+    "id": "client-tx-001",
     "type": "transfer",
     "debtor": {"id": "user-123", "accountId": "acc-456"},
     "creditor": {"id": "user-789", "accountId": "acc-012"},
-    "amount": {"value": 1000, "currency": "USD"}
+    "amount": {"value": 1000, "currency": "USD"},
+    "timestamp": "2026-05-25T09:15:30Z"
   }'
 ```
 
@@ -55,6 +57,8 @@ curl -X POST http://localhost:8080/evaluate \
 Osprey includes pre-built rules and typologies based on public FATF guidance:
 
 ```bash
+export OSPREY_ADMIN_TOKEN=replace-with-admin-token
+
 # Load FATF-aligned rules (Detection mode)
 ./scripts/seed-starter-kit.sh
 
@@ -63,6 +67,43 @@ Osprey includes pre-built rules and typologies based on public FATF guidance:
 ```
 
 See [docs/STARTER_KIT.md](docs/STARTER_KIT.md) for complete rule/typology lists.
+
+## Sandbox Deployment
+
+For customer sandbox usage, deploy the Dockerfile behind:
+
+```text
+https://sandbox.osprey.opensource.finance
+```
+
+Start with the community profile unless the sandbox explicitly needs PostgreSQL, Redis, and NATS:
+
+```env
+OSPREY_MODE=detection
+OSPREY_TIER=community
+OSPREY_DB_DRIVER=sqlite
+OSPREY_SQLITE_PATH=/app/data/osprey.db
+OSPREY_ADMIN_TOKEN=replace-with-strong-random-token
+```
+
+Mount `/app/data` as persistent storage for the sandbox SQLite database. After deployment, verify the public endpoint before sharing it:
+
+```bash
+VERSION=sandbox-YYYYMMDD \
+./scripts/assure-sandbox.sh
+
+OSPREY_URL=https://sandbox.osprey.opensource.finance \
+TENANT_ID=demo-client \
+OSPREY_ADMIN_TOKEN=replace-with-admin-token \
+EXPECTED_STATUS=healthy \
+EXPECTED_MODE=detection \
+EXPECTED_VERSION=sandbox-YYYYMMDD \
+./scripts/verify-sandbox.sh
+```
+
+Customer quickstart lives in [docs/CUSTOMER_QUICKSTART.md](docs/CUSTOMER_QUICKSTART.md). Full API usage and response examples live in [docs/SANDBOX.md](docs/SANDBOX.md). Rule and typology authoring lives in [docs/RULE_TYPOLOGY_AUTHORING.md](docs/RULE_TYPOLOGY_AUTHORING.md). Assurance evidence lives in [docs/ASSURANCE.md](docs/ASSURANCE.md), and the sandbox OpenAPI contract is [docs/api/openapi.yaml](docs/api/openapi.yaml).
+
+The `Sandbox Assurance` GitHub Actions workflow runs the same pre-deploy gate on pull requests and pushes to `main`.
 
 ## Evaluation Modes
 
@@ -148,9 +189,12 @@ go test ./...
 | `OSPREY_TIER` | `community` | Runtime profile: `community` or `pro` |
 | `OSPREY_DEBUG` | `false` | Enable debug logging |
 | `OSPREY_PORT` | `8080` | HTTP server port |
+| `OSPREY_ADMIN_TOKEN` | required | Bearer token required for rule/typology mutation endpoints |
 | `OSPREY_DB_DRIVER` | `sqlite` | Database: `sqlite`, `postgres` |
+| `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite database file path |
 | `OSPREY_CACHE_TYPE` | `memory` | Cache: `memory`, `redis` |
 | `OSPREY_BUS_TYPE` | `channel` | Event bus: `channel`, `nats` |
+| `OSPREY_TENANTS` | unset | Optional comma-separated tenants for async worker subscriptions |
 
 ## API Endpoints
 
@@ -160,20 +204,24 @@ go test ./...
 |--------|----------|-------------|
 | POST | `/evaluate` | Evaluate a transaction |
 | GET | `/rules` | List loaded rules |
-| POST | `/rules` | Create a rule (stored, requires reload to apply) |
-| POST | `/rules/reload` | Reload rules from database |
+| POST | `/rules` | Create or update a rule and load it into the active engine |
+| POST | `/rules/reload` | Reload rules from database manually |
 | GET | `/health` | Health status |
 | GET | `/ready` | Readiness status |
+
+`POST /evaluate` accepts optional `id` and RFC3339 `timestamp` fields. If omitted, Osprey generates the transaction ID and uses the server receive time.
 
 ### Typology Management
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/typologies` | List loaded typologies |
-| POST | `/typologies` | Create a typology |
-| PUT | `/typologies/{id}` | Update a typology |
+| POST | `/typologies` | Create a typology and load it into the active engine |
+| PUT | `/typologies/{id}` | Update a typology and load it into the active engine |
 | DELETE | `/typologies/{id}` | Delete a typology |
-| POST | `/typologies/reload` | Reload typologies from database |
+| POST | `/typologies/reload` | Reload typologies from database manually |
+
+Mutation endpoints require either `Authorization: Bearer <token>` or `X-Osprey-Admin-Token: <token>`. Osprey refuses to start without `OSPREY_ADMIN_TOKEN`; evaluation and read endpoints only require `X-Tenant-ID`.
 
 ## License
 

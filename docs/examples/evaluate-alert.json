@@ -1,0 +1,17 @@
+{
+  "id": "sandbox-alert-example",
+  "type": "TRANSFER",
+  "debtor": {
+    "id": "customer-alert",
+    "accountId": "acct-alert-a"
+  },
+  "creditor": {
+    "id": "customer-alert",
+    "accountId": "acct-alert-b"
+  },
+  "amount": {
+    "value": 125,
+    "currency": "USD"
+  },
+  "timestamp": "2026-05-25T09:16:30Z"
+}

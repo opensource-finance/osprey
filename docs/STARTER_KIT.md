@@ -6,13 +6,14 @@ Osprey includes pre-built rules and typologies based on public FATF (Financial A
 
 ```bash
 # Start Osprey
+export OSPREY_ADMIN_TOKEN=local-admin-token
 go run ./cmd/osprey
 
 # Load FATF-aligned rules (Detection mode)
 ./scripts/seed-starter-kit.sh
 
 # Or load with typologies (Compliance mode)
-OSPREY_MODE=compliance go run ./cmd/osprey &
+OSPREY_MODE=compliance OSPREY_ADMIN_TOKEN=local-admin-token go run ./cmd/osprey &
 ./scripts/seed-starter-kit.sh --compliance
 ```
 
@@ -68,9 +69,8 @@ Typologies are for **Compliance mode** only. They combine multiple rules to dete
 
 All rules and typologies are based on publicly available guidance:
 
-- **FATF Recommendations**: https://www.fatf-gafi.org/en/publications/Fatfrecommendations.html
+- **FATF Recommendations**: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Fatf-recommendations.html
 - **FATF Methods and Trends**: https://www.fatf-gafi.org/en/topics/methods-and-trends.html
-- **Trade-Based ML Indicators**: https://www.fatf-gafi.org/en/publications/Methodsandtrends/Trade-based-money-laundering-indicators.html
 - **PaySim Dataset**: Lopez-Rojas et al., "PaySim: A financial mobile money simulator for fraud detection" (2016)
 
 ## Usage Examples
@@ -79,6 +79,7 @@ All rules and typologies are based on publicly available guidance:
 
 ```bash
 # Start server
+export OSPREY_ADMIN_TOKEN=local-admin-token
 go run ./cmd/osprey
 
 # Load FATF rules
@@ -89,10 +90,12 @@ curl -X POST http://localhost:8080/evaluate \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: default" \
   -d '{
+    "id": "starter-tx-001",
     "type": "TRANSFER",
     "debtor": {"id": "user1", "accountId": "acc1"},
     "creditor": {"id": "user2", "accountId": "acc2"},
-    "amount": {"value": 9500, "currency": "USD"}
+    "amount": {"value": 9500, "currency": "USD"},
+    "timestamp": "2026-05-25T09:15:30Z"
   }'
 
 # Response: score based on weighted rule results
@@ -102,7 +105,8 @@ curl -X POST http://localhost:8080/evaluate \
 
 ```bash
 # Start server in Compliance mode
-OSPREY_MODE=compliance go run ./cmd/osprey
+export OSPREY_ADMIN_TOKEN=local-admin-token
+OSPREY_MODE=compliance go run ./cmd/osprey &
 
 # Load FATF rules AND typologies
 ./scripts/seed-starter-kit.sh --compliance
@@ -143,6 +147,7 @@ curl -X POST http://localhost:8080/evaluate \
 curl -X POST http://localhost:8080/rules \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: default" \
+  -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
   -d '{
     "id": "my-custom-rule",
     "name": "Custom Rule",
@@ -156,8 +161,7 @@ curl -X POST http://localhost:8080/rules \
     ]
   }'
 
-# Reload to apply
-curl -X POST http://localhost:8080/rules/reload -H "X-Tenant-ID: default"
+# Rule saves apply immediately. Use /rules/reload only for manual recovery.
 ```
 
 ### CEL Expression Reference

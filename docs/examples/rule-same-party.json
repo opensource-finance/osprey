@@ -1,0 +1,21 @@
+{
+  "id": "sandbox-verification-same-party",
+  "name": "Sandbox Verification Same Party",
+  "description": "Deterministic verification rule for sandbox readiness checks.",
+  "expression": "debtor_id == creditor_id",
+  "weight": 1,
+  "enabled": true,
+  "bands": [
+    {
+      "lowerLimit": 1,
+      "subRuleRef": ".fail",
+      "reason": "Same party transfer detected"
+    },
+    {
+      "lowerLimit": 0,
+      "upperLimit": 1,
+      "subRuleRef": ".pass",
+      "reason": "Different parties"
+    }
+  ]
+}

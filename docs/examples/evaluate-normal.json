@@ -1,0 +1,17 @@
+{
+  "id": "sandbox-normal-example",
+  "type": "TRANSFER",
+  "debtor": {
+    "id": "customer-a",
+    "accountId": "acct-a"
+  },
+  "creditor": {
+    "id": "merchant-b",
+    "accountId": "acct-b"
+  },
+  "amount": {
+    "value": 125,
+    "currency": "USD"
+  },
+  "timestamp": "2026-05-25T09:15:30Z"
+}

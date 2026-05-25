@@ -7,14 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
 var (
-	ErrNotFound     = errors.New("record not found")
-	ErrInvalidInput = errors.New("invalid input")
+	ErrNotFound             = errors.New("record not found")
+	ErrInvalidInput         = errors.New("invalid input")
+	ErrDuplicateTransaction = errors.New("transaction id already exists")
 )
 
 // SQLRepository implements domain.Repository using database/sql.
@@ -73,7 +75,102 @@ func (r *SQLRepository) migrate() error {
 			return err
 		}
 	}
+	if r.driver == "sqlite" {
+		if err := r.migrateSQLiteTransactionsPrimaryKey(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (r *SQLRepository) migrateSQLiteTransactionsPrimaryKey() error {
+	rows, err := r.db.Query(`PRAGMA table_info(transactions)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	primaryKey := make(map[string]int)
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			columnTyp string
+			notNull   int
+			defaultV  sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &columnTyp, &notNull, &defaultV, &pk); err != nil {
+			return err
+		}
+		primaryKey[name] = pk
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(primaryKey) == 0 {
+		return errors.New("transactions table schema is missing")
+	}
+	if primaryKey["id"] > 0 && primaryKey["tenant_id"] > 0 {
+		return nil
+	}
+	if primaryKey["id"] == 0 {
+		return fmt.Errorf("unexpected transactions primary key schema: id is not a primary key column")
+	}
+	if primaryKey["tenant_id"] > 0 {
+		return fmt.Errorf("unexpected transactions primary key schema: tenant_id is primary key but id/tenant_id composite key is incomplete")
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	statements := []string{
+		`DROP TABLE IF EXISTS transactions_legacy_migration`,
+		`ALTER TABLE transactions RENAME TO transactions_legacy_migration`,
+		`CREATE TABLE transactions (
+			id TEXT NOT NULL,
+			tenant_id TEXT NOT NULL,
+			type TEXT NOT NULL,
+			debtor_id TEXT NOT NULL,
+			debtor_account_id TEXT NOT NULL,
+			creditor_id TEXT NOT NULL,
+			creditor_account_id TEXT NOT NULL,
+			amount REAL NOT NULL,
+			currency TEXT NOT NULL,
+			timestamp TIMESTAMP NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			metadata TEXT,
+			original_message BLOB,
+			PRIMARY KEY (id, tenant_id)
+		)`,
+		`INSERT INTO transactions (
+			id, tenant_id, type, debtor_id, debtor_account_id,
+			creditor_id, creditor_account_id, amount, currency,
+			timestamp, created_at, metadata, original_message
+		)
+		SELECT
+			id, tenant_id, type, debtor_id, debtor_account_id,
+			creditor_id, creditor_account_id, amount, currency,
+			timestamp, created_at, metadata, original_message
+		FROM transactions_legacy_migration`,
+		`DROP TABLE transactions_legacy_migration`,
+	}
+
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	_, err = r.db.Exec(schemaTransactions)
+	return err
 }
 
 // SaveTransaction stores a transaction with tenant isolation.
@@ -82,7 +179,10 @@ func (r *SQLRepository) SaveTransaction(ctx context.Context, tenantID string, tx
 		return fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
 	}
 
-	metadata, _ := json.Marshal(tx.Metadata)
+	metadata, err := json.Marshal(tx.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to encode transaction metadata: %w", err)
+	}
 
 	query := `
 		INSERT INTO transactions (
@@ -92,7 +192,7 @@ func (r *SQLRepository) SaveTransaction(ctx context.Context, tenantID string, tx
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err = r.db.ExecContext(ctx, r.rebind(query),
 		tx.ID, tenantID, tx.Type,
 		tx.DebtorID, tx.DebtorAccountID,
 		tx.CreditorID, tx.CreditorAcctID,
@@ -100,7 +200,24 @@ func (r *SQLRepository) SaveTransaction(ctx context.Context, tenantID string, tx
 		tx.Timestamp, tx.CreatedAt,
 		string(metadata), tx.OriginalMessage,
 	)
+	if isDuplicateTransactionError(err) {
+		return ErrDuplicateTransaction
+	}
 	return err
+}
+
+func isDuplicateTransactionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := err.Error()
+	if strings.Contains(message, "UNIQUE constraint failed: transactions.id, transactions.tenant_id") ||
+		strings.Contains(message, "duplicate key value violates unique constraint") {
+		return true
+	}
+
+	return false
 }
 
 // GetTransaction retrieves a transaction by ID with tenant isolation.
@@ -137,7 +254,9 @@ func (r *SQLRepository) GetTransaction(ctx context.Context, tenantID string, txI
 	}
 
 	if metadata != "" {
-		json.Unmarshal([]byte(metadata), &tx.Metadata)
+		if err := json.Unmarshal([]byte(metadata), &tx.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to parse transaction metadata for %s: %w", tx.ID, err)
+		}
 	}
 
 	return &tx, nil
@@ -148,6 +267,7 @@ func (r *SQLRepository) GetTransactionsByEntity(ctx context.Context, tenantID st
 	if tenantID == "" {
 		return nil, fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
 	}
+	since = since.UTC()
 
 	query := `
 		SELECT id, tenant_id, type, debtor_id, debtor_account_id,
@@ -183,7 +303,9 @@ func (r *SQLRepository) GetTransactionsByEntity(ctx context.Context, tenantID st
 		}
 
 		if metadata != "" {
-			json.Unmarshal([]byte(metadata), &tx.Metadata)
+			if err := json.Unmarshal([]byte(metadata), &tx.Metadata); err != nil {
+				return nil, fmt.Errorf("failed to parse transaction metadata for %s: %w", tx.ID, err)
+			}
 		}
 
 		transactions = append(transactions, &tx)
@@ -198,7 +320,10 @@ func (r *SQLRepository) SaveRuleConfig(ctx context.Context, tenantID string, rul
 		return fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
 	}
 
-	bands, _ := json.Marshal(rule.Bands)
+	bands, err := json.Marshal(rule.Bands)
+	if err != nil {
+		return fmt.Errorf("failed to encode rule bands: %w", err)
+	}
 
 	enabled := 0
 	if rule.Enabled {
@@ -221,7 +346,7 @@ func (r *SQLRepository) SaveRuleConfig(ctx context.Context, tenantID string, rul
 			updated_at = excluded.updated_at
 	`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err = r.db.ExecContext(ctx, r.rebind(query),
 		rule.ID, tenantID, rule.Name, rule.Description,
 		rule.Version, rule.Expression, string(bands), rule.Weight, enabled,
 		now, now,
@@ -260,7 +385,9 @@ func (r *SQLRepository) GetRuleConfig(ctx context.Context, tenantID string, rule
 	}
 
 	cfg.Enabled = enabled == 1
-	json.Unmarshal([]byte(bands), &cfg.Bands)
+	if err := decodeRuleBands(cfg.ID, bands, &cfg.Bands); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
 }
@@ -298,11 +425,20 @@ func (r *SQLRepository) ListRuleConfigs(ctx context.Context, tenantID string) ([
 		}
 
 		cfg.Enabled = enabled == 1
-		json.Unmarshal([]byte(bands), &cfg.Bands)
+		if err := decodeRuleBands(cfg.ID, bands, &cfg.Bands); err != nil {
+			return nil, err
+		}
 		configs = append(configs, &cfg)
 	}
 
 	return configs, rows.Err()
+}
+
+func decodeRuleBands(ruleID string, raw string, dst *[]domain.RuleBand) error {
+	if err := json.Unmarshal([]byte(raw), dst); err != nil {
+		return fmt.Errorf("failed to parse rule bands for %s: %w", ruleID, err)
+	}
+	return nil
 }
 
 // SaveEvaluation stores an evaluation result with tenant isolation.
@@ -311,9 +447,18 @@ func (r *SQLRepository) SaveEvaluation(ctx context.Context, tenantID string, eva
 		return fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
 	}
 
-	ruleResults, _ := json.Marshal(eval.RuleResults)
-	typologyResults, _ := json.Marshal(eval.TypologyResults)
-	metadata, _ := json.Marshal(eval.Metadata)
+	ruleResults, err := json.Marshal(eval.RuleResults)
+	if err != nil {
+		return fmt.Errorf("failed to encode evaluation rule results: %w", err)
+	}
+	typologyResults, err := json.Marshal(eval.TypologyResults)
+	if err != nil {
+		return fmt.Errorf("failed to encode evaluation typology results: %w", err)
+	}
+	metadata, err := json.Marshal(eval.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to encode evaluation metadata: %w", err)
+	}
 
 	query := `
 		INSERT INTO evaluations (
@@ -322,7 +467,7 @@ func (r *SQLRepository) SaveEvaluation(ctx context.Context, tenantID string, eva
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err = r.db.ExecContext(ctx, r.rebind(query),
 		eval.ID, tenantID, eval.TxID, eval.Status, eval.Score, eval.Timestamp,
 		string(ruleResults), string(typologyResults), string(metadata),
 	)
@@ -357,9 +502,15 @@ func (r *SQLRepository) GetEvaluation(ctx context.Context, tenantID string, eval
 		return nil, err
 	}
 
-	json.Unmarshal([]byte(ruleResults), &eval.RuleResults)
-	json.Unmarshal([]byte(typologyResults), &eval.TypologyResults)
-	json.Unmarshal([]byte(metadata), &eval.Metadata)
+	if err := json.Unmarshal([]byte(ruleResults), &eval.RuleResults); err != nil {
+		return nil, fmt.Errorf("failed to parse evaluation rule results for %s: %w", eval.ID, err)
+	}
+	if err := json.Unmarshal([]byte(typologyResults), &eval.TypologyResults); err != nil {
+		return nil, fmt.Errorf("failed to parse evaluation typology results for %s: %w", eval.ID, err)
+	}
+	if err := json.Unmarshal([]byte(metadata), &eval.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse evaluation metadata for %s: %w", eval.ID, err)
+	}
 
 	return &eval, nil
 }
@@ -370,7 +521,10 @@ func (r *SQLRepository) SaveTypology(ctx context.Context, tenantID string, typol
 		return fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
 	}
 
-	rules, _ := json.Marshal(typology.Rules)
+	rules, err := json.Marshal(typology.Rules)
+	if err != nil {
+		return fmt.Errorf("failed to encode typology rules: %w", err)
+	}
 
 	enabled := 0
 	if typology.Enabled {
@@ -392,7 +546,7 @@ func (r *SQLRepository) SaveTypology(ctx context.Context, tenantID string, typol
 			updated_at = excluded.updated_at
 	`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err = r.db.ExecContext(ctx, r.rebind(query),
 		typology.ID, tenantID, typology.Name, typology.Description,
 		typology.Version, string(rules), typology.AlertThreshold, enabled,
 		now, now,
