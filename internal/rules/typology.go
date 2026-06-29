@@ -97,9 +97,9 @@ func (e *TypologyEngine) EvaluateTypologies(ruleResults []domain.RuleResult) []d
 // evaluateTypology calculates the score for a single typology.
 func (e *TypologyEngine) evaluateTypology(typology *domain.Typology, ruleScores map[string]float64) domain.TypologyResult {
 	result := domain.TypologyResult{
-		TypologyID:   typology.ID,
-		TypologyName: typology.Name,
-		Threshold:    typology.AlertThreshold,
+		TypologyID:    typology.ID,
+		TypologyName:  typology.Name,
+		Threshold:     typology.AlertThreshold,
 		Contributions: make([]domain.RuleContribution, 0, len(typology.Rules)),
 	}
 
@@ -161,12 +161,4 @@ func (e *TypologyEngine) GetTriggeredTypologies(ruleResults []domain.RuleResult)
 		}
 	}
 	return triggered
-}
-
-// Close cleans up the engine.
-func (e *TypologyEngine) Close() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.typologies = make(map[string]*domain.Typology)
-	return nil
 }

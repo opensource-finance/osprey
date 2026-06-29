@@ -56,6 +56,9 @@ type TransactionRequest struct {
 	Amount    AmountInfo             `json:"amount"`
 	Timestamp string                 `json:"timestamp,omitempty"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	// Enrichment carries externally-computed scores/flags (ml_score, sanctions_hit,
+	// ring_risk, ...). Caller-asserted: Osprey does not verify these values.
+	Enrichment map[string]interface{} `json:"enrichment,omitempty"`
 }
 
 // PartyInfo represents a debtor or creditor.
@@ -167,6 +170,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Timestamp:       txTimestamp,
 		CreatedAt:       now,
 		Metadata:        req.Metadata,
+		Enrichment:      req.Enrichment,
 	}
 
 	// Save transaction if repository is available
@@ -200,6 +204,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Currency:       tx.Currency,
 		VelocityWindow: 3600, // Default 1 hour window
 		AdditionalData: tx.Metadata,
+		Enrichment:     tx.Enrichment,
 	}
 
 	// 2. Evaluate rules
@@ -379,6 +384,15 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tx)
 }
 
+// ListVariables returns the CEL variables available to rule expressions, from the
+// canonical rules.Catalog. Studio's rule builder reads this instead of hardcoding.
+func (h *Handler) ListVariables(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"variables": rules.Catalog,
+		"count":     len(rules.Catalog),
+	})
+}
+
 // ListRules returns the rules currently active in the evaluation engine.
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
 	loadedRules := h.engine.GetLoadedRules()
@@ -479,7 +493,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to reload rule engine", "id", ruleConfig.ID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "rule saved but failed to reload engine: " + err.Error(),
+			"error": "rule saved but engine reload failed; check server logs",
 		})
 		return
 	}
@@ -489,6 +503,137 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"rule":    ruleConfig,
 		"message": "rule saved and loaded",
+	})
+}
+
+// UpdateRule updates an existing rule by ID and reloads the engine.
+// Rules are stored globally (tenant_id = "*"); the URL id is authoritative.
+func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ruleID := strings.TrimSpace(chi.URLParam(r, "id"))
+
+	if !h.requireRepository(w) {
+		return
+	}
+	if ruleID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "rule id is required",
+		})
+		return
+	}
+
+	var req CreateRuleRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	req.ID = ruleID
+	req.Name = strings.TrimSpace(req.Name)
+	req.Expression = strings.TrimSpace(req.Expression)
+
+	if !validateRuleRequest(w, &req) {
+		return
+	}
+
+	ruleConfig := &domain.RuleConfig{
+		ID:          ruleID,
+		TenantID:    domain.GlobalTenantID,
+		Name:        req.Name,
+		Description: req.Description,
+		Version:     "1.0.0",
+		Expression:  req.Expression,
+		Bands:       req.Bands,
+		Weight:      req.Weight,
+		Enabled:     req.Enabled,
+	}
+
+	// Validate CEL expression without mutating loaded engine rules.
+	if err := h.engine.ValidateRule(ruleConfig); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid CEL expression: " + err.Error(),
+		})
+		return
+	}
+
+	if err := h.repo.SaveRuleConfig(ctx, domain.GlobalTenantID, ruleConfig); err != nil {
+		slog.Error("failed to update rule config", "id", ruleID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to update rule",
+		})
+		return
+	}
+	loadedCount, err := h.reloadRulesFromRepository(ctx)
+	if err != nil {
+		slog.Error("failed to reload rule engine", "id", ruleID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "rule updated but engine reload failed; check server logs",
+		})
+		return
+	}
+	slog.Info("rule engine reloaded after rule update", "count", loadedCount)
+
+	slog.Info("rule updated", "id", ruleID)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"rule":    ruleConfig,
+		"message": "rule updated and loaded",
+	})
+}
+
+// DeleteRule disables a rule and reloads the engine. A rule referenced by a
+// loaded typology cannot be deleted (409) so typology evaluation stays valid.
+func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ruleID := strings.TrimSpace(chi.URLParam(r, "id"))
+
+	if !h.requireRepository(w) {
+		return
+	}
+	if ruleID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "rule id is required",
+		})
+		return
+	}
+
+	// Referential integrity: refuse to delete a rule a loaded typology depends on.
+	if h.typologyEngine != nil {
+		for _, t := range h.typologyEngine.GetLoadedTypologies() {
+			for _, tr := range t.Rules {
+				if tr.RuleID == ruleID {
+					writeJSON(w, http.StatusConflict, map[string]string{
+						"error": fmt.Sprintf("rule %q is referenced by typology %q; remove it from the typology first", ruleID, t.ID),
+					})
+					return
+				}
+			}
+		}
+	}
+
+	if err := h.repo.DeleteRuleConfig(ctx, domain.GlobalTenantID, ruleID); errors.Is(err, repository.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "rule not found",
+		})
+		return
+	} else if err != nil {
+		slog.Error("failed to delete rule", "id", ruleID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to delete rule",
+		})
+		return
+	}
+
+	loadedCount, err := h.reloadRulesFromRepository(ctx)
+	if err != nil {
+		slog.Error("failed to reload rules after delete", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "rule deleted but engine reload failed; check server logs",
+		})
+		return
+	}
+	slog.Info("rules reloaded after delete", "count", loadedCount)
+
+	slog.Info("rule deleted", "id", ruleID)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "rule deleted and engine reloaded",
 	})
 }
 
@@ -561,7 +706,7 @@ func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to reload rules into engine", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "failed to reload rules: " + err.Error(),
+			"error": "failed to reload rules; check server logs",
 		})
 		return
 	}
@@ -756,7 +901,7 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to reload typology engine", "id", typology.ID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "typology saved but failed to reload engine: " + err.Error(),
+			"error": "typology saved but engine reload failed; check server logs",
 		})
 		return
 	}
@@ -818,7 +963,7 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to reload typology engine", "id", typologyID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "typology updated but failed to reload engine: " + err.Error(),
+			"error": "typology updated but engine reload failed; check server logs",
 		})
 		return
 	}
@@ -936,7 +1081,7 @@ func (h *Handler) DeleteTypology(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to reload typologies after delete", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "typology deleted but failed to reload engine: " + err.Error(),
+			"error": "typology deleted but engine reload failed; check server logs",
 		})
 		return
 	}
@@ -970,7 +1115,7 @@ func (h *Handler) ReloadTypologies(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to reload typologies into engine", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "failed to reload typologies: " + err.Error(),
+			"error": "failed to reload typologies; check server logs",
 		})
 		return
 	}

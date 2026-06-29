@@ -1,0 +1,105 @@
+<!-- @dsCard group="Components" viewport="700x440" name="Core — Buttons, Badges, Eyebrow" subtitle="Icons, brand illustrations & live micro-interactions" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="stylesheet" href="../../styles.css" />
+<style>
+  body { margin: 0; padding: 28px; background: var(--background); }
+  .lbl { font-size: var(--text-2xs); font-weight: 700; letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-muted); margin: 0 0 12px; }
+  .sec { margin-bottom: 26px; }
+  .sec:last-child { margin-bottom: 0; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  /* micro-interactions */
+  .demo button svg { transition: transform var(--dur-base) var(--ease-out); }
+  .demo .nudge:hover svg.arw { transform: translateX(4px); }
+  .demo .bob:hover svg { transform: translateY(-2px); }
+  .demo .spin:hover svg { transform: rotate(90deg); }
+  .badge-int { transition: transform var(--dur-base) var(--ease-out); }
+  .badge-int:hover { transform: translateY(-2px); }
+  .illrow { display: flex; gap: 12px; flex-wrap: wrap; }
+  .illchip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 10px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface-card); font-size: var(--text-sm); font-weight: 500; cursor: default; transition: border-color var(--dur-base), box-shadow var(--dur-base), transform var(--dur-base); }
+  .illchip:hover { border-color: color-mix(in oklch,var(--primary) 40%,transparent); box-shadow: var(--shadow-sm); transform: translateY(-2px); }
+  .illchip svg { width: 26px; height: 26px; color: var(--primary); fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .illchip svg [fill] { fill: currentColor; stroke: none; }
+</style>
+</head>
+<body>
+<div id="root" class="demo"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script type="text/babel">
+  const { Button, Badge, Eyebrow } = window.OpensourceFinanceOspreyDesignSystem_08d2ca;
+  const S = ({ d, w = 18, sw = 2, fill }) => (
+    <svg width={w} height={w} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: d }} />
+  );
+  const Arrow = () => <svg className="arw" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>;
+  const Download = () => <S d='<path d="M12 3v12M8 11l4 4 4-4M5 21h14"/>' />;
+  const GitHub = () => <S d='<path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.9a3.4 3.4 0 0 0-.9-2.6c3.1-.3 6.4-1.5 6.4-7A5.4 5.4 0 0 0 20 4.8 5 5 0 0 0 19.9 1S18.7.6 16 2.5a13.4 13.4 0 0 0-7 0C6.3.6 5.1 1 5.1 1A5 5 0 0 0 5 4.8a5.4 5.4 0 0 0-1.5 3.8c0 5.4 3.3 6.6 6.4 7A3.4 3.4 0 0 0 9 18.1V22"/>' sw={1.7} />;
+  const Refresh = () => <S d='<path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v5h-5"/>' />;
+  const ILL = {
+    osprey: '<path d="M24 4 L8 12 V23 C8 34 15 42 24 44 C33 42 40 34 40 23 V12 Z" opacity="0.35"/><path d="M24 15 V33"/><path d="M16.5 20 L31.5 28"/><path d="M16.5 28 L31.5 20"/><circle cx="24" cy="24" r="3" fill="currentColor"/>',
+    network: '<path d="M24 24 L10 15 M24 24 L38 15 M24 24 L13 37 M24 24 L35 37"/><circle cx="10" cy="14" r="3.4"/><circle cx="38" cy="14" r="3.4"/><circle cx="12" cy="38" r="3.4"/><circle cx="36" cy="38" r="3.4"/><circle cx="24" cy="24" r="3.4" fill="currentColor"/>',
+    balance: '<path d="M24 11 V39"/><path d="M17 40 H31"/><path d="M12 16 H36"/><circle cx="24" cy="11" r="2.4" fill="currentColor"/><path d="M12 16 L7 26 M12 16 L17 26 M7 26 A6 6 0 0 0 17 26"/><path d="M36 16 L31 26 M36 16 L41 26 M31 26 A6 6 0 0 0 41 26"/>',
+    verified: '<path d="M24 5 L9 11 V24 C9 33 15 41 24 44 C33 41 39 33 39 24 V11 Z"/><path d="M17 24 L22 29 L31.5 18.5"/>',
+  };
+  const Ill = ({ id }) => <svg viewBox="0 0 48 48" dangerouslySetInnerHTML={{ __html: ILL[id] }} />;
+  const Check = () => <S d='<path d="M20 6 9 17l-5-5"/>' sw={2.4} />;
+  const Trash = () => <S d='<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>' />;
+
+  function Demo() {
+    const [copied, setCopied] = React.useState(false);
+    return (
+      <div>
+        <div className="sec">
+          <p className="lbl">Buttons with icons</p>
+          <div className="row">
+            <Button className="bob"><Download /> Download binary</Button>
+            <Button variant="outline" className="nudge">View on GitHub <Arrow /></Button>
+            <Button variant="secondary" className="spin"><Refresh /> Reload rules</Button>
+            <Button variant="destructive"><Trash /> Delete</Button>
+          </div>
+        </div>
+
+        <div className="sec">
+          <p className="lbl">Micro-interaction — copy on click</p>
+          <div className="row">
+            <Button variant={copied ? "secondary" : "primary"} onClick={() => { setCopied(true); setTimeout(() => setCopied(false), 1600); }}>
+              {copied ? <><Check /> Copied</> : <><S d='<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>' /> Copy install command</>}
+            </Button>
+            <code style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", color: "var(--text-muted)", background: "var(--surface-sunken)", padding: "8px 14px", borderRadius: "var(--radius-sm)" }}>curl …/install.sh | sh</code>
+          </div>
+        </div>
+
+        <div className="sec">
+          <p className="lbl">Badges &amp; eyebrow</p>
+          <div className="row">
+            <span className="badge-int"><Badge variant="soft" live>Introducing Osprey</Badge></span>
+            <span className="badge-int"><Badge variant="success"><Check /> ALLOWED</Badge></span>
+            <span className="badge-int"><Badge variant="solid">Core</Badge></span>
+            <span className="badge-int"><Badge variant="neutral">Q4_K_M GGUF</Badge></span>
+            <span className="badge-int"><Badge variant="outline">Apache 2.0</Badge></span>
+            <Eyebrow tone="info">Active Interception</Eyebrow>
+          </div>
+        </div>
+
+        <div className="sec">
+          <p className="lbl">Brand illustrations in chips</p>
+          <div className="illrow">
+            {[["osprey", "Vigilance"], ["network", "Open network"], ["balance", "Compliance"], ["verified", "Verified"]].map(([id, t]) => (
+              <span className="illchip" key={id}>
+                <Ill id={id} />
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>

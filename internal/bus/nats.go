@@ -201,7 +201,11 @@ func (b *NATSBus) Request(ctx context.Context, tenantID string, topic string, pa
 	// Get timeout from context or use default
 	timeout := 30 * time.Second
 	if deadline, ok := ctx.Deadline(); ok {
-		timeout = time.Until(deadline)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, ctx.Err()
+		}
+		timeout = remaining
 	}
 
 	reply, err := b.conn.Request(subject, data, timeout)

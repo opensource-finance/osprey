@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/opensource-finance/osprey/internal/domain"
 	_ "github.com/lib/pq"
+	"github.com/opensource-finance/osprey/internal/domain"
 )
 
 // openPostgres opens a PostgreSQL database connection.

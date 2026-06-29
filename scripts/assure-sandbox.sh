@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the sandbox assurance gate before handing Osprey to a customer.
+# Run the sandbox assurance gate before publishing a shared Osprey URL.
 
 set -euo pipefail
 
@@ -218,7 +218,7 @@ ruby -e '
 errors = []
 markdown_files = ["README.md"] + Dir["docs/**/*.md"]
 markdown_files.each do |path|
-  text = File.read(path)
+  text = File.read(path, encoding: "UTF-8")
   text.scan(/!?\[[^\]]*\]\(([^)]+)\)/).each do |match|
     raw_target = match.first.strip
     target = raw_target.split(/\s+/, 2).first

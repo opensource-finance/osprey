@@ -15,10 +15,9 @@ import (
 
 // Server represents the HTTP API server.
 type Server struct {
-	router  *chi.Mux
-	handler *Handler
-	server  *http.Server
-	config  domain.ServerConfig
+	router *chi.Mux
+	server *http.Server
+	config domain.ServerConfig
 }
 
 // NewServer creates a new API server.
@@ -41,6 +40,7 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 	// API routes (tenant required)
 	router.Route("/", func(r chi.Router) {
 		r.Use(TenantMiddleware)
+		r.Use(RateLimitMiddleware(cfg.RateLimitRPS, cfg.RateLimitBurst)) // per-tenant; disabled when RPS <= 0
 
 		// Transaction evaluation
 		r.Post("/evaluate", handler.Evaluate)
@@ -53,10 +53,13 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 
 		// Rule management
 		r.Get("/rules", handler.ListRules)
+		r.Get("/rules/variables", handler.ListVariables) // static route before /rules/{id}
 		r.Get("/rules/{id}", handler.GetRule)
 		r.Group(func(r chi.Router) {
 			r.Use(AdminMiddleware(cfg.AdminToken))
 			r.Post("/rules", handler.CreateRule)
+			r.Put("/rules/{id}", handler.UpdateRule)
+			r.Delete("/rules/{id}", handler.DeleteRule)
 			r.Post("/rules/reload", handler.ReloadRules)
 		})
 
@@ -73,9 +76,8 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 	})
 
 	return &Server{
-		router:  router,
-		handler: handler,
-		config:  cfg,
+		router: router,
+		config: cfg,
 	}
 }
 
@@ -105,9 +107,4 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Router returns the Chi router for testing.
 func (s *Server) Router() *chi.Mux {
 	return s.router
-}
-
-// Handler returns the handler for testing.
-func (s *Server) Handler() *Handler {
-	return s.handler
 }

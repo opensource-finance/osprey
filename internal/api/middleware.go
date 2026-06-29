@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/time/rate"
 )
 
 // Context keys for tenant and trace propagation.
@@ -198,6 +200,66 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxRateLimitTenants bounds the number of per-tenant limiters held in memory
+// so an attacker sending many distinct X-Tenant-ID values cannot grow the map
+// without limit. When exceeded, the map is reset (buckets refill).
+const maxRateLimitTenants = 10000
+
+type rateLimiter struct {
+	limit    rate.Limit
+	burst    int
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+}
+
+func (rl *rateLimiter) get(tenantID string) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if len(rl.limiters) >= maxRateLimitTenants {
+		rl.limiters = make(map[string]*rate.Limiter)
+	}
+	l, ok := rl.limiters[tenantID]
+	if !ok {
+		l = rate.NewLimiter(rl.limit, rl.burst)
+		rl.limiters[tenantID] = l
+	}
+	return l
+}
+
+// RateLimitMiddleware applies a per-tenant token-bucket limit. A non-positive
+// rps disables limiting entirely (the middleware is a pass-through), so the
+// default deployment and load tests are unthrottled. Must run after
+// TenantMiddleware so the tenant ID is available on the context.
+func RateLimitMiddleware(rps float64, burst int) func(http.Handler) http.Handler {
+	if rps <= 0 {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	if burst <= 0 {
+		burst = max(int(rps), 1)
+	}
+	rl := &rateLimiter{
+		limit:    rate.Limit(rps),
+		burst:    burst,
+		limiters: make(map[string]*rate.Limiter),
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tenantID := GetTenantID(r.Context())
+			if tenantID == "" {
+				tenantID = strings.TrimSpace(r.Header.Get(TenantIDHeader))
+			}
+			if !rl.get(tenantID).Allow() {
+				w.Header().Set("Retry-After", "1")
+				writeJSON(w, http.StatusTooManyRequests, map[string]string{
+					"error": "rate limit exceeded; retry later",
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 type responseWriter struct {

@@ -8,6 +8,11 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
 
+# Populated automatically by BuildKit to the target platform; defaults keep
+# plain `docker build` producing a linux/amd64 binary.
+ARG TARGETOS
+ARG TARGETARCH
+
 WORKDIR /build
 
 # Install build dependencies
@@ -21,7 +26,7 @@ RUN go mod download
 COPY . .
 
 # Build with optimizations
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildDate=${BUILD_DATE}" \
     -trimpath \
     -o osprey \

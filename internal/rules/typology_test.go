@@ -47,48 +47,48 @@ func TestTypologyEngine_EvaluateTypologies(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		ruleResults        []domain.RuleResult
+		name                string
+		ruleResults         []domain.RuleResult
 		wantAccountTakeover bool
-		wantStructuring    bool
+		wantStructuring     bool
 	}{
 		{
 			name: "Account takeover triggers - all rules fire",
 			ruleResults: []domain.RuleResult{
 				{RuleID: "account-drain-001", Score: 1.0},  // 0.4
-				{RuleID: "high-value-001", Score: 1.0},    // 0.25
+				{RuleID: "high-value-001", Score: 1.0},     // 0.25
 				{RuleID: "rapid-movement-001", Score: 1.0}, // 0.2
-				{RuleID: "tx-type-risk-001", Score: 0.3},  // 0.045
+				{RuleID: "tx-type-risk-001", Score: 0.3},   // 0.045
 			},
 			wantAccountTakeover: true, // 0.4 + 0.25 + 0.2 + 0.045 = 0.895 >= 0.6
-			wantStructuring:    false,
+			wantStructuring:     false,
 		},
 		{
 			name: "Account takeover triggers - partial rules",
 			ruleResults: []domain.RuleResult{
 				{RuleID: "account-drain-001", Score: 1.0}, // 0.4
-				{RuleID: "high-value-001", Score: 1.0},   // 0.25
+				{RuleID: "high-value-001", Score: 1.0},    // 0.25
 			},
 			wantAccountTakeover: true, // 0.4 + 0.25 = 0.65 >= 0.6
-			wantStructuring:    false,
+			wantStructuring:     false,
 		},
 		{
 			name: "Account takeover does NOT trigger - below threshold",
 			ruleResults: []domain.RuleResult{
 				{RuleID: "account-drain-001", Score: 0.5}, // 0.2
-				{RuleID: "high-value-001", Score: 1.0},   // 0.25
+				{RuleID: "high-value-001", Score: 1.0},    // 0.25
 			},
 			wantAccountTakeover: false, // 0.2 + 0.25 = 0.45 < 0.6
-			wantStructuring:    false,
+			wantStructuring:     false,
 		},
 		{
 			name: "Structuring triggers",
 			ruleResults: []domain.RuleResult{
-				{RuleID: "structuring-001", Score: 0.9},   // 0.45
+				{RuleID: "structuring-001", Score: 0.9},  // 0.45
 				{RuleID: "round-amount-001", Score: 0.3}, // 0.09
 			},
 			wantAccountTakeover: false,
-			wantStructuring:    true, // 0.45 + 0.09 = 0.54 >= 0.5
+			wantStructuring:     true, // 0.45 + 0.09 = 0.54 >= 0.5
 		},
 		{
 			name: "Both typologies trigger",
@@ -104,13 +104,13 @@ func TestTypologyEngine_EvaluateTypologies(t *testing.T) {
 				{RuleID: "velocity-check-001", Score: 1.0},
 			},
 			wantAccountTakeover: true,
-			wantStructuring:    true,
+			wantStructuring:     true,
 		},
 		{
-			name:               "No rules triggered - no typologies",
-			ruleResults:        []domain.RuleResult{},
+			name:                "No rules triggered - no typologies",
+			ruleResults:         []domain.RuleResult{},
 			wantAccountTakeover: false,
-			wantStructuring:    false,
+			wantStructuring:     false,
 		},
 		{
 			name: "Unknown rules - no impact",
@@ -118,7 +118,7 @@ func TestTypologyEngine_EvaluateTypologies(t *testing.T) {
 				{RuleID: "unknown-rule", Score: 1.0},
 			},
 			wantAccountTakeover: false,
-			wantStructuring:    false,
+			wantStructuring:     false,
 		},
 	}
 

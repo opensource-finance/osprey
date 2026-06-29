@@ -15,11 +15,12 @@ import (
 
 // Engine is the CEL-based rule evaluation engine.
 type Engine struct {
-	mu             sync.RWMutex
-	env            *cel.Env
-	compiledRules  map[string]*CompiledRule
-	velocityGetter VelocityGetter
-	maxWorkers     int
+	mu               sync.RWMutex
+	env              *cel.Env
+	compiledRules    map[string]*CompiledRule
+	velocityGetter   VelocityGetter
+	aggregatesGetter AggregatesGetter
+	maxWorkers       int
 }
 
 // CompiledRule holds a pre-compiled CEL program.
@@ -31,25 +32,39 @@ type CompiledRule struct {
 // VelocityGetter is a function that returns the transaction count for an entity in a time window.
 type VelocityGetter func(ctx context.Context, tenantID, entityID string, windowSecs int) (int64, error)
 
+// VelocityAggregates holds windowed velocity metrics for an entity.
+type VelocityAggregates struct {
+	Count             int64
+	AmountSum         float64
+	DistinctCreditors int64
+}
+
+// AggregatesGetter returns windowed velocity aggregates for an entity. When set
+// on the engine it supersedes VelocityGetter and additionally populates the
+// velocity_amount_sum and velocity_distinct_creditors CEL variables.
+type AggregatesGetter func(ctx context.Context, tenantID, entityID string, windowSecs int) (VelocityAggregates, error)
+
+// SetAggregatesGetter wires a richer velocity source. Optional and additive:
+// if unset, the engine falls back to the count-only VelocityGetter.
+func (e *Engine) SetAggregatesGetter(g AggregatesGetter) {
+	e.aggregatesGetter = g
+}
+
+// maxCELCost bounds the runtime cost of a single rule expression. CEL is
+// non-Turing-complete and the environment exposes no string-extension or
+// unbounded functions, so legitimate rules cost only a handful of units; this
+// limit is a defense-in-depth backstop against a pathological expression
+// exhausting CPU during evaluation.
+const maxCELCost uint64 = 1_000_000
+
 // NewEngine creates a new rule evaluation engine.
 func NewEngine(velocityGetter VelocityGetter, maxWorkers int) (*Engine, error) {
 	if maxWorkers <= 0 {
 		maxWorkers = 10
 	}
 
-	// Create CEL environment with transaction variables
-	env, err := cel.NewEnv(
-		cel.Variable("tx", cel.MapType(cel.StringType, cel.DynType)),
-		cel.Variable("velocity_count", cel.IntType),
-		cel.Variable("amount", cel.DoubleType),
-		cel.Variable("currency", cel.StringType),
-		cel.Variable("debtor_id", cel.StringType),
-		cel.Variable("creditor_id", cel.StringType),
-		cel.Variable("tx_type", cel.StringType),
-		// Balance variables for account drain detection (PaySim pattern)
-		cel.Variable("old_balance", cel.DoubleType),
-		cel.Variable("new_balance", cel.DoubleType),
-	)
+	// Create CEL environment from the canonical variable Catalog (variables.go).
+	env, err := cel.NewEnv(EnvOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
@@ -112,7 +127,8 @@ type EvaluateInput struct {
 	Amount         float64
 	Currency       string
 	VelocityWindow int // seconds
-	AdditionalData map[string]any
+	AdditionalData map[string]any // request metadata -> CEL `meta` map
+	Enrichment     map[string]any // externally-computed scores -> CEL `enrichment` map
 }
 
 // EvaluateAll evaluates all loaded rules in parallel.
@@ -128,11 +144,31 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 		return nil, nil
 	}
 
-	// Get velocity count if getter is available
-	var velocityCount int64
-	if e.velocityGetter != nil && input.VelocityWindow > 0 {
-		count, err := e.velocityGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow)
-		if err == nil {
+	// Compute velocity aggregates if a getter is available. Prefer the richer
+	// AggregatesGetter (count + amount-sum + distinct-counterparties); fall back
+	// to the count-only VelocityGetter.
+	//
+	// Fail-secure: a velocity lookup failure must NOT silently become zero, which
+	// would let velocity rules (e.g. velocity_count > 5) score 0 and pass a
+	// high-velocity transaction. Surface the error so the evaluation fails loudly
+	// (caller logs it + returns 5xx) rather than emitting a false-negative decision.
+	var velocityCount, velocityDistinctCreditors int64
+	var velocityAmountSum float64
+	if input.VelocityWindow > 0 {
+		switch {
+		case e.aggregatesGetter != nil:
+			agg, err := e.aggregatesGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow)
+			if err != nil {
+				return nil, fmt.Errorf("velocity lookup failed for entity %q: %w", input.DebtorID, err)
+			}
+			velocityCount = agg.Count
+			velocityAmountSum = agg.AmountSum
+			velocityDistinctCreditors = agg.DistinctCreditors
+		case e.velocityGetter != nil:
+			count, err := e.velocityGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow)
+			if err != nil {
+				return nil, fmt.Errorf("velocity lookup failed for entity %q: %w", input.DebtorID, err)
+			}
 			velocityCount = count
 		}
 	}
@@ -147,21 +183,29 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 			"amount":      input.Amount,
 			"currency":    input.Currency,
 		},
-		"velocity_count": velocityCount,
-		"amount":         input.Amount,
-		"currency":       input.Currency,
-		"debtor_id":      input.DebtorID,
-		"creditor_id":    input.CreditorID,
-		"tx_type":        input.Type,
+		"velocity_count":              velocityCount,
+		"velocity_amount_sum":         velocityAmountSum,
+		"velocity_distinct_creditors": velocityDistinctCreditors,
+		"amount":                      input.Amount,
+		"currency":                    input.Currency,
+		"debtor_id":                   input.DebtorID,
+		"creditor_id":                 input.CreditorID,
+		"tx_type":                     input.Type,
 		// Balance variables for account drain detection (default to 0 if not provided)
 		"old_balance": 0.0,
 		"new_balance": 0.0,
 	}
 
-	// Merge additional data
+	// Back-compat: merge metadata as top-level vars so declared names supplied via
+	// metadata (e.g. old_balance/new_balance) still override their defaults.
 	for k, v := range input.AdditionalData {
 		activation[k] = v
 	}
+
+	// Open-ended bags. Set AFTER the merge so metadata keys can't clobber them.
+	// Always present (possibly empty) so has(meta.x)/has(enrichment.x) never error.
+	activation["meta"] = mapOrEmpty(input.AdditionalData)
+	activation["enrichment"] = mapOrEmpty(input.Enrichment)
 
 	// Parallel evaluation using worker pool pattern
 	results := make([]domain.RuleResult, len(rules))
@@ -199,8 +243,10 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 		Weight:   rule.Config.Weight,
 	}
 
-	// Evaluate CEL expression
-	out, _, err := rule.Program.Eval(activation)
+	// Evaluate CEL expression. ContextEval honors request cancellation and the
+	// program's cost limit, so a slow or pathological rule cannot block the
+	// evaluation indefinitely.
+	out, _, err := rule.Program.ContextEval(ctx, activation)
 	if err != nil {
 		result.SubRuleRef = domain.RuleOutcomeError
 		result.Reason = fmt.Sprintf("evaluation error: %v", err)
@@ -333,7 +379,7 @@ func (e *Engine) compileRule(cfg *domain.RuleConfig) (*CompiledRule, error) {
 		return nil, fmt.Errorf("rule %s: expression must return bool, int, or double, got %s", cfg.ID, outputType)
 	}
 
-	program, err := e.env.Program(ast)
+	program, err := e.env.Program(ast, cel.CostLimit(maxCELCost))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create program for rule %s: %w", cfg.ID, err)
 	}

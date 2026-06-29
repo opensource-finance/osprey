@@ -1,41 +1,31 @@
-# Osprey Sandbox Guide
+# Sandbox and API Guide
 
-This guide is for customers integrating with the Osprey sandbox API at:
+Use this guide when Osprey is running behind a shared or remote URL.
 
-```text
-https://sandbox.osprey.opensource.finance
+Set your target once:
+
+```bash
+export OSPREY_URL=http://localhost:8080
+export TENANT_ID=demo
 ```
 
-The sandbox is a safe environment for validating transaction monitoring flows, rule behavior, typology behavior, tenant isolation, and response handling before using Osprey in a production workflow.
+For a hosted sandbox, set `OSPREY_URL` to that public URL.
 
-For the shortest customer handoff, start with [docs/CUSTOMER_QUICKSTART.md](CUSTOMER_QUICKSTART.md). Assurance evidence is tracked in [docs/ASSURANCE.md](ASSURANCE.md). The machine-readable API contract is [docs/api/openapi.yaml](api/openapi.yaml). Use it for customer SDK generation, Postman import, contract review, or automated API checks. For authoring guidance, use [docs/RULE_TYPOLOGY_AUTHORING.md](RULE_TYPOLOGY_AUTHORING.md).
+## Request Rules
 
-## Customer Flow
-
-1. Send a transaction to `POST /evaluate`.
-2. Osprey stores the transaction for the provided tenant.
-3. Osprey evaluates the transaction against active rules.
-4. In compliance mode, Osprey also evaluates typologies.
-5. Osprey returns a JSON decision: `ALRT` or `NALT`.
-6. Use the returned IDs to fetch the stored transaction or evaluation.
-
-![Osprey sandbox flow](assets/osprey-sandbox-flow.png)
-
-## Required Headers
-
-Every tenant-scoped request must include:
+Every tenant-scoped request needs:
 
 ```http
 X-Tenant-ID: <tenant-id>
 ```
 
-JSON requests must include:
+JSON requests need:
 
 ```http
 Content-Type: application/json
 ```
 
-Rule and typology mutation endpoints require the configured `OSPREY_ADMIN_TOKEN`:
+Rule and typology writes need an admin token:
 
 ```http
 Authorization: Bearer <admin-token>
@@ -47,39 +37,42 @@ or:
 X-Osprey-Admin-Token: <admin-token>
 ```
 
-## Health Checks
+## Flow
 
-Use these before sending traffic:
+1. Check `/health` and `/ready`.
+2. Send a transaction to `POST /evaluate`.
+3. Add rules with `POST /rules`.
+4. In compliance mode, add typologies with `POST /typologies`.
+5. Use `evaluationId` and `txId` to fetch stored records.
 
-```bash
-curl -fsS https://sandbox.osprey.opensource.finance/health
-curl -fsS https://sandbox.osprey.opensource.finance/ready
-```
+![Osprey sandbox flow](assets/osprey-sandbox-flow.png)
 
-Expected healthy response:
-
-```json
-{
-  "mode": "detection",
-  "status": "healthy",
-  "version": "..."
-}
-```
-
-In compliance mode, `/ready` returns `503` until typologies are loaded.
-
-## Evaluate a Transaction
-
-The response depends on the rules currently loaded in the sandbox. To reproduce the `ALRT` example below, create the sample same-party rule first or load the starter kit.
+## Health
 
 ```bash
-curl -fsS -X POST https://sandbox.osprey.opensource.finance/evaluate \
+curl -fsS "$OSPREY_URL/health"
+curl -fsS "$OSPREY_URL/ready"
+```
+
+In detection mode, both should be healthy before sending traffic. In compliance mode, `/ready` returns `503` until typologies are loaded.
+
+## Evaluate
+
+```bash
+curl -fsS -X POST "$OSPREY_URL/evaluate" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: demo-client" \
-  -d @docs/examples/evaluate-alert.json
+  -H "X-Tenant-ID: $TENANT_ID" \
+  -d @docs/examples/evaluate-normal.json
 ```
 
-Example response:
+Decision values:
+
+| Status | Meaning |
+|--------|---------|
+| `NALT` | No alert. |
+| `ALRT` | Alert. |
+
+Example alert response:
 
 ```json
 {
@@ -87,79 +80,63 @@ Example response:
   "txId": "sandbox-alert-example",
   "status": "ALRT",
   "score": 1,
-  "reasons": [
-    "Same party transfer detected"
-  ],
+  "reasons": ["Same party transfer detected"],
   "metadata": {
     "traceId": "8dc5b7f1-9bb5-4f94-b8b5-6559e1c6b2e2",
-    "ingestMs": 0,
+    "ingestMs": 1,
     "totalMs": 4,
     "version": "..."
   }
 }
 ```
 
-Status values:
-
-| Status | Meaning |
-|--------|---------|
-| `ALRT` | Alert. The transaction matched enough risk signals to require review. |
-| `NALT` | No alert. The transaction was evaluated and did not cross the alert threshold. |
-
-## Fetch Evaluation and Transaction Records
-
-Use the IDs returned by `/evaluate`.
+## Fetch Stored Records
 
 ```bash
-curl -fsS https://sandbox.osprey.opensource.finance/evaluations/7f52d4a2-6d8e-4c70-b21f-7f57e3c37f9a \
-  -H "X-Tenant-ID: demo-client"
+curl -fsS "$OSPREY_URL/evaluations/<evaluation-id>" \
+  -H "X-Tenant-ID: $TENANT_ID"
 
-curl -fsS https://sandbox.osprey.opensource.finance/transactions/sandbox-alert-example \
-  -H "X-Tenant-ID: demo-client"
+curl -fsS "$OSPREY_URL/transactions/<transaction-id>" \
+  -H "X-Tenant-ID: $TENANT_ID"
 ```
 
-The same transaction ID can be reused by different tenants, but it cannot be reused inside the same tenant. A duplicate transaction ID for the same tenant returns `409 Conflict`.
+Transaction IDs are unique per tenant. Reusing a transaction ID in the same tenant returns `409 Conflict`.
 
 ## Create a Rule
 
-Rules use Google CEL expressions. A rule returns a boolean or numeric score. `true` maps to `1.0`; `false` maps to `0.0`.
-
-For rule design workflow and promotion criteria, see [docs/RULE_TYPOLOGY_AUTHORING.md](RULE_TYPOLOGY_AUTHORING.md).
+Rules use CEL expressions. A rule returns a boolean or numeric score. `true` maps to `1.0`; `false` maps to `0.0`.
 
 ```bash
-curl -fsS -X POST https://sandbox.osprey.opensource.finance/rules \
+curl -fsS -X POST "$OSPREY_URL/rules" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: demo-client" \
+  -H "X-Tenant-ID: $TENANT_ID" \
   -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
   -d @docs/examples/rule-same-party.json
 ```
 
-Rules are persisted and loaded into the active engine immediately.
-
-### Rule Fields
+Rule fields:
 
 | Field | Required | Notes |
 |-------|----------|-------|
 | `id` | Yes | Stable machine-readable ID. |
 | `name` | Yes | Human-readable name. |
-| `description` | No | Use this to explain the monitoring intent. |
 | `expression` | Yes | CEL expression. |
 | `weight` | Yes | Number from `0` to `1`. |
-| `enabled` | Yes | Disabled rules are stored but not loaded. |
-| `bands` | No | Human-readable reasons for score ranges. |
+| `enabled` | Yes | Disabled rules are stored but not active. |
+| `bands` | No | Reasons for score ranges. |
 
-### CEL Variables
+Common CEL variables:
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `amount` | double | Transaction amount. |
-| `currency` | string | Uppercase currency code. |
-| `tx_type` | string | Uppercase transaction type. |
-| `debtor_id` | string | Sender/customer ID. |
-| `creditor_id` | string | Receiver/merchant ID. |
-| `old_balance` | double | Optional value from `metadata.old_balance`. |
-| `new_balance` | double | Optional value from `metadata.new_balance`. |
-| `velocity_count` | int | Recent transaction count for the entity. |
+| Variable | Source |
+|----------|--------|
+| `amount` | `amount.value` |
+| `currency` | `amount.currency`, uppercase |
+| `tx_type` | `type`, uppercase |
+| `debtor_id` | `debtor.id` |
+| `creditor_id` | `creditor.id` |
+| `old_balance` | `metadata.old_balance` |
+| `new_balance` | `metadata.new_balance` |
+| `velocity_count` | Recent transaction count for the entity |
 
 Common expressions:
 
@@ -172,49 +149,66 @@ velocity_count > 5
 tx_type == "CASH_OUT" || tx_type == "TRANSFER"
 ```
 
+## Update or Delete a Rule
+
+```bash
+# Update an existing rule (URL id is authoritative)
+curl -fsS -X PUT "$OSPREY_URL/rules/my-rule" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: $TENANT_ID" \
+  -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
+  -d @docs/examples/rule-same-party.json
+
+# Delete a rule
+curl -fsS -X DELETE "$OSPREY_URL/rules/my-rule" \
+  -H "X-Tenant-ID: $TENANT_ID" \
+  -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN"
+```
+
+Both apply to the active engine immediately. Deleting a rule that a loaded typology still references returns `409`; remove it from the typology first.
+
 ## Create a Typology
 
 Typologies are evaluated only in compliance mode. They combine active rules into a named pattern.
 
 ```bash
-curl -fsS -X POST https://sandbox.osprey.opensource.finance/typologies \
+curl -fsS -X POST "$OSPREY_URL/typologies" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: demo-client" \
+  -H "X-Tenant-ID: $TENANT_ID" \
   -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
   -d @docs/examples/typology-same-party.json
 ```
 
-Every `ruleId` must already exist in the active rule engine. Typology weights should normally sum to `1.0`.
+Every `ruleId` must already exist in `GET /rules`.
 
-## Useful Read Endpoints
+## Read Active Config
 
 ```bash
-curl -fsS https://sandbox.osprey.opensource.finance/rules \
-  -H "X-Tenant-ID: demo-client"
+curl -fsS "$OSPREY_URL/rules" \
+  -H "X-Tenant-ID: $TENANT_ID"
 
-curl -fsS https://sandbox.osprey.opensource.finance/typologies \
-  -H "X-Tenant-ID: demo-client"
+curl -fsS "$OSPREY_URL/typologies" \
+  -H "X-Tenant-ID: $TENANT_ID"
 ```
 
-Both endpoints return the active engine state, not merely stored database rows.
+These endpoints return active engine state.
 
-## Error Contract
+## Errors
 
-| HTTP Status | Common Cause |
-|-------------|--------------|
-| `400` | Missing tenant header, invalid JSON, invalid rule/typology shape. |
-| `401` | Missing or invalid admin token on mutation endpoint. |
-| `404` | Transaction, evaluation, rule, or typology not found. |
-| `409` | Duplicate transaction ID for the same tenant. |
-| `413` | JSON request body is too large. |
-| `500` | Internal persistence or evaluation error. |
-| `503` | Repository unavailable, or compliance mode is not ready because typologies are missing. |
+| Status | Common Cause |
+|--------|--------------|
+| `400` | Missing tenant header, invalid JSON, invalid rule or typology. |
+| `401` | Missing or invalid admin token on a write endpoint. |
+| `404` | Record not found. |
+| `409` | Duplicate transaction ID for the same tenant, or deleting a rule still referenced by a typology. |
+| `413` | JSON body is too large. |
+| `429` | Per-tenant rate limit exceeded (only when `OSPREY_RATE_LIMIT_RPS` is set). |
+| `500` | Persistence or evaluation error. |
+| `503` | Repository unavailable, or compliance mode is missing typologies. |
 
-## Docker Deployment
+## Deploy a Simple Sandbox
 
 Use the repository Dockerfile and expose port `8080`.
-
-Recommended environment variables for a simple sandbox:
 
 ```env
 OSPREY_MODE=detection
@@ -222,82 +216,31 @@ OSPREY_TIER=community
 OSPREY_DB_DRIVER=sqlite
 OSPREY_SQLITE_PATH=/app/data/osprey.db
 OSPREY_ADMIN_TOKEN=replace-with-strong-random-token
-OSPREY_DEBUG=false
 ```
 
-Mount a persistent volume at:
+Mount persistent storage at:
 
 ```text
 /app/data
 ```
 
-The image creates `/app/data` with ownership for the non-root `osprey` user. Use persistent storage for this path so SQLite data, rules, typologies, transactions, and evaluations survive restarts.
-
-Set the public domain to:
-
-```text
-sandbox.osprey.opensource.finance
-```
-
-Recommended Docker build arguments:
+The admin token is trusted: anyone who has it can author rules, so share it only
+with sandbox users you trust. For a public sandbox, optionally cap per-tenant
+request rate (leave unset for load testing):
 
 ```env
-VERSION=sandbox-YYYYMMDD
-COMMIT=replace-with-git-sha
-BUILD_DATE=2026-05-25T12:00:00Z
+OSPREY_RATE_LIMIT_RPS=50
 ```
 
-`GET /health` exposes the deployed `version`, so customers and operators can confirm which sandbox image is running.
-
-For compliance-mode sandbox testing, set:
-
-```env
-OSPREY_MODE=compliance
-```
-
-Then load both rules and typologies:
-
-```bash
-OSPREY_URL=https://sandbox.osprey.opensource.finance \
-OSPREY_ADMIN_TOKEN=replace-with-admin-token \
-./scripts/seed-starter-kit.sh --compliance
-```
-
-## Operator Verification
-
-Before deploying a new sandbox image, run the full local assurance gate:
+Verify before sharing a URL:
 
 ```bash
 ./scripts/assure-sandbox.sh
-```
 
-This requires `curl`, `go`, `jq`, `ruby`, and `docker`. It validates JSON examples, the OpenAPI contract, shell scripts, Go tests, `go vet`, the race detector, HTTP integration tests, Docker build, Docker health, and the Docker-backed sandbox API verifier.
-
-After deployment, run:
-
-```bash
-OSPREY_URL=https://sandbox.osprey.opensource.finance \
-TENANT_ID=demo-client \
+OSPREY_URL=https://your-osprey-host.example \
+TENANT_ID=demo \
 OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 EXPECTED_STATUS=healthy \
 EXPECTED_MODE=detection \
-EXPECTED_VERSION=sandbox-YYYYMMDD \
 ./scripts/verify-sandbox.sh
 ```
-
-This verifies:
-
-- `/health`
-- `/ready`
-- expected health status, mode, and version when provided
-- admin-token protection for rule and typology mutation
-- rule creation and immediate activation
-- typology creation and immediate activation
-- `NALT` response for a normal transaction
-- `ALRT` response for a same-party transaction
-- evaluation retrieval
-- transaction retrieval
-- duplicate transaction conflict handling
-- tenant isolation for transaction IDs and evaluation reads
-
-Do not hand a sandbox to a customer until this script passes against the public domain.

@@ -80,7 +80,7 @@ func (w *Worker) Start(cfg Config) error {
 func (w *Worker) startGlobalWorker() error {
 	// Subscribe using a special "global" tenant ID
 	// In production, you'd want to subscribe with wildcards or JetStream
-	sub, err := w.bus.Subscribe(w.ctx, "_global", domain.TopicTransactionIngested, w.handleMessage)
+	sub, err := w.bus.Subscribe(w.ctx, "_global", domain.TopicTransactionIngested, w.track(w.handleMessage))
 	if err != nil {
 		return err
 	}
@@ -93,9 +93,9 @@ func (w *Worker) startGlobalWorker() error {
 // startTenantWorker starts workers for a specific tenant.
 func (w *Worker) startTenantWorker(tenantID string) error {
 	// Subscribe to transaction ingested topic
-	sub, err := w.bus.Subscribe(w.ctx, tenantID, domain.TopicTransactionIngested, func(ctx context.Context, msg *domain.Message) error {
+	sub, err := w.bus.Subscribe(w.ctx, tenantID, domain.TopicTransactionIngested, w.track(func(ctx context.Context, msg *domain.Message) error {
 		return w.processTransaction(ctx, tenantID, msg)
-	})
+	}))
 	if err != nil {
 		return err
 	}
@@ -114,6 +114,22 @@ func (w *Worker) handleMessage(ctx context.Context, msg *domain.Message) error {
 	return w.processTransaction(ctx, msg.TenantID, msg)
 }
 
+// track wraps a handler so Stop()'s wg.Wait() drains in-flight processing before
+// main() closes repo/cache/bus. Without this the WaitGroup is never incremented and
+// Stop() returns immediately, letting a handler write to closed resources at shutdown.
+//
+// ponytail: residual narrow race — a message delivered right after cancel()/Unsubscribe()
+// could Add() as Wait() observes a zero counter. Acceptable for the Pro async path
+// (worst case is one lost in-flight evaluation at shutdown, no corruption/panic).
+// Upgrade path: make bus.Unsubscribe() block until the handler goroutine exits.
+func (w *Worker) track(h domain.MessageHandler) domain.MessageHandler {
+	return func(ctx context.Context, msg *domain.Message) error {
+		w.wg.Add(1)
+		defer w.wg.Done()
+		return h(ctx, msg)
+	}
+}
+
 // TransactionMessage is the message payload for transaction processing.
 type TransactionMessage struct {
 	TxID           string         `json:"txId"`
@@ -126,6 +142,7 @@ type TransactionMessage struct {
 	Currency       string         `json:"currency"`
 	VelocityWindow int            `json:"velocityWindow,omitempty"`
 	AdditionalData map[string]any `json:"additionalData,omitempty"`
+	Enrichment     map[string]any `json:"enrichment,omitempty"`
 }
 
 // processTransaction evaluates a transaction through the pipeline.
@@ -179,6 +196,7 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		Currency:       txMsg.Currency,
 		VelocityWindow: txMsg.VelocityWindow,
 		AdditionalData: txMsg.AdditionalData,
+		Enrichment:     txMsg.Enrichment,
 	}
 
 	if evalInput.VelocityWindow == 0 {

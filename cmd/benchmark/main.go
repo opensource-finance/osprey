@@ -1,13 +1,14 @@
 // Benchmark tool for testing Osprey against PaySim fraud data.
 //
 // Usage:
-//   go run cmd/benchmark/main.go -csv /path/to/paysim.csv -url http://localhost:8080
+//
+//	go run cmd/benchmark/main.go -csv /path/to/paysim.csv -url http://localhost:8080
 //
 // This tool:
-//   1. Reads PaySim transaction data (with fraud labels)
-//   2. Sends each transaction to Osprey for evaluation
-//   3. Compares Osprey's verdict (ALRT/NALT) with actual fraud labels
-//   4. Calculates precision, recall, F1-score, and confusion matrix
+//  1. Reads PaySim transaction data (with fraud labels)
+//  2. Sends each transaction to Osprey for evaluation
+//  3. Compares Osprey's verdict (ALRT/NALT) with actual fraud labels
+//  4. Calculates precision, recall, F1-score, and confusion matrix
 package main
 
 import (

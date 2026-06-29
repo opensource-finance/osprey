@@ -354,6 +354,35 @@ func (r *SQLRepository) SaveRuleConfig(ctx context.Context, tenantID string, rul
 	return err
 }
 
+// DeleteRuleConfig soft-deletes a rule (sets enabled = 0) so it is no longer
+// loaded into the engine while preserving the row for audit history.
+func (r *SQLRepository) DeleteRuleConfig(ctx context.Context, tenantID string, ruleID string) error {
+	if tenantID == "" {
+		return fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
+	}
+
+	query := `
+		UPDATE rule_configs
+		SET enabled = 0, updated_at = ?
+		WHERE tenant_id = ? AND id = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, r.rebind(query), time.Now().UTC(), tenantID, ruleID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // GetRuleConfig retrieves a rule configuration with tenant isolation.
 func (r *SQLRepository) GetRuleConfig(ctx context.Context, tenantID string, ruleID string) (*domain.RuleConfig, error) {
 	if tenantID == "" {

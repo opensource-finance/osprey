@@ -32,9 +32,11 @@ const (
 	// Use for: Fraud detection, startup MVPs, product teams.
 	ModeDetection EvaluationMode = "detection"
 
-	// ModeCompliance requires typologies for FATF-aligned evaluation.
-	// Full audit trails, explainability, regulatory compliance.
-	// Use for: Banks, regulated fintechs, compliance teams.
+	// ModeCompliance groups rules into FATF-inspired typologies for
+	// explainable, typology-based evaluation. Evaluations are persisted for
+	// review. This is a reference implementation, not a certified compliance
+	// system; operators remain responsible for their own regulatory controls.
+	// Use for: regulated fintechs and compliance teams that need typology grouping.
 	ModeCompliance EvaluationMode = "compliance"
 )
 
@@ -45,6 +47,12 @@ type ServerConfig struct {
 	ReadTimeout  int    `json:"readTimeout"`  // seconds
 	WriteTimeout int    `json:"writeTimeout"` // seconds
 	AdminToken   string `json:"-"`            // required token for config mutation endpoints
+
+	// RateLimitRPS sets the per-tenant request rate (requests/second).
+	// Zero or negative disables rate limiting (the default).
+	RateLimitRPS float64 `json:"rateLimitRps"`
+	// RateLimitBurst is the per-tenant burst size. Defaults to RateLimitRPS when unset.
+	RateLimitBurst int `json:"rateLimitBurst"`
 }
 
 // LoggingConfig holds logging settings.

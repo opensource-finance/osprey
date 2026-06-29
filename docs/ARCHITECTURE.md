@@ -4,10 +4,10 @@
 
 Osprey is a real-time transaction monitoring engine with two evaluation modes:
 
-| Mode | Description | Target Users |
-|------|-------------|--------------|
-| **Detection** | Weighted rule scoring | Product teams, fraud teams, startups |
-| **Compliance** | Rule + typology evaluation | Regulated teams with AML/CFT workflows |
+| Mode | Description |
+|------|-------------|
+| **Detection** | Weighted rule scoring. |
+| **Compliance** | Rule and typology evaluation. |
 
 ```
 Transaction -> API Ingest -> Rule Engine -> TADP Decision -> Alert/Pass
@@ -36,9 +36,9 @@ Transaction -> Rules -> Typologies -> Threshold -> ALRT/NALT
 - Typologies are required for evaluation
 - Typology triggers + rule critical failures determine alerts
 - If typologies are not loaded:
-- `POST /evaluate` returns `503`
-- `GET /health` returns `status: "degraded"`
-- `GET /ready` returns `503`
+  - `POST /evaluate` returns `503`
+  - `GET /health` returns `status: "degraded"`
+  - `GET /ready` returns `503`
 
 ## Mode Enforcement
 
@@ -56,7 +56,7 @@ Mode is propagated from startup config through server, handler, worker, and TADP
 | **Community** | default / `OSPREY_TIER=community` | SQLite + memory cache + channel bus |
 | **Pro profile** | `OSPREY_TIER=pro` | PostgreSQL + Redis + NATS |
 
-`OSPREY_TIER=enterprise` is currently unsupported in this open-source build and falls back to community defaults.
+`OSPREY_TIER=enterprise` is not enabled in this open-source build and falls back to community defaults.
 
 ## Transaction Flow
 
@@ -90,23 +90,43 @@ sequenceDiagram
 
 ### Environment Variables
 
+Core:
+
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `OSPREY_ADMIN_TOKEN` | _(required)_ | Required to start. Protects rule and typology writes. |
 | `OSPREY_MODE` | `detection` | `detection` or `compliance` |
 | `OSPREY_TIER` | `community` | runtime profile: `community` or `pro` |
 | `OSPREY_DEBUG` | `false` | debug logging |
-| `OSPREY_ADMIN_TOKEN` | required | token for rule and typology mutation endpoints |
+| `OSPREY_HOST` | `0.0.0.0` | bind address |
+| `OSPREY_PORT` | `8080` | HTTP port |
 | `OSPREY_DB_DRIVER` | `sqlite` | `sqlite` or `postgres` |
-| `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite database file path |
+| `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite file path (sqlite driver) |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis` |
 | `OSPREY_BUS_TYPE` | `channel` | `channel` or `nats` |
-| `OSPREY_TENANTS` | unset | optional comma-separated tenants for async worker subscriptions |
+| `OSPREY_TENANTS` | _(unset)_ | comma-separated tenant IDs for async workers |
+| `OSPREY_ASYNC_WORKER` | `false` | `true` enables async workers (always on in Pro tier) |
+| `OSPREY_RATE_LIMIT_RPS` | `0` | per-tenant requests/second; `0` disables rate limiting |
+| `OSPREY_RATE_LIMIT_BURST` | `= RPS` | per-tenant burst size |
+
+Pro tier backends (used when `OSPREY_TIER=pro`, or when the matching driver/type is selected). Defaults shown are the in-process defaults; override per deployment:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OSPREY_POSTGRES_HOST` | `localhost` | PostgreSQL host |
+| `OSPREY_POSTGRES_PORT` | `5432` | PostgreSQL port |
+| `OSPREY_POSTGRES_USER` | _(unset)_ | PostgreSQL user |
+| `OSPREY_POSTGRES_PASSWORD` | _(unset)_ | PostgreSQL password |
+| `OSPREY_POSTGRES_DB` | `osprey` | PostgreSQL database name |
+| `OSPREY_POSTGRES_SSLMODE` | _(unset)_ | `disable`, `require`, etc. |
+| `OSPREY_REDIS_ADDR` | `localhost:6379` | Redis address |
+| `OSPREY_REDIS_PASSWORD` | _(unset)_ | Redis password |
+| `OSPREY_REDIS_DB` | `0` | Redis logical database |
+| `OSPREY_NATS_URL` | `nats://localhost:4222` | NATS server URL |
 
 ## Database-Driven Config
 
-Rules and typologies are loaded from the database at startup. Create, update, and delete operations apply to the active engines immediately; reload endpoints exist for manual recovery.
-
-Osprey refuses to start without `OSPREY_ADMIN_TOKEN`. Rule and typology mutation endpoints require an admin token; evaluation and read endpoints stay tenant-scoped via `X-Tenant-ID`.
+Rules and typologies are loaded from the database at startup. Writes through `POST /rules`, `POST /typologies`, `PUT`/`DELETE /typologies/{id}` persist to the database and apply to the running engine immediately. The reload endpoints re-read the database into the engine after out-of-band changes (for example, a direct database edit).
 
 ### `rule_configs`
 
@@ -153,8 +173,11 @@ CREATE TABLE typologies (
 |--------|----------|-------|
 | POST | `/evaluate` | compliance requires loaded typologies |
 | GET | `/rules` | loaded rules |
-| POST | `/rules` | persists and loads rule config |
-| POST | `/rules/reload` | manually reload rules |
+| GET | `/rules/{id}` | fetch a single rule |
+| POST | `/rules` | create or update a rule; applied immediately |
+| PUT | `/rules/{id}` | update a rule; applied immediately |
+| DELETE | `/rules/{id}` | disable a rule; `409` if referenced by a loaded typology |
+| POST | `/rules/reload` | re-read rules from storage (after out-of-band changes) |
 | GET | `/health` | readiness signal + mode |
 | GET | `/ready` | traffic readiness gate |
 
@@ -163,30 +186,30 @@ CREATE TABLE typologies (
 | Method | Endpoint |
 |--------|----------|
 | GET | `/typologies` |
-| POST | `/typologies` | persists and loads typology |
-| PUT | `/typologies/{id}` | persists and loads typology changes |
-| DELETE | `/typologies/{id}` | deletes and unloads typology |
-| POST | `/typologies/reload` | manually reload typologies |
+| GET | `/typologies/{id}` |
+| POST | `/typologies` |
+| PUT | `/typologies/{id}` |
+| DELETE | `/typologies/{id}` |
+| POST | `/typologies/reload` |
+
+Retrieval endpoints `GET /evaluations/{id}` and `GET /transactions/{id}` are documented in the [Sandbox and API guide](SANDBOX.md). The full contract is in [`api/openapi.yaml`](api/openapi.yaml).
 
 ## Scoring
 
 ### Detection
 
 ```
-score = Σ(rule_score * rule_weight) / Σ(rule_weight)
+score = sum(rule_score * rule_weight) / sum(rule_weight)
 alert if score >= threshold OR any rule returns .fail
 ```
 
 ### Compliance
 
 ```
-typology_score = Σ(rule_score * typology_rule_weight)
+typology_score = sum(rule_score * typology_rule_weight)
 alert if any typology is triggered OR any rule returns .fail
 ```
 
-## Future Work
+## Extensibility
 
-1. ML risk signals
-2. Network/graph analytics
-3. Automated SAR export
-4. Enhanced rule/typology lifecycle tooling
+Common extension points are new CEL variables, new repository backends, richer rule lifecycle tooling, and additional typology packs.

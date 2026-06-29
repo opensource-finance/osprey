@@ -35,7 +35,7 @@ func NewProcessor() *Processor {
 }
 
 // NewComplianceProcessor creates a processor for Compliance mode.
-// Requires typologies for FATF-aligned evaluation.
+// Requires typologies for FATF-inspired evaluation.
 func NewComplianceProcessor() *Processor {
 	return &Processor{
 		AlertThreshold:     0.7,
@@ -69,7 +69,7 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 	// Aggregate rule results
 	aggResult := p.aggregate(input.RuleResults)
 
-	// Compliance Mode: Use typology results for FATF-aligned evaluation
+	// Compliance Mode: Use typology results for FATF-inspired evaluation
 	if p.Mode == "compliance" && len(input.TypologyResults) > 0 {
 		eval.TypologyResults = input.TypologyResults
 

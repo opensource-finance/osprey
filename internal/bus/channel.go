@@ -187,11 +187,13 @@ func (b *ChannelBus) Close() error {
 
 	b.closed = true
 
-	// Cancel all subscriptions
+	// Cancel all subscriptions.
+	// ponytail: cancel only, never close(msgCh) — Publish sends without the lock
+	// (select+default), so closing here races into a send-on-closed-channel panic.
+	// handleMessages exits on ctx.Done(); nothing ranges over msgCh.
 	for _, subs := range b.subscriptions {
 		for _, sub := range subs {
 			sub.cancel()
-			close(sub.msgCh)
 		}
 	}
 

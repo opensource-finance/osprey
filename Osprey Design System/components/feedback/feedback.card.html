@@ -1,0 +1,64 @@
+<!-- @dsCard group="Components" viewport="700x440" name="Feedback — Terminal & Avatar" subtitle="The Osprey god-view log panel + analyst identity" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="stylesheet" href="../../styles.css" />
+<style>
+  body { margin: 0; padding: 28px; background: var(--sys-mist); }
+  .stack { display: flex; flex-direction: column; gap: 22px; max-width: 600px; margin: 0 auto; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .panel-head .t { font-size: var(--text-sm); font-weight: 600; color: var(--ink); }
+  .panel-head .t span { color: #64748b; font-weight: 400; }
+  .cap { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); font-family: var(--font-mono); color: #64748b; }
+  .live { width: 7px; height: 7px; border-radius: 50%; background: var(--sys-green); box-shadow: 0 0 0 0 color-mix(in srgb,var(--sys-green) 70%,transparent); animation: lv 1.8s var(--ease-out) infinite; }
+  @keyframes lv { 0% { box-shadow: 0 0 0 0 color-mix(in srgb,var(--sys-green) 60%,transparent);} 70%,100% { box-shadow: 0 0 0 7px transparent; } }
+  .idcard { display: flex; align-items: center; gap: 16px; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: var(--shadow-sm); transition: box-shadow var(--dur-base), transform var(--dur-base); }
+  .idcard:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+  .idmeta { flex: 1; }
+  .idmeta .nm { font-weight: 700; color: var(--ink); }
+  .idmeta .ro { font-size: var(--text-sm); color: #64748b; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script type="text/babel">
+  const { Terminal, Avatar, Badge } = window.OpensourceFinanceOspreyDesignSystem_08d2ca;
+  function Demo() {
+    return (
+      <div className="stack">
+        <div>
+          <div className="panel-head">
+            <div className="t">Real-time evaluation <span>· tx client-tx-001</span></div>
+            <div className="cap"><span className="live"></span> 118ms</div>
+          </div>
+          <Terminal
+            logs={[
+              { text: "ORIGIN_IP: 192.168.1.42 (US-WEST)", status: "OK", tone: "ok" },
+              { text: "DEVICE_SIG: SHA-256 MATCH", status: "OK", tone: "ok" },
+              { text: "BEHAVIOR_MODEL: DEVIATION +0.7σ", status: "WARN", tone: "warn" },
+              { text: "RISK_SCORE: 12.4 (THRESHOLD 85)", status: "OK", tone: "ok" },
+            ]}
+            decision={{ label: "FINAL_DECISION", value: "ALLOWED", tone: "ok" }}
+          />
+        </div>
+
+        <div className="idcard">
+          <Avatar initials="JG" size={48} />
+          <div className="idmeta">
+            <div className="nm">Joseph Goksu</div>
+            <div className="ro">Compliance Analyst · Tenant demo-client</div>
+          </div>
+          <Badge variant="success">On shift</Badge>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
   "id": "sandbox-normal-example",
   "type": "TRANSFER",
   "debtor": {
-    "id": "customer-a",
+    "id": "user-a",
     "accountId": "acct-a"
   },
   "creditor": {

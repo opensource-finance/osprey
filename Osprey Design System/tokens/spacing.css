@@ -1,0 +1,64 @@
+/* ============================================================
+   Osprey / opensource.finance — Spacing, radius, shadow, motion
+   ------------------------------------------------------------
+   4px base grid. Corners are SOFT and generous — pills for
+   interactive chrome (buttons, badges, nav, header), large
+   radii (24–32px) for feature cards. Shadows are subtle and
+   cool. Motion is calm: fade + slide-up, ~700ms, eased.
+   ============================================================ */
+
+:root {
+  /* ---- Spacing scale (4px grid) ---- */
+  --space-1:  0.25rem;   /* 4 */
+  --space-2:  0.5rem;    /* 8 */
+  --space-3:  0.75rem;   /* 12 */
+  --space-4:  1rem;      /* 16 */
+  --space-5:  1.25rem;   /* 20 */
+  --space-6:  1.5rem;    /* 24 — card padding */
+  --space-8:  2rem;      /* 32 — feature card padding */
+  --space-12: 3rem;      /* 48 */
+  --space-16: 4rem;      /* 64 */
+  --space-24: 6rem;      /* 96 — section rhythm (py-24) */
+  --space-32: 8rem;      /* 128 — hero rhythm */
+
+  /* ---- Container widths ---- */
+  --container-prose: 42rem;   /* max-w-2xl — paragraph measure */
+  --container-content: 64rem; /* max-w-5xl — primary content */
+  --container-wide: 80rem;    /* max-w-7xl — comparison table */
+
+  /* ---- Radius (base 1rem, codebase --radius: 1rem) ---- */
+  --radius-sm:  0.5rem;   /* 8  — inputs, small chips */
+  --radius-md:  0.75rem;  /* 12 — buttons, cards (default) */
+  --radius-lg:  1rem;     /* 16 — panels */
+  --radius-xl:  1.5rem;   /* 24 — platform cards */
+  --radius-2xl: 2rem;     /* 32 — feature cards */
+  --radius-3xl: 2.5rem;   /* 40 — device frames */
+  --radius-pill: 9999px;  /* buttons, badges, nav, header */
+
+  /* ---- Borders ---- */
+  --border-width: 1px;
+  --border-width-accent: 4px;  /* the red top-bar on the "Osprey" column */
+
+  /* ---- Shadows (subtle, cool) ---- */
+  --shadow-sm:  0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-md:  0 4px 12px -2px rgba(15, 23, 42, 0.08);
+  --shadow-lg:  0 12px 28px -6px rgba(15, 23, 42, 0.12);
+  --shadow-xl:  0 24px 48px -12px rgba(15, 23, 42, 0.18);
+  --shadow-2xl: 0 40px 80px -20px rgba(15, 23, 42, 0.25);
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent);
+
+  /* ---- Blur (glassy header / terminal) ---- */
+  --blur-glass: 12px;
+
+  /* ---- Motion ---- */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);   /* @kind other */ /* default entrance */
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);  /* @kind other */
+  --dur-fast:   150ms;   /* @kind other */
+  --dur-base:   300ms;   /* @kind other */
+  --dur-slow:   700ms;   /* @kind other */ /* hero fade-in / slide-up */
+
+  /* ---- Z-index ---- */
+  --z-header: 50;    /* @kind other */
+  --z-overlay: 100;  /* @kind other */
+  --z-toast: 200;    /* @kind other */
+}

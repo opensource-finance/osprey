@@ -418,4 +418,3 @@ func TestRuleResultMetadata(t *testing.T) {
 		t.Error("ProcessMs should be non-negative")
 	}
 }
-

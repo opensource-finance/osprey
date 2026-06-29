@@ -6,6 +6,10 @@ benchmark
 *.so
 *.dylib
 
+# Demo recordings (large generated media; regenerate from demos/*.tape)
+demos/*.gif
+demos/*.mp4
+
 # SQLite database files
 *.db
 *.db-shm

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Osprey Starter Kit - FATF-aligned Rules and Typologies
 #
-# This script loads production-ready rules and typologies based on
+# This script loads starter rules and typologies based on
 # public FATF (Financial Action Task Force) guidance.
 #
 # Usage:
@@ -28,17 +28,22 @@ BASE_URL="${OSPREY_URL:-http://localhost:8080}"
 TENANT_ID="${OSPREY_TENANT:-default}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIGS_DIR="$SCRIPT_DIR/../configs"
-ADMIN_HEADER=()
+
+# Admin token — required for the rule/typology mutation + reload endpoints,
+# which are protected by AdminMiddleware. Without it every write returns 401.
 if [ -z "${OSPREY_ADMIN_TOKEN:-}" ]; then
-    echo -e "${RED}ERROR: OSPREY_ADMIN_TOKEN is required for rule/typology mutation endpoints${NC}" >&2
-    exit 1
+  echo "ERROR: OSPREY_ADMIN_TOKEN is required to seed rules/typologies." >&2
+  echo "Start the server with OSPREY_ADMIN_TOKEN set, then re-run with the same token." >&2
+  exit 1
 fi
 ADMIN_HEADER=(-H "Authorization: Bearer ${OSPREY_ADMIN_TOKEN}")
 
 # Counters for tracking success/failure
 RULES_CREATED=0
+RULES_SKIPPED=0
 RULES_FAILED=0
 TYPOLOGIES_CREATED=0
+TYPOLOGIES_SKIPPED=0
 TYPOLOGIES_FAILED=0
 
 # Flags
@@ -68,7 +73,6 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  OSPREY_URL        Base URL (default: http://localhost:8080)"
             echo "  OSPREY_TENANT     Tenant ID (default: default)"
-            echo "  OSPREY_ADMIN_TOKEN Required token for rule/typology mutation"
             exit 0
             ;;
         *)
@@ -95,7 +99,7 @@ check_server() {
 
     if ! curl -s "$BASE_URL/health" > /dev/null 2>&1; then
         echo -e "${RED}ERROR: Server not reachable at $BASE_URL${NC}"
-        echo "Start Osprey first: OSPREY_ADMIN_TOKEN=replace-with-admin-token go run ./cmd/osprey"
+        echo "Start Osprey first: go run ./cmd/osprey"
         exit 1
     fi
 
@@ -124,21 +128,26 @@ create_rule() {
     local rule_json="$1"
     local rule_id=$(echo "$rule_json" | jq -r '.id')
 
-    local response
-    response=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/rules" \
+    local response=$(curl -s -X POST "$BASE_URL/rules" \
         -H "Content-Type: application/json" \
         -H "X-Tenant-ID: $TENANT_ID" \
         "${ADMIN_HEADER[@]}" \
         -d "$rule_json" 2>&1)
-    local http_code="${response##*$'\n'}"
-    local body="${response%$'\n'*}"
 
-    if [[ "$http_code" =~ ^2 ]] && echo "$body" | jq -e '.rule' > /dev/null 2>&1; then
+    if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+        local error=$(echo "$response" | jq -r '.error // .message // .')
+        if echo "$error" | grep -qi "already exists"; then
+            echo -e "  ${YELLOW}○${NC} $rule_id (already exists)"
+            ((RULES_SKIPPED++)) || true
+        else
+            echo -e "  ${RED}✗${NC} $rule_id: $error"
+            ((RULES_FAILED++)) || true
+        fi
+    elif echo "$response" | jq -e '.rule' > /dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} $rule_id"
         ((RULES_CREATED++)) || true
     else
-        local error=$(echo "$body" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "$body")
-        echo -e "  ${RED}✗${NC} $rule_id: HTTP $http_code: $error"
+        echo -e "  ${RED}✗${NC} $rule_id: unexpected response"
         ((RULES_FAILED++)) || true
     fi
 }
@@ -147,26 +156,30 @@ create_typology() {
     local typology_json="$1"
     local typology_id=$(echo "$typology_json" | jq -r '.id')
 
-    local response
-    response=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/typologies" \
+    local response=$(curl -s -X POST "$BASE_URL/typologies" \
         -H "Content-Type: application/json" \
         -H "X-Tenant-ID: $TENANT_ID" \
         "${ADMIN_HEADER[@]}" \
         -d "$typology_json" 2>&1)
-    local http_code="${response##*$'\n'}"
-    local body="${response%$'\n'*}"
 
-    if [[ "$http_code" =~ ^2 ]] && echo "$body" | jq -e '.typology' > /dev/null 2>&1; then
+    if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+        local error=$(echo "$response" | jq -r '.error // .message // .')
+        if echo "$error" | grep -qi "already exists"; then
+            echo -e "  ${YELLOW}○${NC} $typology_id (already exists)"
+            ((TYPOLOGIES_SKIPPED++)) || true
+        elif echo "$error" | grep -qi "does not exist in rule engine"; then
+            echo -e "  ${RED}✗${NC} $typology_id: Missing rule dependency"
+            echo -e "      $error"
+            ((TYPOLOGIES_FAILED++)) || true
+        else
+            echo -e "  ${RED}✗${NC} $typology_id: $error"
+            ((TYPOLOGIES_FAILED++)) || true
+        fi
+    elif echo "$response" | jq -e '.typology' > /dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} $typology_id"
         ((TYPOLOGIES_CREATED++)) || true
     else
-        local error=$(echo "$body" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "$body")
-        if echo "$error" | grep -qi "does not exist in rule engine"; then
-            echo -e "  ${RED}✗${NC} $typology_id: Missing rule dependency"
-            echo -e "      $error"
-        else
-            echo -e "  ${RED}✗${NC} $typology_id: HTTP $http_code: $error"
-        fi
+        echo -e "  ${RED}✗${NC} $typology_id: unexpected response"
         ((TYPOLOGIES_FAILED++)) || true
     fi
 }
@@ -191,10 +204,10 @@ load_rules() {
     done < <(jq -c '.rules[]' "$rules_file")
 
     echo ""
-    echo -e "${YELLOW}Verifying active rules...${NC}"
-    local rules_response=$(curl -s "$BASE_URL/rules" -H "X-Tenant-ID: $TENANT_ID")
-    local loaded_count=$(echo "$rules_response" | jq -r '.count // 0')
-    echo -e "  ${GREEN}✓${NC} $loaded_count active rules"
+    echo -e "${YELLOW}Reloading rule engine...${NC}"
+    local reload_response=$(curl -s -X POST "$BASE_URL/rules/reload" -H "X-Tenant-ID: $TENANT_ID" "${ADMIN_HEADER[@]}")
+    local loaded_count=$(echo "$reload_response" | jq -r '.count // 0')
+    echo -e "  ${GREEN}✓${NC} $loaded_count rules loaded into engine"
 
     # Verify rules actually loaded
     if [ "$loaded_count" -eq 0 ] && [ "$RULES_CREATED" -gt 0 ]; then
@@ -231,10 +244,10 @@ load_typologies() {
     done < <(jq -c '.typologies[]' "$typologies_file")
 
     echo ""
-    echo -e "${YELLOW}Verifying active typologies...${NC}"
-    local typologies_response=$(curl -s "$BASE_URL/typologies" -H "X-Tenant-ID: $TENANT_ID")
-    local loaded_count=$(echo "$typologies_response" | jq -r '.count // 0')
-    echo -e "  ${GREEN}✓${NC} $loaded_count active typologies"
+    echo -e "${YELLOW}Reloading typology engine...${NC}"
+    local reload_response=$(curl -s -X POST "$BASE_URL/typologies/reload" -H "X-Tenant-ID: $TENANT_ID" "${ADMIN_HEADER[@]}")
+    local loaded_count=$(echo "$reload_response" | jq -r '.count // 0')
+    echo -e "  ${GREEN}✓${NC} $loaded_count typologies loaded into engine"
 }
 
 print_summary() {
@@ -246,13 +259,15 @@ print_summary() {
 
     # Rules summary
     echo -e "  ${CYAN}Rules:${NC}"
-    echo -e "    Loaded:   ${GREEN}$RULES_CREATED${NC}"
+    echo -e "    Created:  ${GREEN}$RULES_CREATED${NC}"
+    echo -e "    Skipped:  ${YELLOW}$RULES_SKIPPED${NC} (already exist)"
     echo -e "    Failed:   ${RED}$RULES_FAILED${NC}"
 
     if [ "$INCLUDE_TYPOLOGIES" = true ]; then
         echo ""
         echo -e "  ${CYAN}Typologies:${NC}"
-        echo -e "    Loaded:   ${GREEN}$TYPOLOGIES_CREATED${NC}"
+        echo -e "    Created:  ${GREEN}$TYPOLOGIES_CREATED${NC}"
+        echo -e "    Skipped:  ${YELLOW}$TYPOLOGIES_SKIPPED${NC} (already exist)"
         echo -e "    Failed:   ${RED}$TYPOLOGIES_FAILED${NC}"
     fi
 

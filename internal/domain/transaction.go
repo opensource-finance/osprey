@@ -27,8 +27,11 @@ type Transaction struct {
 	Timestamp time.Time `json:"timestamp"`
 	CreatedAt time.Time `json:"createdAt"`
 
-	// Optional metadata
+	// Optional metadata (caller-asserted facts; exposed to rules as the `meta` map)
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// Optional enrichment (externally-computed scores/flags; exposed as the `enrichment` map)
+	Enrichment map[string]interface{} `json:"enrichment,omitempty"`
 
 	// Reference to original message (for ISO 20022 adapter)
 	OriginalMessage []byte `json:"-"`

@@ -38,8 +38,6 @@ type TypologyResult struct {
 // EvaluationMetadata contains processing information.
 type EvaluationMetadata struct {
 	TraceID             string `json:"traceId"`
-	IngestMs            int64  `json:"ingestMs"`
-	RulesMs             int64  `json:"rulesMs"`
 	DecisionMs          int64  `json:"decisionMs"`
 	TotalMs             int64  `json:"totalMs"`
 	RulesEvaluated      int    `json:"rulesEvaluated"`

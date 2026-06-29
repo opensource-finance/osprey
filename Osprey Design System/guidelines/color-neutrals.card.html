@@ -1,0 +1,24 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Neutrals — Swiss greys" subtitle="Paper, soft-black ink, pure-neutral grey ramp" -->
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8" /><link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; padding: 24px; background: var(--background); font-family: var(--font-sans); }
+  .row { display: flex; gap: 10px; }
+  .sw { flex: 1; }
+  .chip { height: 64px; border-radius: var(--radius-md); border: 1px solid var(--border-soft); }
+  .name { font-size: var(--text-xs); font-weight: 600; margin-top: 8px; }
+  .val { font-size: var(--text-2xs); color: var(--text-muted); font-family: var(--font-mono); }
+</style></head>
+<body>
+  <div class="row">
+    <div class="sw"><div class="chip" style="background:var(--paper)"></div><div class="name">paper</div><div class="val">.99</div></div>
+    <div class="sw"><div class="chip" style="background:var(--grey-100)"></div><div class="name">grey-100</div><div class="val">.97</div></div>
+    <div class="sw"><div class="chip" style="background:var(--grey-200)"></div><div class="name">grey-200</div><div class="val">.96</div></div>
+    <div class="sw"><div class="chip" style="background:var(--grey-300)"></div><div class="name">grey-300</div><div class="val">.92 border</div></div>
+    <div class="sw"><div class="chip" style="background:var(--grey-500)"></div><div class="name">grey-500</div><div class="val">.55 muted</div></div>
+    <div class="sw"><div class="chip" style="background:var(--grey-700)"></div><div class="name">grey-700</div><div class="val">.38</div></div>
+    <div class="sw"><div class="chip" style="background:var(--ink)"></div><div class="name" style="color:var(--text-muted)">ink</div><div class="val">.15 .02 260</div></div>
+  </div>
+</body>
+</html>

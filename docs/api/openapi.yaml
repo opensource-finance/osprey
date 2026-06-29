@@ -212,6 +212,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /rules/variables:
+    get:
+      tags: [Rules]
+      summary: List the CEL variables available to rule expressions (the canonical engine catalog).
+      security:
+        - TenantHeader: []
+      responses:
+        "200":
+          description: Available variables.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  variables:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        type: { type: string }
+                        group: { type: string }
+                        access: { type: string }
+                        note: { type: string }
+                        description: { type: string }
   /rules/{id}:
     get:
       tags: [Rules]
@@ -229,6 +256,76 @@ paths:
                 $ref: "#/components/schemas/RuleConfig"
         "404":
           description: Rule not found in active engine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Rules]
+      summary: Update a rule and activate changes immediately.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleConfig"
+      responses:
+        "200":
+          description: Rule updated and loaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleMutationResponse"
+        "400":
+          description: Invalid rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Rules]
+      summary: Delete a rule and unload it from the active engine.
+      security:
+        - TenantHeader: []
+          AdminBearer: []
+        - TenantHeader: []
+          AdminHeader: []
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Rule deleted and engine reloaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Rule not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Rule is referenced by a loaded typology.
           content:
             application/json:
               schema:
@@ -517,6 +614,11 @@ components:
         metadata:
           type: object
           additionalProperties: true
+          description: Caller-supplied facts; exposed to rules as the `meta` map (guard optional keys with has()).
+        enrichment:
+          type: object
+          additionalProperties: true
+          description: Externally-computed scores/flags (ml_score, sanctions_hit, ring_risk, ...); exposed as the `enrichment` map. Caller-asserted; not verified by Osprey.
     PartyInfo:
       type: object
       additionalProperties: false

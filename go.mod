@@ -11,6 +11,7 @@ require (
 	github.com/redis/go-redis/v9 v9.17.2
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/trace v1.39.0
+	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.42.2
 )
 

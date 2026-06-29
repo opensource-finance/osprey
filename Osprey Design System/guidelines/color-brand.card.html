@@ -1,0 +1,22 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Brand — Swiss Red" subtitle="The single accent. Used sparingly, decisively." -->
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8" /><link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; padding: 24px; background: var(--background); font-family: var(--font-sans); }
+  .row { display: flex; gap: 14px; }
+  .sw { flex: 1; }
+  .chip { height: 64px; border-radius: var(--radius-md); border: 1px solid var(--border-soft); }
+  .name { font-size: var(--text-sm); font-weight: 600; margin-top: 8px; }
+  .val { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+</style></head>
+<body>
+  <div class="row">
+    <div class="sw"><div class="chip" style="background:var(--red-500)"></div><div class="name">Primary · red-500</div><div class="val">oklch(.55 .22 27)</div></div>
+    <div class="sw"><div class="chip" style="background:var(--red-600)"></div><div class="name">Hover · red-600</div><div class="val">oklch(.50 .21 27)</div></div>
+    <div class="sw"><div class="chip" style="background:var(--red-700)"></div><div class="name">Press · red-700</div><div class="val">oklch(.44 .19 27)</div></div>
+    <div class="sw"><div class="chip" style="background:var(--red-100)"></div><div class="name">Tint · red-100</div><div class="val">oklch(.93 .05 27)</div></div>
+    <div class="sw"><div class="chip" style="background:var(--primary-soft)"></div><div class="name">Soft fill</div><div class="val">--primary-soft</div></div>
+  </div>
+</body>
+</html>

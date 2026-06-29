@@ -142,6 +142,14 @@ func main() {
 		slog.Error("failed to initialize rule engine", "error", err)
 		os.Exit(1)
 	}
+	// Wire richer velocity aggregates (count + amount-sum + distinct-counterparties).
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int) (rules.VelocityAggregates, error) {
+		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+		if err != nil {
+			return rules.VelocityAggregates{}, err
+		}
+		return rules.VelocityAggregates{Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors}, nil
+	})
 
 	// Load rules from database (no hardcoded defaults - configure via API)
 	if err := loadRulesFromDatabase(ctx, repo, engine); err != nil {
@@ -418,6 +426,18 @@ func applyEnvOverrides(cfg *domain.Config) error {
 	}
 	if host := strings.TrimSpace(os.Getenv("OSPREY_HOST")); host != "" {
 		cfg.Server.Host = host
+	}
+	if v := strings.TrimSpace(os.Getenv("OSPREY_RATE_LIMIT_RPS")); v != "" {
+		rps, err := strconv.ParseFloat(v, 64)
+		if err != nil || rps < 0 {
+			return fmt.Errorf("OSPREY_RATE_LIMIT_RPS must be a non-negative number")
+		}
+		cfg.Server.RateLimitRPS = rps
+	}
+	if b, ok, err := parseNonNegativeIntEnv("OSPREY_RATE_LIMIT_BURST"); err != nil {
+		return err
+	} else if ok {
+		cfg.Server.RateLimitBurst = b
 	}
 	return nil
 }

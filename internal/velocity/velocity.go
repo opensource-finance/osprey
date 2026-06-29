@@ -77,3 +77,65 @@ func (s *Service) countFromRepo(ctx context.Context, tenantID, entityID string, 
 func (s *Service) GetVelocityGetter() func(ctx context.Context, tenantID, entityID string, windowSecs int) (int64, error) {
 	return s.GetTransactionCount
 }
+
+// Aggregates holds windowed velocity metrics for an entity.
+type Aggregates struct {
+	Count             int64
+	AmountSum         float64
+	DistinctCreditors int64
+}
+
+// GetAggregates returns count, amount-sum, and distinct-creditor metrics for an
+// entity within a time window. Richer companion to GetTransactionCount.
+func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID string, windowSecs int) (Aggregates, error) {
+	if tenantID == "" || entityID == "" {
+		return Aggregates{}, fmt.Errorf("tenantID and entityID are required")
+	}
+
+	since := time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
+
+	if s.db != nil {
+		return s.aggregatesFromDB(ctx, tenantID, entityID, since)
+	}
+	if s.repo != nil {
+		return s.aggregatesFromRepo(ctx, tenantID, entityID, since)
+	}
+	return Aggregates{}, fmt.Errorf("no data source available")
+}
+
+// aggregatesFromDB computes all three metrics in one query (SQLite + Postgres compatible).
+func (s *Service) aggregatesFromDB(ctx context.Context, tenantID, entityID string, since time.Time) (Aggregates, error) {
+	query := `
+		SELECT COUNT(*), COALESCE(SUM(amount), 0), COUNT(DISTINCT creditor_id)
+		FROM transactions
+		WHERE tenant_id = ?
+		AND (debtor_id = ? OR creditor_id = ?)
+		AND timestamp >= ?
+	`
+
+	var a Aggregates
+	err := s.db.QueryRowContext(ctx, query, tenantID, entityID, entityID, since).
+		Scan(&a.Count, &a.AmountSum, &a.DistinctCreditors)
+	if err != nil {
+		return Aggregates{}, fmt.Errorf("failed to aggregate transactions: %w", err)
+	}
+	return a, nil
+}
+
+// aggregatesFromRepo computes the metrics in Go from the repository result set.
+func (s *Service) aggregatesFromRepo(ctx context.Context, tenantID, entityID string, since time.Time) (Aggregates, error) {
+	txs, err := s.repo.GetTransactionsByEntity(ctx, tenantID, entityID, since)
+	if err != nil {
+		return Aggregates{}, fmt.Errorf("failed to get transactions: %w", err)
+	}
+	a := Aggregates{Count: int64(len(txs))}
+	creditors := make(map[string]struct{}, len(txs))
+	for _, tx := range txs {
+		a.AmountSum += tx.Amount
+		if tx.CreditorID != "" {
+			creditors[tx.CreditorID] = struct{}{}
+		}
+	}
+	a.DistinctCreditors = int64(len(creditors))
+	return a, nil
+}

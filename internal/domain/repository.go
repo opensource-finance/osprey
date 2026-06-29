@@ -18,6 +18,7 @@ type Repository interface {
 	SaveRuleConfig(ctx context.Context, tenantID string, rule *RuleConfig) error
 	GetRuleConfig(ctx context.Context, tenantID string, ruleID string) (*RuleConfig, error)
 	ListRuleConfigs(ctx context.Context, tenantID string) ([]*RuleConfig, error)
+	DeleteRuleConfig(ctx context.Context, tenantID string, ruleID string) error
 
 	// Evaluation results
 	SaveEvaluation(ctx context.Context, tenantID string, eval *Evaluation) error

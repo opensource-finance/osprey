@@ -1,43 +1,61 @@
 # Rule and Typology Authoring
 
-Use this guide to design, test, and promote Osprey sandbox rules and typologies.
+Osprey rules should be small, explainable, and testable. A good rule detects one risk signal.
 
 ## Authoring Flow
 
-1. Define the risk signal in plain language.
-2. Map the signal to available transaction fields.
-3. Write one CEL rule for one detection idea.
-4. Add bands with review reasons.
-5. Test against one expected `NALT` transaction and one expected `ALRT` transaction.
-6. Combine related rules into a typology only when the pattern needs multiple signals.
-7. Promote only after the sandbox verifier and customer-specific test cases pass.
+1. Write the risk signal in plain language.
+2. Map it to fields Osprey receives in `/evaluate`.
+3. Write one CEL expression.
+4. Add clear review reasons in `bands`.
+5. Test one expected `NALT` transaction and one expected `ALRT` transaction.
+6. Group rules into a typology only when a pattern needs multiple signals.
 
-## Rule Design Checklist
-
-Every rule should answer:
+## Rule Checklist
 
 | Question | Good Answer |
 |----------|-------------|
-| What risk does it detect? | One specific signal, not a broad category. |
-| Which fields does it use? | Fields available in `/evaluate` or `metadata`. |
-| What should trigger review? | A precise CEL expression. |
-| How strong is the signal? | `weight` from `0` to `1`. |
-| What should the reviewer see? | A concise `reason` in the matching band. |
+| What risk does this detect? | One specific signal. |
+| Which fields does it use? | Fields from the transaction or `metadata`. |
+| What triggers review? | A precise CEL expression. |
+| How strong is it? | A `weight` from `0` to `1`. |
+| What should an operator see? | A concise reason. |
 
-Avoid rules that mix unrelated ideas. Prefer three simple rules over one opaque expression.
+Prefer several simple rules over one opaque expression.
 
-## Available CEL Variables
+## CEL Variables
 
 | Variable | Type | Source |
 |----------|------|--------|
 | `amount` | double | `amount.value` |
-| `currency` | string | `amount.currency`, normalized uppercase |
-| `tx_type` | string | `type`, normalized uppercase |
+| `currency` | string | `amount.currency`, uppercase |
+| `tx_type` | string | `type`, uppercase |
 | `debtor_id` | string | `debtor.id` |
 | `creditor_id` | string | `creditor.id` |
 | `old_balance` | double | `metadata.old_balance` |
 | `new_balance` | double | `metadata.new_balance` |
-| `velocity_count` | int | Recent transaction count for the entity |
+| `velocity_count` | int | Recent transaction count for the debtor in the window |
+| `velocity_amount_sum` | double | Sum of recent transaction amounts for the debtor in the window |
+| `velocity_distinct_creditors` | int | Distinct counterparties the debtor transacted with in the window |
+
+`old_balance` and `new_balance` default to `0.0` when the request omits them, so a rule referencing them never errors on missing data. Send them under `metadata` to use real values.
+
+### Custom fields and enrichment (`meta` / `enrichment`)
+
+Beyond the fixed variables above, rules can read two open-ended maps with no engine change:
+
+- **`meta`** — arbitrary request `metadata` (e.g. `country`, `mcc`, `device`).
+- **`enrichment`** — externally-computed scores/flags supplied in the request `enrichment` object (e.g. `ml_score`, `sanctions_hit`, `ring_risk`). Osprey does not verify these; they are asserted by the caller's pipeline.
+
+Because referencing an absent key errors at evaluation, **guard optional fields with `has()`**:
+
+```cel
+has(meta.country) && meta.country == "US"
+has(enrichment.ml_score) && enrichment.ml_score > 0.9
+has(enrichment.sanctions_hit) && enrichment.sanctions_hit
+```
+
+JSON numbers arrive as doubles, so compare enrichment numbers as doubles (`enrichment.ring_risk >= 3.0`). The live, authoritative variable list is served by `GET /rules/variables`.
 
 ## Rule Example
 
@@ -45,7 +63,7 @@ Avoid rules that mix unrelated ideas. Prefer three simple rules over one opaque 
 {
   "id": "sandbox-verification-same-party",
   "name": "Sandbox Verification Same Party",
-  "description": "Deterministic verification rule for sandbox readiness checks.",
+  "description": "Detects same-entity transfers.",
   "expression": "debtor_id == creditor_id",
   "weight": 1,
   "enabled": true,
@@ -68,16 +86,16 @@ Avoid rules that mix unrelated ideas. Prefer three simple rules over one opaque 
 Create it:
 
 ```bash
-curl -fsS -X POST https://sandbox.osprey.opensource.finance/rules \
+curl -fsS -X POST "$OSPREY_URL/rules" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: demo-client" \
+  -H "X-Tenant-ID: $TENANT_ID" \
   -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
   -d @docs/examples/rule-same-party.json
 ```
 
-Rules are active immediately after a successful response.
+Rules are active immediately after a successful write.
 
-## Common Rule Expressions
+## Common Expressions
 
 ```cel
 amount > 10000.0
@@ -88,16 +106,16 @@ velocity_count > 5
 tx_type == "CASH_OUT" || tx_type == "TRANSFER"
 ```
 
-## Typology Design Checklist
+## Typology Checklist
 
-Create a typology when several rules together describe a higher-level pattern.
+Use a typology when several rules together describe a pattern.
 
 | Question | Good Answer |
 |----------|-------------|
 | What pattern does it represent? | Structuring, mule activity, account takeover, rapid movement. |
 | Which rules contribute? | Existing active rule IDs. |
-| Are weights explainable? | Weights reflect relative signal strength and usually sum to `1.0`. |
-| What threshold triggers? | `alertThreshold` from `0` exclusive to `1` inclusive. |
+| Are weights explainable? | Weights reflect relative signal strength. |
+| What threshold alerts? | `alertThreshold` from `0` exclusive to `1` inclusive. |
 | Is compliance mode enabled? | Typologies affect decisions only in compliance mode. |
 
 ## Typology Example
@@ -106,7 +124,7 @@ Create a typology when several rules together describe a higher-level pattern.
 {
   "id": "sandbox-verification-typology",
   "name": "Sandbox Verification Typology",
-  "description": "Simple typology used to verify sandbox typology authoring.",
+  "description": "Groups one sample same-party rule.",
   "alertThreshold": 0.5,
   "enabled": true,
   "rules": [
@@ -121,42 +139,39 @@ Create a typology when several rules together describe a higher-level pattern.
 Create it:
 
 ```bash
-curl -fsS -X POST https://sandbox.osprey.opensource.finance/typologies \
+curl -fsS -X POST "$OSPREY_URL/typologies" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: demo-client" \
+  -H "X-Tenant-ID: $TENANT_ID" \
   -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN" \
   -d @docs/examples/typology-same-party.json
 ```
 
 The referenced `ruleId` must already be active.
 
-## Testing Expectations
+## Test Before Promotion
 
-At minimum, test every new rule with:
+At minimum, test:
 
 | Test | Expected |
 |------|----------|
 | Normal transaction | `NALT` |
-| Trigger transaction | `ALRT` or expected score/reason change |
+| Trigger transaction | `ALRT` or the expected score/reason change |
 | Missing required field | `400` |
 | Duplicate transaction ID | `409` |
 
-Use the sandbox verifier as a baseline:
+Baseline verifier:
 
 ```bash
-OSPREY_URL=https://sandbox.osprey.opensource.finance \
-TENANT_ID=demo-client \
+OSPREY_URL=https://your-osprey-host.example \
+TENANT_ID=demo \
 OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 ./scripts/verify-sandbox.sh
 ```
 
-## Promotion Criteria
+A rule or typology is ready to use when:
 
-A rule or typology is ready for customer sandbox use when:
-
-- Its expression is small enough to explain in one sentence.
+- Its expression is explainable in one sentence.
 - It has at least one passing and one triggering test transaction.
-- The response `reasons` are understandable to an operator.
-- It does not depend on fields the customer cannot send.
+- The response reasons are understandable to an operator.
+- It depends only on fields your integration sends.
 - It appears in `GET /rules` or `GET /typologies` after creation.
-- `./scripts/verify-sandbox.sh` passes against the target sandbox.
