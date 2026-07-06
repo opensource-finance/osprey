@@ -48,6 +48,11 @@ fmt:
 fix:
 	$(GO) fix ./...
 
+## fix-check: fail if go fix modernizations are pending (run: make fix)
+fix-check:
+	@$(GO) fix -diff ./... || { echo "^ modernizations pending; run 'make fix'"; exit 1; }
+	@echo "fix-check: ok"
+
 ## lint: run staticcheck (see `make tools`)
 lint:
 	staticcheck ./...
@@ -73,8 +78,8 @@ assure:
 seed:
 	./scripts/seed-starter-kit.sh
 
-## ci: gofmt check + vet + lint + race + build
-ci: vet lint race build
+## ci: gofmt + go fix drift + vet + lint + race + build
+ci: fix-check vet lint race build
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed on:"; gofmt -l .; exit 1; }
 	@echo "ci: ok"
 
@@ -83,4 +88,4 @@ clean:
 	rm -f $(BINARY)
 	$(GO) clean
 
-.PHONY: help build run test race cover vet fmt fix lint dead tidy tools assure seed ci clean
+.PHONY: help build run test race cover vet fmt fix fix-check lint dead tidy tools assure seed ci clean
