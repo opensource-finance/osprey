@@ -22,8 +22,8 @@ type Typology struct {
 	Enabled bool `json:"enabled"`
 
 	// Audit timestamps
-	CreatedAt time.Time `json:"createdAt,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // TypologyRuleWeight defines a rule and its weight within a typology.

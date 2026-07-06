@@ -49,16 +49,16 @@ func NewHandler(repo domain.Repository, cache domain.Cache, bus domain.EventBus,
 
 // TransactionRequest is the request body for POST /evaluate.
 type TransactionRequest struct {
-	ID        string                 `json:"id,omitempty"`
-	Type      string                 `json:"type"`
-	Debtor    PartyInfo              `json:"debtor"`
-	Creditor  PartyInfo              `json:"creditor"`
-	Amount    AmountInfo             `json:"amount"`
-	Timestamp string                 `json:"timestamp,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Type      string         `json:"type"`
+	Debtor    PartyInfo      `json:"debtor"`
+	Creditor  PartyInfo      `json:"creditor"`
+	Amount    AmountInfo     `json:"amount"`
+	Timestamp string         `json:"timestamp,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 	// Enrichment carries externally-computed scores/flags (ml_score, sanctions_hit,
 	// ring_risk, ...). Caller-asserted: Osprey does not verify these values.
-	Enrichment map[string]interface{} `json:"enrichment,omitempty"`
+	Enrichment map[string]any `json:"enrichment,omitempty"`
 }
 
 // PartyInfo represents a debtor or creditor.
@@ -286,7 +286,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 		status = "degraded"
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  status,
 		"version": h.version,
 		"mode":    string(h.mode),
@@ -387,7 +387,7 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 // ListVariables returns the CEL variables available to rule expressions, from the
 // canonical rules.Catalog. Studio's rule builder reads this instead of hardcoding.
 func (h *Handler) ListVariables(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"variables": rules.Catalog,
 		"count":     len(rules.Catalog),
 	})
@@ -397,7 +397,7 @@ func (h *Handler) ListVariables(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
 	loadedRules := h.engine.GetLoadedRules()
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"rules":  loadedRules,
 		"count":  len(loadedRules),
 		"source": "active-engine",
@@ -500,7 +500,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	slog.Info("rule engine reloaded after rule save", "count", loadedCount)
 
 	slog.Info("rule created", "id", ruleConfig.ID, "name", ruleConfig.Name)
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"rule":    ruleConfig,
 		"message": "rule saved and loaded",
 	})
@@ -572,7 +572,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	slog.Info("rule engine reloaded after rule update", "count", loadedCount)
 
 	slog.Info("rule updated", "id", ruleID)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"rule":    ruleConfig,
 		"message": "rule updated and loaded",
 	})
@@ -632,7 +632,7 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	slog.Info("rules reloaded after delete", "count", loadedCount)
 
 	slog.Info("rule deleted", "id", ruleID)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "rule deleted and engine reloaded",
 	})
 }
@@ -712,7 +712,7 @@ func (h *Handler) ReloadRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("rules reloaded from database", "count", loadedCount)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "rules reloaded successfully",
 		"count":   loadedCount,
 	})
@@ -729,7 +729,7 @@ func (h *Handler) reloadRulesFromRepository(ctx context.Context) (int, error) {
 	return len(dbRules), nil
 }
 
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
@@ -745,7 +745,7 @@ func (h *Handler) requireRepository(w http.ResponseWriter) bool {
 	return false
 }
 
-func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}) bool {
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
 
 	decoder := json.NewDecoder(r.Body)
@@ -821,7 +821,7 @@ func (h *Handler) ListTypologies(w http.ResponseWriter, r *http.Request) {
 
 	typologies := h.typologyEngine.GetLoadedTypologies()
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"typologies": typologies,
 		"count":      len(typologies),
 		"source":     "active-engine",
@@ -908,7 +908,7 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 	slog.Info("typology engine reloaded after typology save", "count", loadedCount)
 
 	slog.Info("typology created", "id", typology.ID, "name", typology.Name)
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"typology": typology,
 		"message":  "typology saved and loaded",
 	})
@@ -970,7 +970,7 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 	slog.Info("typology engine reloaded after typology update", "count", loadedCount)
 
 	slog.Info("typology updated", "id", typologyID)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"typology": typology,
 		"message":  "typology updated and loaded",
 	})
@@ -1088,7 +1088,7 @@ func (h *Handler) DeleteTypology(w http.ResponseWriter, r *http.Request) {
 	slog.Info("typologies reloaded after delete", "count", loadedCount)
 
 	slog.Info("typology deleted", "id", typologyID)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "Typology deleted and engine reloaded.",
 	})
 }
@@ -1121,7 +1121,7 @@ func (h *Handler) ReloadTypologies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("typologies reloaded from database", "count", loadedCount)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "typologies reloaded successfully",
 		"count":   loadedCount,
 	})

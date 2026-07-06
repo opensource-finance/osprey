@@ -85,10 +85,7 @@ func (c *TwoPhaseCache) Get(ctx context.Context, tenantID string, key string) ([
 // Set writes to both L1 and L2.
 func (c *TwoPhaseCache) Set(ctx context.Context, tenantID string, key string, value []byte, ttl time.Duration) error {
 	// Write to L1 with shorter TTL
-	l1TTL := c.l1TTL
-	if ttl < l1TTL {
-		l1TTL = ttl
-	}
+	l1TTL := min(ttl, c.l1TTL)
 	if err := c.local.Set(ctx, tenantID, key, value, l1TTL); err != nil {
 		return err
 	}
@@ -131,10 +128,7 @@ func (c *TwoPhaseCache) GetTransaction(ctx context.Context, tenantID string, txI
 
 // SetTransaction caches transaction data in both L1 and L2.
 func (c *TwoPhaseCache) SetTransaction(ctx context.Context, tenantID string, txID string, data *domain.DataCache, ttl time.Duration) error {
-	l1TTL := c.l1TTL
-	if ttl < l1TTL {
-		l1TTL = ttl
-	}
+	l1TTL := min(ttl, c.l1TTL)
 	if err := c.local.SetTransaction(ctx, tenantID, txID, data, l1TTL); err != nil {
 		return err
 	}

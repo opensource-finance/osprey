@@ -11,7 +11,7 @@ import (
 // createRule is a small helper that POSTs a rule and asserts it was created.
 func createRuleForTest(t *testing.T, server *Server, id, expression string) {
 	t.Helper()
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"id":         id,
 		"name":       id,
 		"expression": expression,
@@ -37,7 +37,7 @@ func TestUpdateRule(t *testing.T) {
 	createRuleForTest(t, server, "crud-rule", "amount > 100.0")
 
 	t.Run("UpdatesExistingRule", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"name":       "Updated Name",
 			"expression": "amount > 500.0",
 			"weight":     1.0,
@@ -62,7 +62,7 @@ func TestUpdateRule(t *testing.T) {
 		if getResp.Code != http.StatusOK {
 			t.Fatalf("expected GET 200, got %d: %s", getResp.Code, getResp.Body.String())
 		}
-		var rule map[string]interface{}
+		var rule map[string]any
 		if err := json.Unmarshal(getResp.Body.Bytes(), &rule); err != nil {
 			t.Fatalf("decode rule: %v", err)
 		}
@@ -75,7 +75,7 @@ func TestUpdateRule(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidCEL", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"name":       "Bad",
 			"expression": "this is not valid cel !!!",
 			"weight":     1.0,
@@ -94,7 +94,7 @@ func TestUpdateRule(t *testing.T) {
 	})
 
 	t.Run("RequiresAdminToken", func(t *testing.T) {
-		payload := map[string]interface{}{"name": "x", "expression": "amount > 1.0", "weight": 1.0, "enabled": true}
+		payload := map[string]any{"name": "x", "expression": "amount > 1.0", "weight": 1.0, "enabled": true}
 		body, _ := json.Marshal(payload)
 		req := httptest.NewRequest(http.MethodPut, "/rules/crud-rule", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -136,12 +136,12 @@ func TestDeleteRule(t *testing.T) {
 		createRuleForTest(t, server, "referenced-rule", "debtor_id == creditor_id")
 
 		// Create a typology that references the rule.
-		typPayload := map[string]interface{}{
+		typPayload := map[string]any{
 			"id":             "ref-typology",
 			"name":           "Ref Typology",
 			"alertThreshold": 0.5,
 			"enabled":        true,
-			"rules":          []map[string]interface{}{{"ruleId": "referenced-rule", "weight": 1.0}},
+			"rules":          []map[string]any{{"ruleId": "referenced-rule", "weight": 1.0}},
 		}
 		body, _ := json.Marshal(typPayload)
 		req := httptest.NewRequest(http.MethodPost, "/typologies", bytes.NewBuffer(body))
@@ -173,7 +173,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	t.Run("DisabledPassesThrough", func(t *testing.T) {
 		h := RateLimitMiddleware(0, 0)(okHandler)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			req := httptest.NewRequest(http.MethodPost, "/evaluate", nil)
 			req.Header.Set("X-Tenant-ID", "t1")
 			resp := httptest.NewRecorder()

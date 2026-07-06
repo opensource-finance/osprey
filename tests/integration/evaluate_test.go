@@ -19,11 +19,14 @@
 //   - Weight: Importance when aggregating with other rules (0.0 to 1.0)
 //
 // 3. BAND: Score-to-outcome mapping:
+//
 //   - Score 0.0 - 0.5  → .pass (transaction is okay)
+//
 //   - Score 0.5 - 1.0  → .review (needs human review)
+//
 //   - Score 1.0+       → .fail (critical alert)
 //
-//  4. TYPOLOGY: A group of related rules. Computes weighted aggregate score.
+//     4. TYPOLOGY: A group of related rules. Computes weighted aggregate score.
 //     If ANY rule returns .fail OR aggregate ≥ 0.7 → ALERT
 //
 // 5. EVALUATION: Final verdict - "ALRT" (alert) or "NALT" (no alert)

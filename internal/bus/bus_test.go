@@ -259,7 +259,7 @@ func TestChannelBusHighLoad(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Publish many messages
-	for i := 0; i < messageCount; i++ {
+	for range messageCount {
 		bus.Publish(ctx, tenantID, "load.topic", []byte("msg"))
 	}
 

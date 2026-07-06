@@ -213,7 +213,7 @@ func TestParallelExecution(t *testing.T) {
 	defer engine.Close()
 
 	// Load multiple rules
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		rule := &domain.RuleConfig{
 			ID:         fmt.Sprintf("rule-%d", i),
 			Name:       fmt.Sprintf("Rule %d", i),
@@ -277,7 +277,7 @@ func TestConcurrencyLimit(t *testing.T) {
 	defer engine.Close()
 
 	// Load 10 rules that use velocity
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		rule := &domain.RuleConfig{
 			ID:         fmt.Sprintf("rule-%d", i),
 			Expression: "velocity_count > 10 ? 1.0 : 0.0",

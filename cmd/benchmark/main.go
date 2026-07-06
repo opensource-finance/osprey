@@ -253,10 +253,8 @@ func runBenchmark(transactions []PaySimTransaction, baseURL, tenantID string, nu
 	var wg sync.WaitGroup
 
 	// Start workers
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numWorkers {
+		wg.Go(func() {
 			client := &http.Client{Timeout: 10 * time.Second}
 
 			for tx := range work {
@@ -317,7 +315,7 @@ func runBenchmark(transactions []PaySimTransaction, baseURL, tenantID string, nu
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	// Send work

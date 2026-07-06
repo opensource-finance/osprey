@@ -274,7 +274,7 @@ func TestSQLiteRepository(t *testing.T) {
 			Currency:        "USD",
 			Timestamp:       time.Now().UTC(),
 			CreatedAt:       time.Now().UTC(),
-			Metadata:        map[string]interface{}{"bad": func() {}},
+			Metadata:        map[string]any{"bad": func() {}},
 		}
 
 		if err := repo.SaveTransaction(ctx, tenantID, tx); err == nil {

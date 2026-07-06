@@ -738,12 +738,12 @@ func TestEvaluateEndpoint(t *testing.T) {
 		server, cleanup := createPersistentTestServer(t)
 		defer cleanup()
 
-		rulePayload := map[string]interface{}{
+		rulePayload := map[string]any{
 			"id":          "immediate-rule",
 			"name":        "Immediate Rule",
 			"description": "Should be active immediately after create",
 			"expression":  "1 == 1",
-			"bands": []map[string]interface{}{
+			"bands": []map[string]any{
 				{"lowerLimit": 1.0, "upperLimit": nil, "subRuleRef": ".fail", "reason": "Always fail"},
 				{"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Not triggered"},
 			},
@@ -833,7 +833,7 @@ func TestEvaluateEndpoint(t *testing.T) {
 		server, cleanup := createPersistentTestServerWithEngineAndAdminToken(t, engine, "secret-token")
 		defer cleanup()
 
-		rulePayload := map[string]interface{}{
+		rulePayload := map[string]any{
 			"id":         "protected-rule",
 			"name":       "Protected Rule",
 			"expression": "1 == 1",
@@ -914,7 +914,7 @@ func TestEvaluateEndpoint(t *testing.T) {
 		processor := tadp.NewProcessor()
 		server := NewServer(cfg, nil, nil, nil, engine, rules.NewTypologyEngine(), processor, "test-v1", domain.ModeDetection)
 
-		rulePayload := map[string]interface{}{
+		rulePayload := map[string]any{
 			"id":         "unconfigured-admin-rule",
 			"name":       "Unconfigured Admin Rule",
 			"expression": "1 == 1",
@@ -939,7 +939,7 @@ func TestEvaluateEndpoint(t *testing.T) {
 	t.Run("RuleMutationRequiresRepository", func(t *testing.T) {
 		server := createTestServerWithRepository(nil)
 
-		rulePayload := map[string]interface{}{
+		rulePayload := map[string]any{
 			"id":         "repo-required-rule",
 			"name":       "Repository Required Rule",
 			"expression": "1 == 1",
@@ -974,12 +974,12 @@ func TestTypologyMutationValidation(t *testing.T) {
 	server, cleanup := createPersistentTestServerWithEngine(t, engine)
 	defer cleanup()
 
-	createPayload := map[string]interface{}{
+	createPayload := map[string]any{
 		"id":             "typology-001",
 		"name":           "Test Typology",
 		"alertThreshold": 0.5,
 		"enabled":        true,
-		"rules": []map[string]interface{}{
+		"rules": []map[string]any{
 			{"ruleId": "loaded-rule", "weight": 1.0},
 		},
 	}
@@ -1016,10 +1016,10 @@ func TestTypologyMutationValidation(t *testing.T) {
 	}
 
 	t.Run("UpdateRejectsMissingName", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"alertThreshold": 0.5,
 			"enabled":        true,
-			"rules": []map[string]interface{}{
+			"rules": []map[string]any{
 				{"ruleId": "loaded-rule", "weight": 1.0},
 			},
 		}
@@ -1037,11 +1037,11 @@ func TestTypologyMutationValidation(t *testing.T) {
 	})
 
 	t.Run("UpdateRejectsUnknownRule", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"name":           "Test Typology",
 			"alertThreshold": 0.5,
 			"enabled":        true,
-			"rules": []map[string]interface{}{
+			"rules": []map[string]any{
 				{"ruleId": "missing-rule", "weight": 1.0},
 			},
 		}
@@ -1062,11 +1062,11 @@ func TestTypologyMutationValidation(t *testing.T) {
 	})
 
 	t.Run("UpdateRejectsInvalidThreshold", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"name":           "Test Typology",
 			"alertThreshold": 0,
 			"enabled":        true,
-			"rules": []map[string]interface{}{
+			"rules": []map[string]any{
 				{"ruleId": "loaded-rule", "weight": 1.0},
 			},
 		}
@@ -1086,12 +1086,12 @@ func TestTypologyMutationValidation(t *testing.T) {
 	t.Run("TypologyMutationRequiresRepository", func(t *testing.T) {
 		noRepoServer := createTestServerWithRepository(nil)
 
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"id":             "typology-no-repo",
 			"name":           "No Repo Typology",
 			"alertThreshold": 0.5,
 			"enabled":        true,
-			"rules": []map[string]interface{}{
+			"rules": []map[string]any{
 				{"ruleId": "loaded-rule", "weight": 1.0},
 			},
 		}
@@ -1136,7 +1136,7 @@ func TestRuleMutationValidation(t *testing.T) {
 	defer cleanup()
 
 	t.Run("RejectsInvalidWeight", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"id":         "invalid-weight",
 			"name":       "Invalid Weight",
 			"expression": "1 == 1",
@@ -1157,13 +1157,13 @@ func TestRuleMutationValidation(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidBandRange", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"id":         "invalid-band",
 			"name":       "Invalid Band",
 			"expression": "1 == 1",
 			"weight":     1.0,
 			"enabled":    true,
-			"bands": []map[string]interface{}{
+			"bands": []map[string]any{
 				{"lowerLimit": 1.0, "upperLimit": 0.5, "subRuleRef": ".fail", "reason": "Invalid range"},
 			},
 		}
@@ -1181,13 +1181,13 @@ func TestRuleMutationValidation(t *testing.T) {
 	})
 
 	t.Run("TrimsRuleAndBandFields", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"id":         " trimmed-rule ",
 			"name":       " Trimmed Rule ",
 			"expression": " 1 == 1 ",
 			"weight":     1.0,
 			"enabled":    true,
-			"bands": []map[string]interface{}{
+			"bands": []map[string]any{
 				{"lowerLimit": 1.0, "subRuleRef": " .fail ", "reason": " Always fail "},
 			},
 		}
@@ -1231,7 +1231,7 @@ func TestHealthEndpoint(t *testing.T) {
 			t.Errorf("expected status 200, got %d", rr.Code)
 		}
 
-		var resp map[string]interface{}
+		var resp map[string]any
 		json.Unmarshal(rr.Body.Bytes(), &resp)
 
 		if resp["status"] != "healthy" {
@@ -1275,7 +1275,7 @@ func TestHealthEndpoint(t *testing.T) {
 			t.Fatalf("expected status 200, got %d", rr.Code)
 		}
 
-		var resp map[string]interface{}
+		var resp map[string]any
 		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("failed to decode health response: %v", err)
 		}

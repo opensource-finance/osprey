@@ -4,6 +4,7 @@ package rules
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -126,7 +127,7 @@ type EvaluateInput struct {
 	CreditorID     string
 	Amount         float64
 	Currency       string
-	VelocityWindow int // seconds
+	VelocityWindow int            // seconds
 	AdditionalData map[string]any // request metadata -> CEL `meta` map
 	Enrichment     map[string]any // externally-computed scores -> CEL `enrichment` map
 }
@@ -198,9 +199,7 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 
 	// Back-compat: merge metadata as top-level vars so declared names supplied via
 	// metadata (e.g. old_balance/new_balance) still override their defaults.
-	for k, v := range input.AdditionalData {
-		activation[k] = v
-	}
+	maps.Copy(activation, input.AdditionalData)
 
 	// Open-ended bags. Set AFTER the merge so metadata keys can't clobber them.
 	// Always present (possibly empty) so has(meta.x)/has(enrichment.x) never error.

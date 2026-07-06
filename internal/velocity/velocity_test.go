@@ -54,7 +54,7 @@ func TestVelocityService(t *testing.T) {
 
 	t.Run("WithTransactions", func(t *testing.T) {
 		// Insert some transactions
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			tx := &domain.Transaction{
 				ID:              fmt.Sprintf("tx-%d", i),
 				Type:            "transfer",
