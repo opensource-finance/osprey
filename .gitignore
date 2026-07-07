@@ -1,6 +1,7 @@
-# Binaries
-osprey
-benchmark
+# Binaries (root-anchored so cmd/benchmark source is never matched)
+/osprey
+/benchmark
+/benchmark-test
 *.exe
 *.dll
 *.so
@@ -57,3 +58,5 @@ go.work.sum
 .claude
 .gemini
 .opencode
+# GoReleaser output
+/dist/
