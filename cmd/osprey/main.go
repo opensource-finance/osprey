@@ -35,6 +35,16 @@ var (
 )
 
 func main() {
+	// Fast path: print version and exit. Runs before config/logging so it works
+	// without OSPREY_ADMIN_TOKEN or any other environment.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "--version", "-v":
+			fmt.Printf("osprey %s (commit %s, built %s)\n", Version, Commit, BuildDate)
+			return
+		}
+	}
+
 	// Initialize structured logger
 	logLevel := slog.LevelInfo
 	if os.Getenv("OSPREY_DEBUG") == "true" {
