@@ -1,0 +1,105 @@
+# GoReleaser config — https://goreleaser.com
+# Runs on tag push via .github/workflows/release.yml.
+# Validate locally: `goreleaser check`
+# Dry-run (no publish):  `goreleaser release --snapshot --clean`
+version: 2
+
+project_name: osprey
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: osprey
+    main: ./cmd/osprey
+    binary: osprey
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.Version={{ .Version }}
+      - -X main.Commit={{ .ShortCommit }}
+      - -X main.BuildDate={{ .Date }}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "Merge pull request"
+
+# Single-arch images built from the prebuilt binary (Dockerfile.release),
+# then stitched into a multi-arch manifest below.
+dockers:
+  - id: amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.release
+    use: buildx
+    image_templates:
+      - "ghcr.io/opensource-finance/osprey:{{ .Version }}-amd64"
+      - "ghcr.io/opensource-finance/osprey:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/opensource-finance/osprey"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+  - id: arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.release
+    use: buildx
+    image_templates:
+      - "ghcr.io/opensource-finance/osprey:{{ .Version }}-arm64"
+      - "ghcr.io/opensource-finance/osprey:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/opensource-finance/osprey"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+docker_manifests:
+  - name_template: "ghcr.io/opensource-finance/osprey:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/opensource-finance/osprey:{{ .Version }}-amd64"
+      - "ghcr.io/opensource-finance/osprey:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/opensource-finance/osprey:latest"
+    image_templates:
+      - "ghcr.io/opensource-finance/osprey:latest-amd64"
+      - "ghcr.io/opensource-finance/osprey:latest-arm64"
+
+release:
+  github:
+    owner: opensource-finance
+    name: osprey
+  draft: false
+  prerelease: auto

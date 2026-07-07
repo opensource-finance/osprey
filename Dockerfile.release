@@ -1,0 +1,26 @@
+# Release image built by GoReleaser from a prebuilt binary (no in-image compile).
+# The multi-stage Dockerfile at repo root is for local `docker build` / compose.
+FROM alpine:3.19
+
+WORKDIR /app
+
+RUN apk add --no-cache ca-certificates wget
+
+# GoReleaser places the arch-matched binary in the build context.
+COPY osprey /app/osprey
+
+RUN addgroup -g 1000 osprey && \
+    adduser -u 1000 -G osprey -s /bin/sh -D osprey && \
+    mkdir -p /app/data && \
+    chown -R osprey:osprey /app
+
+USER osprey
+
+EXPOSE 8080
+
+VOLUME ["/app/data"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -q -O - http://localhost:8080/health >/dev/null || exit 1
+
+ENTRYPOINT ["/app/osprey"]
