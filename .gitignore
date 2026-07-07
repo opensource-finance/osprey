@@ -58,5 +58,9 @@ go.work.sum
 .claude
 .gemini
 .opencode
+
 # GoReleaser output
 /dist/
+
+# Design system lives in the monorepo, not the engine repo
+/Osprey Design System/

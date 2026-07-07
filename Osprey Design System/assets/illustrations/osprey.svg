@@ -1,7 +1,0 @@
-<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osprey">
-  <path d="M24 4 L8 12 V23 C8 34 15 42 24 44 C33 42 40 34 40 23 V12 Z" opacity="0.35"></path>
-  <path d="M24 15 V33"></path>
-  <path d="M16.5 20 L31.5 28"></path>
-  <path d="M16.5 28 L31.5 20"></path>
-  <circle cx="24" cy="24" r="3" fill="currentColor" stroke="none"></circle>
-</svg>
