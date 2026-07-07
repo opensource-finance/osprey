@@ -1,6 +1,6 @@
 module github.com/opensource-finance/osprey
 
-go 1.25.5
+go 1.26.0
 
 require (
 	github.com/go-chi/chi/v5 v5.2.3

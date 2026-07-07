@@ -187,10 +187,6 @@ func createPersistentTestServerWithEngineAndAdminToken(t *testing.T, engine *rul
 	return server, cleanup
 }
 
-func floatPtr(v float64) *float64 {
-	return &v
-}
-
 func TestEvaluateEndpoint(t *testing.T) {
 	server := createTestServer()
 
@@ -449,8 +445,8 @@ func TestEvaluateEndpoint(t *testing.T) {
 			Name:       "Normalized Transfer",
 			Expression: "tx_type == \"TRANSFER\" && currency == \"USD\" ? 1.0 : 0.0",
 			Bands: []domain.RuleBand{
-				{LowerLimit: floatPtr(1.0), SubRuleRef: ".fail", Reason: "Normalized type and currency matched"},
-				{LowerLimit: floatPtr(0.0), UpperLimit: floatPtr(1.0), SubRuleRef: ".pass", Reason: "Not matched"},
+				{LowerLimit: new(1.0), SubRuleRef: ".fail", Reason: "Normalized type and currency matched"},
+				{LowerLimit: new(0.0), UpperLimit: new(1.0), SubRuleRef: ".pass", Reason: "Not matched"},
 			},
 			Weight:  1.0,
 			Enabled: true,
