@@ -1,5 +1,11 @@
 # Osprey
 
+[![CI](https://github.com/opensource-finance/osprey/actions/workflows/sandbox-assurance.yml/badge.svg)](https://github.com/opensource-finance/osprey/actions/workflows/sandbox-assurance.yml)
+[![Release](https://img.shields.io/github/v/release/opensource-finance/osprey?sort=semver)](https://github.com/opensource-finance/osprey/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/opensource-finance/osprey.svg)](https://pkg.go.dev/github.com/opensource-finance/osprey)
+[![Go Report Card](https://goreportcard.com/badge/github.com/opensource-finance/osprey)](https://goreportcard.com/report/github.com/opensource-finance/osprey)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 Open-source transaction monitoring in one deployable service.
 
 Osprey evaluates transactions against CEL rules and returns a decision:
@@ -11,7 +17,7 @@ Use it when you need a simple fraud or compliance rules engine without a large p
 
 ## Start Locally
 
-Requirements: Go 1.25+.
+Requirements: Go 1.26+.
 
 ```bash
 git clone https://github.com/opensource-finance/osprey.git
