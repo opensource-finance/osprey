@@ -20,7 +20,7 @@ Use this guide as the source of truth:
 https://github.com/opensource-finance/osprey/blob/main/docs/SANDBOX.md
 
 Rules:
-1. Act like a first-time user. Read the current guide before running commands.
+1. Read the current guide before running commands.
 2. Create a local Docker sandbox only. Do not expose it to the public internet.
 3. Check for Git, Docker, curl, and OpenSSL first. Check that Docker is running.
    If something is missing, stop and tell me what I need to install or start.
