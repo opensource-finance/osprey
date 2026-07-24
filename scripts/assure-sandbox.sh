@@ -244,35 +244,39 @@ puts "   Markdown links OK"
 '
 
 echo "5. Checking shell script syntax..."
-bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/load-test.sh
+bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/test-integration-port-guard.sh scripts/test-verify-sandbox-inputs.sh scripts/load-test.sh
 
-echo "6. Running Go tests..."
+echo "6. Running sandbox script regression tests..."
+./scripts/test-integration-port-guard.sh
+./scripts/test-verify-sandbox-inputs.sh
+
+echo "7. Running Go tests..."
 go test ./...
 
-echo "7. Running go vet..."
+echo "8. Running go vet..."
 go vet ./...
 
 if [[ "$SKIP_RACE" != "true" ]]; then
-  echo "8. Running race detector..."
+  echo "9. Running race detector..."
   go test -race ./...
 else
-  echo "8. Skipping race detector (SKIP_RACE=true)."
+  echo "9. Skipping race detector (SKIP_RACE=true)."
 fi
 
-echo "9. Checking diff whitespace..."
+echo "10. Checking diff whitespace..."
 git diff --check
 
 if [[ "$SKIP_INTEGRATION" != "true" ]]; then
-  echo "10. Running HTTP integration tests..."
+  echo "11. Running HTTP integration tests..."
   ./scripts/test-integration.sh
 else
-  echo "10. Skipping integration tests (SKIP_INTEGRATION=true)."
+  echo "11. Skipping integration tests (SKIP_INTEGRATION=true)."
 fi
 
 if [[ "$SKIP_DOCKER" != "true" ]]; then
   require_command docker
 
-  echo "11. Building Docker image ($IMAGE_NAME)..."
+  echo "12. Building Docker image ($IMAGE_NAME)..."
   docker build \
     --build-arg VERSION="$VERSION" \
     --build-arg COMMIT="$COMMIT" \
@@ -290,7 +294,7 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   }
   echo "   Docker image metadata verified"
 
-  echo "12. Running Docker sandbox verification..."
+  echo "13. Running Docker sandbox verification..."
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
   docker volume create "$VOLUME_NAME" >/dev/null
@@ -339,7 +343,7 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   TENANT_ID="$TENANT_ID" \
     ./scripts/verify-sandbox.sh
 else
-  echo "11. Skipping Docker build/runtime verification (SKIP_DOCKER=true)."
+  echo "12. Skipping Docker build/runtime verification (SKIP_DOCKER=true)."
 fi
 
 echo
