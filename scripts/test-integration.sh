@@ -39,6 +39,11 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
+  echo "ERROR: TCP port $PORT is already in use; choose an unused OSPREY_TEST_PORT" >&2
+  exit 1
+fi
+
 echo "Building Osprey binary..."
 go -C "$REPO_ROOT" build -o "$BIN_PATH" ./cmd/osprey
 

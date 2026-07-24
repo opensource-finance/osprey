@@ -4,10 +4,8 @@ info:
   version: 0.1.0
   description: Customer-facing API contract for the Osprey sandbox environment.
 servers:
-  - url: https://sandbox.osprey.opensource.finance
-    description: Osprey sandbox
   - url: http://localhost:8080
-    description: Local development
+    description: Local sandbox; replace this URL with your deployed Osprey base URL
 tags:
   - name: Health
   - name: Evaluation
