@@ -187,7 +187,6 @@ func createPersistentTestServerWithEngineAndAdminToken(t *testing.T, engine *rul
 	return server, cleanup
 }
 
-//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestEvaluateEndpoint(t *testing.T) {
 	server := createTestServer()
 

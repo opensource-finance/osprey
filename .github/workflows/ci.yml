@@ -18,6 +18,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # full history: the gocognit ratchet diffs against origin/main
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -74,5 +77,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Run integration tests
-        run: ./scripts/test-integration.sh
+      - name: Run integration tests (same gate as `make test-integration`)
+        run: make test-integration

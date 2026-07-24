@@ -11,7 +11,6 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
-//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestSQLiteRepository(t *testing.T) {
 	// Create temp database file
 	tmpFile, err := os.CreateTemp("", "osprey-test-*.db")

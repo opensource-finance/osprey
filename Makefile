@@ -28,6 +28,10 @@ run:
 test:
 	$(GO) test -short ./...
 
+## test-integration: boot a real server on :18080 and run the integration suite
+test-integration:
+	./scripts/test-integration.sh
+
 ## race: run tests with the race detector
 race:
 	$(GO) test -race ./...
@@ -56,6 +60,13 @@ fix-check:
 ## lint: run golangci-lint (see `make tools`)
 lint:
 	golangci-lint run ./...
+	@$(MAKE) lint-complexity
+
+## lint-complexity: gocognit (>30) on new/changed code vs origin/main.
+## Six legacy test functions exceed the threshold; refactor them over time,
+## but no new or edited function may cross it. Full list: make lint-complexity WHOLE=1
+lint-complexity:
+	env -u GIT_DIR -u GIT_INDEX_FILE golangci-lint run ./... --enable-only=gocognit $(if $(WHOLE),,--new-from-merge-base=origin/main)
 
 ## check: gofmt drift + vet + lint + build (the CI gate)
 check: vet lint build

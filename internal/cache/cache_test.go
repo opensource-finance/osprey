@@ -8,7 +8,6 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
-//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestLRUCache(t *testing.T) {
 	cache := NewLRUCache(100)
 	ctx := context.Background()

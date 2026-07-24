@@ -12,7 +12,6 @@ import (
 	"github.com/opensource-finance/osprey/internal/repository"
 )
 
-//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestVelocityService(t *testing.T) {
 	// Create temp database
 	tmpFile, err := os.CreateTemp("", "velocity-test-*.db")
