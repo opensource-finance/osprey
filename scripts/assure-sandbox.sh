@@ -275,13 +275,14 @@ puts "   Markdown links OK"
 '
 
 echo "5. Checking shell script syntax..."
-bash -n scripts/assure-sandbox.sh scripts/check-docker-resource-names.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/test-integration-port-guard.sh scripts/test-docker-resource-guard.sh scripts/test-verify-sandbox-inputs.sh scripts/load-test.sh
+bash -n scripts/assure-sandbox.sh scripts/check-docker-resource-names.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/test-integration-port-guard.sh scripts/test-docker-port-guard.sh scripts/test-docker-resource-guard.sh scripts/test-verify-sandbox-inputs.sh scripts/load-test.sh
 
 echo "6. Running sandbox script regression tests..."
 ./scripts/test-integration-port-guard.sh
 ./scripts/test-verify-sandbox-inputs.sh
 if [[ "$SKIP_DOCKER" != "true" ]]; then
   require_command docker
+  ./scripts/test-docker-port-guard.sh
   ./scripts/test-docker-resource-guard.sh
 fi
 
@@ -314,6 +315,7 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   IMAGE_NAME="$IMAGE_NAME" \
   CONTAINER_NAME="$CONTAINER_NAME" \
   VOLUME_NAME="$VOLUME_NAME" \
+  DOCKER_PORT="$DOCKER_PORT" \
     ./scripts/check-docker-resource-names.sh
 
   echo "12. Building Docker image ($IMAGE_NAME)..."
@@ -394,7 +396,7 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   TENANT_ID="$TENANT_ID" \
     ./scripts/verify-sandbox.sh
 else
-  echo "12. Skipping Docker build/runtime verification (SKIP_DOCKER=true)."
+  echo "12-13. Skipping Docker build/runtime verification (SKIP_DOCKER=true)."
 fi
 
 echo

@@ -5,7 +5,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_PORT="${OSPREY_COLLISION_TEST_PORT:-$(ruby -rsocket -e 'server = TCPServer.new("127.0.0.1", 0); puts server.addr[1]; server.close')}"
+TEST_ROOT="$(mktemp -d -t osprey-integration-port-guard.XXXXXX)"
+PORT_FILE="$TEST_ROOT/port"
+REQUESTED_PORT="${OSPREY_COLLISION_TEST_PORT:-0}"
 EXISTING_PID=""
 
 cleanup() {
@@ -13,11 +15,13 @@ cleanup() {
     kill "$EXISTING_PID" 2>/dev/null || true
     wait "$EXISTING_PID" 2>/dev/null || true
   fi
+  rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
 
-TEST_PORT="$TEST_PORT" ruby -rsocket -e '
-server = TCPServer.new("127.0.0.1", ENV.fetch("TEST_PORT"))
+REQUESTED_PORT="$REQUESTED_PORT" PORT_FILE="$PORT_FILE" ruby -rsocket -e '
+server = TCPServer.new("127.0.0.1", Integer(ENV.fetch("REQUESTED_PORT")))
+File.write(ENV.fetch("PORT_FILE"), server.addr[1])
 loop do
   client = nil
   begin
@@ -36,16 +40,17 @@ end
 EXISTING_PID=$!
 
 for _ in $(seq 1 20); do
-  if ruby -rsocket -e 'socket = TCPSocket.new("127.0.0.1", ARGV.fetch(0)); socket.close' "$TEST_PORT" 2>/dev/null; then
+  if [[ -s "$PORT_FILE" ]]; then
     break
   fi
   sleep 0.1
 done
 
-if ! ruby -rsocket -e 'socket = TCPSocket.new("127.0.0.1", ARGV.fetch(0)); socket.close' "$TEST_PORT" 2>/dev/null; then
+if [[ ! -s "$PORT_FILE" ]] || ! kill -0 "$EXISTING_PID" 2>/dev/null; then
   echo "ERROR: collision fixture failed to start" >&2
   exit 1
 fi
+TEST_PORT="$(cat "$PORT_FILE")"
 
 set +e
 output="$(

@@ -129,9 +129,9 @@ docker run -d \
   osprey-sandbox:local
 ```
 
-The first command stops if the image, container, or volume name already exists.
-It does not delete or replace anything. Choose new names or manage the existing
-resources yourself before continuing.
+The first command stops if the host port or any Docker resource name is already
+in use. It does not delete or replace anything. Choose a new port or new names,
+or manage the existing resources yourself before continuing.
 
 The named Docker volume persists rules, typologies, transactions, and
 evaluations across container restarts.
