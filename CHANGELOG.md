@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A copyable AI-agent prompt and a complete local Docker sandbox walkthrough.
+
+### Fixed
+
+- Sandbox checks now stop on Docker name or port conflicts and keep assurance
+  ports bound to the local machine.
+
 ## [0.1.0] - 2026-07-07
 
 First tagged release. Osprey evaluates transactions against CEL rules and returns
