@@ -43,7 +43,7 @@ func createTestServerWithMode(mode domain.EvaluationMode, loadTypologies bool) *
 		Weight:     1.0,
 		Enabled:    true,
 	}
-	engine.LoadRule(testRule)
+	_ = engine.LoadRule(testRule)
 
 	// Create typology engine
 	typologyEngine := rules.NewTypologyEngine()
@@ -1228,7 +1228,7 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 
 		var resp map[string]any
-		json.Unmarshal(rr.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rr.Body.Bytes(), &resp)
 
 		if resp["status"] != "healthy" {
 			t.Errorf("expected status 'healthy', got '%s'", resp["status"])

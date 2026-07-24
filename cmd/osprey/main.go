@@ -34,18 +34,22 @@ var (
 	BuildDate = "unknown"
 )
 
-func main() {
-	// Fast path: print version and exit. Runs before config/logging so it works
-	// without OSPREY_ADMIN_TOKEN or any other environment.
+// handleVersionFlag prints version info and reports whether the process should
+// exit. Runs before config/logging so it works without OSPREY_ADMIN_TOKEN or
+// any other environment.
+func handleVersionFlag() bool {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "--version", "-v":
 			fmt.Printf("osprey %s (commit %s, built %s)\n", Version, Commit, BuildDate)
-			return
+			return true
 		}
 	}
+	return false
+}
 
-	// Initialize structured logger
+// initLogger installs the default structured logger.
+func initLogger() {
 	logLevel := slog.LevelInfo
 	if os.Getenv("OSPREY_DEBUG") == "true" {
 		logLevel = slog.LevelDebug
@@ -54,18 +58,11 @@ func main() {
 		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
+}
 
-	// Log startup
-	slog.Info("starting osprey",
-		"version", Version,
-		"commit", Commit,
-		"build_date", BuildDate,
-	)
-
-	// Load configuration
+// resolveTierConfig returns the base configuration for the selected OSPREY_TIER.
+func resolveTierConfig() *domain.Config {
 	cfg := domain.DefaultConfig()
-
-	// Resolve tier selection.
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("OSPREY_TIER"))) {
 	case "", "community":
 		// Community defaults already applied.
@@ -77,6 +74,25 @@ func main() {
 	default:
 		slog.Warn("unsupported OSPREY_TIER value; falling back to community tier", "value", os.Getenv("OSPREY_TIER"))
 	}
+	return cfg
+}
+
+func main() {
+	if handleVersionFlag() {
+		return
+	}
+
+	initLogger()
+
+	// Log startup
+	slog.Info("starting osprey",
+		"version", Version,
+		"commit", Commit,
+		"build_date", BuildDate,
+	)
+
+	// Load configuration and resolve tier selection.
+	cfg := resolveTierConfig()
 
 	if err := applyModeOverride(cfg); err != nil {
 		slog.Error("invalid configuration", "error", err)
@@ -121,7 +137,7 @@ func main() {
 		slog.Error("failed to initialize repository", "error", err)
 		os.Exit(1)
 	}
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 	slog.Info("repository initialized", "driver", cfg.Repository.Driver)
 
 	// Initialize Cache
@@ -130,7 +146,7 @@ func main() {
 		slog.Error("failed to initialize cache", "error", err)
 		os.Exit(1)
 	}
-	defer cacheImpl.Close()
+	defer func() { _ = cacheImpl.Close() }()
 	slog.Info("cache initialized", "type", cfg.Cache.Type)
 
 	// Initialize EventBus
@@ -139,7 +155,7 @@ func main() {
 		slog.Error("failed to initialize event bus", "error", err)
 		os.Exit(1)
 	}
-	defer busImpl.Close()
+	defer func() { _ = busImpl.Close() }()
 	slog.Info("event bus initialized", "type", cfg.EventBus.Type)
 
 	// Initialize Velocity Service

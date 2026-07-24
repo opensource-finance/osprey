@@ -19,8 +19,8 @@ func TestVelocityService(t *testing.T) {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	// Create repository
 	repo, err := repository.New(domain.RepositoryConfig{
@@ -30,11 +30,11 @@ func TestVelocityService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create repository: %v", err)
 	}
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 
 	// Create cache
 	lruCache := cache.NewLRUCache(100)
-	defer lruCache.Close()
+	defer func() { _ = lruCache.Close() }()
 
 	// Create velocity service
 	svc := NewService(repo, lruCache)

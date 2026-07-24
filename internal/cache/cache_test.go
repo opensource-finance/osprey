@@ -226,7 +226,7 @@ func TestNewCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New failed: %v", err)
 		}
-		defer cache.Close()
+		defer func() { _ = cache.Close() }()
 
 		_, ok := cache.(*LRUCache)
 		if !ok {

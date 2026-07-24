@@ -62,7 +62,7 @@ func New(cfg domain.RepositoryConfig) (domain.Repository, error) {
 
 	// Run migrations
 	if err := repo.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -88,7 +88,7 @@ func (r *SQLRepository) migrateSQLiteTransactionsPrimaryKey() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	primaryKey := make(map[string]int)
 	for rows.Next() {
@@ -126,7 +126,7 @@ func (r *SQLRepository) migrateSQLiteTransactionsPrimaryKey() error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	statements := []string{
 		`DROP TABLE IF EXISTS transactions_legacy_migration`,
@@ -284,7 +284,7 @@ func (r *SQLRepository) GetTransactionsByEntity(ctx context.Context, tenantID st
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var transactions []*domain.Transaction
 	for rows.Next() {
@@ -438,7 +438,7 @@ func (r *SQLRepository) ListRuleConfigs(ctx context.Context, tenantID string) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var configs []*domain.RuleConfig
 	for rows.Next() {
@@ -639,7 +639,7 @@ func (r *SQLRepository) ListTypologies(ctx context.Context, tenantID string) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var typologies []*domain.Typology
 	for rows.Next() {

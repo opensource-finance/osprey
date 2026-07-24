@@ -21,7 +21,7 @@ func openSQLite(cfg domain.RepositoryConfig) (*sql.DB, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(path)
 	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, fmt.Errorf("failed to create database directory: %w", err)
 		}
 	}
@@ -36,7 +36,7 @@ func openSQLite(cfg domain.RepositoryConfig) (*sql.DB, error) {
 
 	// Verify connection
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
 

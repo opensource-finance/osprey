@@ -43,7 +43,7 @@ func openPostgres(cfg domain.RepositoryConfig) (*sql.DB, error) {
 
 	// Verify connection
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
 	}
 

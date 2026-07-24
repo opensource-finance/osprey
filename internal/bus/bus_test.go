@@ -12,7 +12,7 @@ import (
 
 func TestChannelBus(t *testing.T) {
 	bus := NewChannelBus(100)
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	ctx := context.Background()
 	tenantID := "tenant-001"
@@ -75,12 +75,12 @@ func TestChannelBus(t *testing.T) {
 		var received1 atomic.Int32
 		var received2 atomic.Int32
 
-		bus.Subscribe(ctx, tenant1, "isolation.topic", func(ctx context.Context, msg *domain.Message) error {
+		_, _ = bus.Subscribe(ctx, tenant1, "isolation.topic", func(ctx context.Context, msg *domain.Message) error {
 			received1.Add(1)
 			return nil
 		})
 
-		bus.Subscribe(ctx, tenant2, "isolation.topic", func(ctx context.Context, msg *domain.Message) error {
+		_, _ = bus.Subscribe(ctx, tenant2, "isolation.topic", func(ctx context.Context, msg *domain.Message) error {
 			received2.Add(1)
 			return nil
 		})
@@ -88,7 +88,7 @@ func TestChannelBus(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Publish to tenant1
-		bus.Publish(ctx, tenant1, "isolation.topic", []byte("msg1"))
+		_ = bus.Publish(ctx, tenant1, "isolation.topic", []byte("msg1"))
 		time.Sleep(50 * time.Millisecond)
 
 		if received1.Load() != 1 {
@@ -123,17 +123,17 @@ func TestChannelBus(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 
-		bus.Publish(ctx, tenantID, "unsub.topic", []byte("msg1"))
+		_ = bus.Publish(ctx, tenantID, "unsub.topic", []byte("msg1"))
 		time.Sleep(50 * time.Millisecond)
 
 		if count.Load() != 1 {
 			t.Errorf("expected 1 message before unsubscribe, got %d", count.Load())
 		}
 
-		sub.Unsubscribe()
+		_ = sub.Unsubscribe()
 		time.Sleep(10 * time.Millisecond)
 
-		bus.Publish(ctx, tenantID, "unsub.topic", []byte("msg2"))
+		_ = bus.Publish(ctx, tenantID, "unsub.topic", []byte("msg2"))
 		time.Sleep(50 * time.Millisecond)
 
 		// Should still be 1 after unsubscribe
@@ -145,19 +145,19 @@ func TestChannelBus(t *testing.T) {
 	t.Run("MultipleSubscribers", func(t *testing.T) {
 		var count1, count2 atomic.Int32
 
-		bus.Subscribe(ctx, tenantID, "multi.topic", func(ctx context.Context, msg *domain.Message) error {
+		_, _ = bus.Subscribe(ctx, tenantID, "multi.topic", func(ctx context.Context, msg *domain.Message) error {
 			count1.Add(1)
 			return nil
 		})
 
-		bus.Subscribe(ctx, tenantID, "multi.topic", func(ctx context.Context, msg *domain.Message) error {
+		_, _ = bus.Subscribe(ctx, tenantID, "multi.topic", func(ctx context.Context, msg *domain.Message) error {
 			count2.Add(1)
 			return nil
 		})
 
 		time.Sleep(10 * time.Millisecond)
 
-		bus.Publish(ctx, tenantID, "multi.topic", []byte("broadcast"))
+		_ = bus.Publish(ctx, tenantID, "multi.topic", []byte("broadcast"))
 		time.Sleep(50 * time.Millisecond)
 
 		if count1.Load() != 1 || count2.Load() != 1 {
@@ -188,7 +188,7 @@ func TestChannelBusClose(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "tenant-001"
 
-	bus.Subscribe(ctx, tenantID, "close.topic", func(ctx context.Context, msg *domain.Message) error {
+	_, _ = bus.Subscribe(ctx, tenantID, "close.topic", func(ctx context.Context, msg *domain.Message) error {
 		return nil
 	})
 
@@ -217,7 +217,7 @@ func TestNewBus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New failed: %v", err)
 		}
-		defer bus.Close()
+		defer func() { _ = bus.Close() }()
 
 		_, ok := bus.(*ChannelBus)
 		if !ok {
@@ -239,7 +239,7 @@ func TestNewBus(t *testing.T) {
 
 func TestChannelBusHighLoad(t *testing.T) {
 	bus := NewChannelBus(1000)
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	ctx := context.Background()
 	tenantID := "tenant-load"
@@ -250,7 +250,7 @@ func TestChannelBusHighLoad(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(messageCount)
 
-	bus.Subscribe(ctx, tenantID, "load.topic", func(ctx context.Context, msg *domain.Message) error {
+	_, _ = bus.Subscribe(ctx, tenantID, "load.topic", func(ctx context.Context, msg *domain.Message) error {
 		received.Add(1)
 		wg.Done()
 		return nil
@@ -260,7 +260,7 @@ func TestChannelBusHighLoad(t *testing.T) {
 
 	// Publish many messages
 	for range messageCount {
-		bus.Publish(ctx, tenantID, "load.topic", []byte("msg"))
+		_ = bus.Publish(ctx, tenantID, "load.topic", []byte("msg"))
 	}
 
 	// Wait for all messages

@@ -18,8 +18,8 @@ func TestSQLiteRepository(t *testing.T) {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	cfg := domain.RepositoryConfig{
 		Driver:     "sqlite",
@@ -30,7 +30,7 @@ func TestSQLiteRepository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create repository: %v", err)
 	}
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 
 	ctx := context.Background()
 	tenantID := "tenant-001"
@@ -87,7 +87,7 @@ func TestSQLiteRepository(t *testing.T) {
 	})
 
 	t.Run("AllowsSameTransactionIDAcrossTenants", func(t *testing.T) {
-		tx := &domain.Transaction{
+		tx := &domain.Transaction{ //nolint:gosec // G101: synthetic test transaction IDs, not credentials
 			ID:              "shared-client-id",
 			Type:            "transfer",
 			DebtorID:        "debtor-shared",
@@ -121,7 +121,7 @@ func TestSQLiteRepository(t *testing.T) {
 	})
 
 	t.Run("DuplicateTransactionReturnsSentinel", func(t *testing.T) {
-		tx := &domain.Transaction{
+		tx := &domain.Transaction{ //nolint:gosec // G101: synthetic test transaction IDs, not credentials
 			ID:              "duplicate-client-id",
 			Type:            "transfer",
 			DebtorID:        "debtor-dup",
@@ -158,7 +158,7 @@ func TestSQLiteRepository(t *testing.T) {
 
 	t.Run("GetTransactionsByEntity", func(t *testing.T) {
 		// Create another transaction
-		tx2 := &domain.Transaction{
+		tx2 := &domain.Transaction{ //nolint:gosec // G101: synthetic test transaction IDs, not credentials
 			ID:              "tx-002",
 			Type:            "transfer",
 			DebtorID:        "debtor-001", // Same debtor as tx-001
@@ -351,10 +351,10 @@ func TestSQLiteMigratesLegacyTransactionPrimaryKey(t *testing.T) {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-	defer os.Remove(tmpPath + "-shm")
-	defer os.Remove(tmpPath + "-wal")
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	defer func() { _ = os.Remove(tmpPath + "-shm") }()
+	defer func() { _ = os.Remove(tmpPath + "-wal") }()
 
 	db, err := sql.Open("sqlite", "file:"+tmpPath)
 	if err != nil {
@@ -397,14 +397,14 @@ func TestSQLiteMigratesLegacyTransactionPrimaryKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open migrated repository: %v", err)
 	}
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 
 	sqlRepo := repo.(*SQLRepository)
 	rows, err := sqlRepo.db.Query(`PRAGMA table_info(transactions)`)
 	if err != nil {
 		t.Fatalf("failed to inspect migrated schema: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	primaryKey := make(map[string]int)
 	for rows.Next() {

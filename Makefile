@@ -26,7 +26,11 @@ run:
 
 ## test: run unit tests
 test:
-	$(GO) test ./...
+	$(GO) test -short ./...
+
+## test-integration: boot a real server on :18080 and run the integration suite
+test-integration:
+	./scripts/test-integration.sh
 
 ## race: run tests with the race detector
 race:
@@ -53,9 +57,30 @@ fix-check:
 	@$(GO) fix -diff ./... || { echo "^ modernizations pending; run 'make fix'"; exit 1; }
 	@echo "fix-check: ok"
 
-## lint: run staticcheck (see `make tools`)
+## lint: run golangci-lint (see `make tools`)
 lint:
-	staticcheck ./...
+	golangci-lint run ./...
+	@$(MAKE) lint-complexity
+
+## lint-complexity: gocognit (>30) on new/changed code vs origin/main.
+## Six legacy test functions exceed the threshold; refactor them over time,
+## but no new or edited function may cross it. Full list: make lint-complexity WHOLE=1
+lint-complexity:
+	env -u GIT_DIR -u GIT_INDEX_FILE golangci-lint run ./... --enable-only=gocognit $(if $(WHOLE),,--new-from-merge-base=origin/main)
+
+## check: gofmt drift + vet + lint + build (the CI gate)
+check: vet lint build
+	@test -z "$$(gofmt -l .)" || { echo "gofmt needed on:"; gofmt -l .; exit 1; }
+	@echo "check: ok"
+
+## coverage-check: fail if unit coverage drops >0.5pt below coverage-baseline.txt
+coverage-check:
+	$(GO) test -short -coverprofile=coverage.out ./...
+	@total=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{sub("%",""); print $$NF}'); \
+	baseline=$$(cat coverage-baseline.txt); \
+	echo "coverage: $$total% (baseline: $$baseline%)"; \
+	awk -v t="$$total" -v b="$$baseline" 'BEGIN { exit (t < b - 0.5) ? 1 : 0 }' || \
+		{ echo "FAIL: coverage $$total% is more than 0.5pt below baseline $$baseline%"; exit 1; }
 
 ## dead: report code unreachable from main (see `make tools`)
 dead:
@@ -65,9 +90,9 @@ dead:
 tidy:
 	$(GO) mod tidy
 
-## tools: install staticcheck + deadcode
+## tools: install golangci-lint + deadcode
 tools:
-	$(GO) install honnef.co/go/tools/cmd/staticcheck@latest
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 	$(GO) install golang.org/x/tools/cmd/deadcode@latest
 
 ## assure: full sandbox assurance gate (tests, race, docker, verify)
@@ -88,4 +113,4 @@ clean:
 	rm -f $(BINARY)
 	$(GO) clean
 
-.PHONY: help build run test race cover vet fmt fix fix-check lint dead tidy tools assure seed ci clean
+.PHONY: help build run test race cover vet fmt fix fix-check lint check coverage-check dead tidy tools assure seed ci clean

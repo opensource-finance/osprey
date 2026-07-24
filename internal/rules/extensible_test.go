@@ -16,7 +16,7 @@ func TestExtensibleVariables(t *testing.T) {
 	// alone never makes new fields usable — they must go through a declared map.
 	t.Run("UndeclaredIdentifierFailsCompile", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
-		defer engine.Close()
+		defer func() { _ = engine.Close() }()
 		err := engine.ValidateRule(&domain.RuleConfig{
 			ID: "undeclared", Name: "u", Expression: "country == 'US'", Weight: 1.0, Enabled: true,
 		})
@@ -28,7 +28,7 @@ func TestExtensibleVariables(t *testing.T) {
 	// meta.<key> guarded with has(): true when present, false (NOT an error) when absent.
 	t.Run("MetaGuardedAccess", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
-		defer engine.Close()
+		defer func() { _ = engine.Close() }()
 		_ = engine.LoadRule(&domain.RuleConfig{
 			ID: "meta-country", Name: "m", Expression: "has(meta.country) && meta.country == 'US'",
 			Weight: 1.0, Enabled: true,
@@ -57,7 +57,7 @@ func TestExtensibleVariables(t *testing.T) {
 	// Unguarded reference to a missing key errors at eval — documents the foot-gun.
 	t.Run("UnguardedMissingFieldErrors", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
-		defer engine.Close()
+		defer func() { _ = engine.Close() }()
 		_ = engine.LoadRule(&domain.RuleConfig{
 			ID: "meta-unguarded", Name: "m", Expression: "meta.country == 'US'", Weight: 1.0, Enabled: true,
 		})
@@ -73,7 +73,7 @@ func TestExtensibleVariables(t *testing.T) {
 	// enrichment.<key> guarded access.
 	t.Run("EnrichmentGuardedAccess", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
-		defer engine.Close()
+		defer func() { _ = engine.Close() }()
 		_ = engine.LoadRule(&domain.RuleConfig{
 			ID: "enrich-ml", Name: "e", Expression: "has(enrichment.ml_score) && enrichment.ml_score > 0.9",
 			Weight: 1.0, Enabled: true,
@@ -90,7 +90,7 @@ func TestExtensibleVariables(t *testing.T) {
 	// Velocity aggregate variables are declared and fed by the AggregatesGetter.
 	t.Run("VelocityAggregates", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
-		defer engine.Close()
+		defer func() { _ = engine.Close() }()
 		engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int) (VelocityAggregates, error) {
 			return VelocityAggregates{Count: 7, AmountSum: 5000.0, DistinctCreditors: 3}, nil
 		})

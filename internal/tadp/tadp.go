@@ -148,10 +148,11 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 		}
 
 		// Check for critical failures
-		if r.SubRuleRef == domain.RuleOutcomeFail {
+		switch r.SubRuleRef {
+		case domain.RuleOutcomeFail:
 			agg.HasCriticalFailure = true
 			agg.RulesTriggered++
-		} else if r.SubRuleRef == domain.RuleOutcomeReview {
+		case domain.RuleOutcomeReview:
 			agg.RulesTriggered++
 		}
 

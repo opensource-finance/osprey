@@ -36,7 +36,7 @@ func (b *failingPublishBus) Publish(_ context.Context, _ string, _ string, _ []b
 func TestWorker(t *testing.T) {
 	// Create channel bus
 	eventBus := bus.NewChannelBus(100)
-	defer eventBus.Close()
+	defer func() { _ = eventBus.Close() }()
 
 	// Create rule engine with test rules (no hardcoded builtin rules)
 	engine, _ := rules.NewEngine(nil, 5)
@@ -58,7 +58,7 @@ func TestWorker(t *testing.T) {
 			Enabled:    true,
 		},
 	}
-	engine.LoadRules(testRules)
+	_ = engine.LoadRules(testRules)
 
 	// Create typology engine
 	typologyEngine := rules.NewTypologyEngine()
@@ -103,14 +103,14 @@ func TestWorker(t *testing.T) {
 		cfg := Config{
 			TenantIDs: []string{"tenant-test"},
 		}
-		w.Start(cfg)
-		defer w.Stop()
+		_ = w.Start(cfg)
+		defer func() { _ = w.Stop() }()
 
 		// Track decision results
 		var decisionReceived atomic.Bool
 		var decisionPayload []byte
 
-		eventBus.Subscribe(context.Background(), "tenant-test", domain.TopicDecision, func(ctx context.Context, msg *domain.Message) error {
+		_, _ = eventBus.Subscribe(context.Background(), "tenant-test", domain.TopicDecision, func(ctx context.Context, msg *domain.Message) error {
 			decisionPayload = msg.Payload
 			decisionReceived.Store(true)
 			return nil
@@ -174,13 +174,13 @@ func TestWorker(t *testing.T) {
 		cfg := Config{
 			TenantIDs: []string{"tenant-alert"},
 		}
-		w.Start(cfg)
-		defer w.Stop()
+		_ = w.Start(cfg)
+		defer func() { _ = w.Stop() }()
 
 		// Track alerts
 		var alertReceived atomic.Bool
 
-		eventBus.Subscribe(context.Background(), "tenant-alert", domain.TopicAlert, func(ctx context.Context, msg *domain.Message) error {
+		_, _ = eventBus.Subscribe(context.Background(), "tenant-alert", domain.TopicAlert, func(ctx context.Context, msg *domain.Message) error {
 			alertReceived.Store(true)
 			return nil
 		})
@@ -199,7 +199,7 @@ func TestWorker(t *testing.T) {
 		}
 
 		payload, _ := json.Marshal(txMsg)
-		eventBus.Publish(context.Background(), "tenant-alert", domain.TopicTransactionIngested, payload)
+		_ = eventBus.Publish(context.Background(), "tenant-alert", domain.TopicTransactionIngested, payload)
 
 		time.Sleep(100 * time.Millisecond)
 
@@ -214,8 +214,8 @@ func TestWorker(t *testing.T) {
 		cfg := Config{
 			TenantIDs: []string{"tenant-a", "tenant-b"},
 		}
-		w.Start(cfg)
-		defer w.Stop()
+		_ = w.Start(cfg)
+		defer func() { _ = w.Stop() }()
 
 		stats := w.GetStats()
 		if stats.SubscriptionCount != 2 {
@@ -262,10 +262,10 @@ func TestTransactionMessageParsing(t *testing.T) {
 
 func TestProcessTransaction_ComplianceModeRequiresTypologies(t *testing.T) {
 	eventBus := bus.NewChannelBus(10)
-	defer eventBus.Close()
+	defer func() { _ = eventBus.Close() }()
 
 	engine, _ := rules.NewEngine(nil, 2)
-	engine.LoadRules([]*domain.RuleConfig{
+	_ = engine.LoadRules([]*domain.RuleConfig{
 		{
 			ID:         "test-rule-001",
 			Name:       "Test Rule",
@@ -334,7 +334,7 @@ func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
 
 	t.Run("SaveEvaluationFailure", func(t *testing.T) {
 		eventBus := bus.NewChannelBus(10)
-		defer eventBus.Close()
+		defer func() { _ = eventBus.Close() }()
 
 		w := NewWorker(
 			eventBus,

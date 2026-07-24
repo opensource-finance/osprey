@@ -1,0 +1,11 @@
+version: "2"
+# gocognit is not in the main enable list: six legacy test functions exceed
+# the threshold, so it runs in ratchet mode (changed code only) via
+# `make lint-complexity`. Settings below apply to that pass.
+linters:
+  default: standard
+  enable:
+    - gosec
+  settings:
+    gocognit:
+      min-complexity: 30
