@@ -148,7 +148,7 @@ func (b *ChannelBus) Request(ctx context.Context, tenantID string, topic string,
 	if err != nil {
 		return nil, err
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	// Publish request
 	if err := b.Publish(ctx, tenantID, topic, payload); err != nil {

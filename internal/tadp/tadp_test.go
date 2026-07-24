@@ -8,6 +8,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
+//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestProcessor(t *testing.T) {
 	proc := NewProcessor()
 	ctx := context.Background()

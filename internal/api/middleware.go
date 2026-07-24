@@ -39,7 +39,7 @@ const (
 	TraceIDHeader = "X-Trace-ID"
 
 	// AdminTokenHeader is an alternate token header for configuration changes.
-	AdminTokenHeader = "X-Osprey-Admin-Token"
+	AdminTokenHeader = "X-Osprey-Admin-Token" //nolint:gosec // G101: header name, not a credential
 )
 
 var tracer = otel.Tracer("osprey-api")

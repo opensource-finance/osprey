@@ -22,6 +22,7 @@ demos/*.mp4
 *.out
 coverage.txt
 coverage.html
+coverage.out
 
 # K6 test results
 k6/results/

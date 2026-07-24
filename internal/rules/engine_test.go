@@ -15,7 +15,7 @@ func TestEngineCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
 	}
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	if engine.RulesCount() != 0 {
 		t.Errorf("expected 0 rules, got %d", engine.RulesCount())
@@ -24,7 +24,7 @@ func TestEngineCreation(t *testing.T) {
 
 func TestLoadRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	rule := &domain.RuleConfig{
 		ID:         "test-rule-001",
@@ -47,7 +47,7 @@ func TestLoadRule(t *testing.T) {
 
 func TestLoadInvalidRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	rule := &domain.RuleConfig{
 		ID:         "invalid-rule",
@@ -64,7 +64,7 @@ func TestLoadInvalidRule(t *testing.T) {
 
 func TestEvaluateSimpleRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	zero := 0.0
 	one := 1.0
@@ -81,7 +81,7 @@ func TestEvaluateSimpleRule(t *testing.T) {
 		Enabled: true,
 	}
 
-	engine.LoadRule(rule)
+	_ = engine.LoadRule(rule)
 
 	ctx := context.Background()
 
@@ -123,7 +123,7 @@ func TestEvaluateSimpleRule(t *testing.T) {
 
 func TestEvaluateBooleanRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	rule := &domain.RuleConfig{
 		ID:         "same-party-check",
@@ -134,7 +134,7 @@ func TestEvaluateBooleanRule(t *testing.T) {
 		Enabled:    true,
 	}
 
-	engine.LoadRule(rule)
+	_ = engine.LoadRule(rule)
 
 	ctx := context.Background()
 
@@ -166,7 +166,7 @@ func TestVelocityRule(t *testing.T) {
 	}
 
 	engine, _ := NewEngine(velocityGetter, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	zero := 0.0
 	half := 0.5
@@ -187,7 +187,7 @@ func TestVelocityRule(t *testing.T) {
 		Weight:  1.0,
 		Enabled: true,
 	}
-	engine.LoadRule(rule)
+	_ = engine.LoadRule(rule)
 
 	ctx := context.Background()
 	input := &EvaluateInput{
@@ -210,7 +210,7 @@ func TestVelocityRule(t *testing.T) {
 
 func TestParallelExecution(t *testing.T) {
 	engine, _ := NewEngine(nil, 3)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	// Load multiple rules
 	for i := range 10 {
@@ -221,7 +221,7 @@ func TestParallelExecution(t *testing.T) {
 			Weight:     1.0,
 			Enabled:    true,
 		}
-		engine.LoadRule(rule)
+		_ = engine.LoadRule(rule)
 	}
 
 	if engine.RulesCount() != 10 {
@@ -274,7 +274,7 @@ func TestConcurrencyLimit(t *testing.T) {
 	}
 
 	engine, _ := NewEngine(velocityGetter, 2) // Max 2 workers
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	// Load 10 rules that use velocity
 	for i := range 10 {
@@ -283,7 +283,7 @@ func TestConcurrencyLimit(t *testing.T) {
 			Expression: "velocity_count > 10 ? 1.0 : 0.0",
 			Enabled:    true,
 		}
-		engine.LoadRule(rule)
+		_ = engine.LoadRule(rule)
 	}
 
 	ctx := context.Background()
@@ -294,7 +294,7 @@ func TestConcurrencyLimit(t *testing.T) {
 		VelocityWindow: 3600,
 	}
 
-	engine.EvaluateAll(ctx, input)
+	_, _ = engine.EvaluateAll(ctx, input)
 
 	// Note: Due to how velocity is fetched once before parallel execution,
 	// the max concurrent for rule evaluation is controlled by the semaphore
@@ -303,7 +303,7 @@ func TestConcurrencyLimit(t *testing.T) {
 
 func TestHighValueTransferRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	zero := 0.0
 	one := 1.0
@@ -322,7 +322,7 @@ func TestHighValueTransferRule(t *testing.T) {
 		Weight:  0.8,
 		Enabled: true,
 	}
-	engine.LoadRule(rule)
+	_ = engine.LoadRule(rule)
 
 	ctx := context.Background()
 
@@ -343,7 +343,7 @@ func TestHighValueTransferRule(t *testing.T) {
 
 func TestSameAccountRule(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	zero := 0.0
 	one := 1.0
@@ -362,7 +362,7 @@ func TestSameAccountRule(t *testing.T) {
 		Weight:  1.0,
 		Enabled: true,
 	}
-	engine.LoadRule(rule)
+	_ = engine.LoadRule(rule)
 
 	ctx := context.Background()
 
@@ -383,7 +383,7 @@ func TestSameAccountRule(t *testing.T) {
 
 func TestRuleResultMetadata(t *testing.T) {
 	engine, _ := NewEngine(nil, 5)
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 
 	rule := &domain.RuleConfig{
 		ID:         "meta-test",
@@ -391,7 +391,7 @@ func TestRuleResultMetadata(t *testing.T) {
 		Weight:     0.75,
 		Enabled:    true,
 	}
-	engine.LoadRule(rule)
+	_ = engine.LoadRule(rule)
 
 	ctx := context.Background()
 	input := &EvaluateInput{

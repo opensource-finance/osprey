@@ -158,7 +158,7 @@ func checkHealth(baseURL string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unhealthy: status %d", resp.StatusCode)
 	}
@@ -166,11 +166,11 @@ func checkHealth(baseURL string) error {
 }
 
 func readPaySimCSV(path string, limit int, fraudOnly bool, sampleRate float64) ([]PaySimTransaction, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: path is a CLI flag supplied by the operator of this benchmark tool
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := csv.NewReader(file)
 
@@ -258,62 +258,7 @@ func runBenchmark(transactions []PaySimTransaction, baseURL, tenantID string, nu
 			client := &http.Client{Timeout: 10 * time.Second}
 
 			for tx := range work {
-				start := time.Now()
-				result, err := evaluateTransaction(client, baseURL, tenantID, tx)
-				elapsed := time.Since(start).Milliseconds()
-
-				atomic.AddInt64(&metrics.ProcessingTimeMs, elapsed)
-				atomic.AddInt64(&metrics.TotalProcessed, 1)
-
-				if err != nil {
-					atomic.AddInt64(&metrics.TotalErrors, 1)
-					if verbose {
-						fmt.Printf("ERROR: %s -> %v\n", tx.NameOrig, err)
-					}
-					continue
-				}
-
-				// Track actual labels
-				if tx.IsFraud {
-					atomic.AddInt64(&metrics.TotalFraud, 1)
-				} else {
-					atomic.AddInt64(&metrics.TotalNonFraud, 1)
-				}
-
-				// Calculate confusion matrix
-				predicted := result.Status == "ALRT"
-				actual := tx.IsFraud
-
-				if predicted && actual {
-					atomic.AddInt64(&metrics.TruePositives, 1)
-				} else if predicted && !actual {
-					atomic.AddInt64(&metrics.FalsePositives, 1)
-				} else if !predicted && !actual {
-					atomic.AddInt64(&metrics.TrueNegatives, 1)
-				} else { // !predicted && actual
-					atomic.AddInt64(&metrics.FalseNegatives, 1)
-				}
-
-				if verbose {
-					status := "✓"
-					if (predicted && !actual) || (!predicted && actual) {
-						status = "✗"
-					}
-					name := tx.NameOrig
-					if len(name) > 10 {
-						name = name[:10]
-					}
-					fmt.Printf("%s %-10s | Type: %-8s | Amount: $%12.2f | Fraud: %-5v | Osprey: %-4s (%.2f) | Drain: %v\n",
-						status,
-						name,
-						tx.Type,
-						tx.Amount,
-						tx.IsFraud,
-						result.Status,
-						result.Score,
-						tx.NewBalanceOrig == 0 && tx.OldBalanceOrg > 0,
-					)
-				}
+				processTransaction(client, metrics, baseURL, tenantID, tx, verbose)
 			}
 		})
 	}
@@ -328,6 +273,67 @@ func runBenchmark(transactions []PaySimTransaction, baseURL, tenantID string, nu
 	wg.Wait()
 
 	return metrics
+}
+
+// processTransaction evaluates one transaction and records latency, labels,
+// and confusion-matrix counters on metrics.
+func processTransaction(client *http.Client, metrics *Metrics, baseURL, tenantID string, tx PaySimTransaction, verbose bool) {
+	start := time.Now()
+	result, err := evaluateTransaction(client, baseURL, tenantID, tx)
+	elapsed := time.Since(start).Milliseconds()
+
+	atomic.AddInt64(&metrics.ProcessingTimeMs, elapsed)
+	atomic.AddInt64(&metrics.TotalProcessed, 1)
+
+	if err != nil {
+		atomic.AddInt64(&metrics.TotalErrors, 1)
+		if verbose {
+			fmt.Printf("ERROR: %s -> %v\n", tx.NameOrig, err)
+		}
+		return
+	}
+
+	// Track actual labels
+	if tx.IsFraud {
+		atomic.AddInt64(&metrics.TotalFraud, 1)
+	} else {
+		atomic.AddInt64(&metrics.TotalNonFraud, 1)
+	}
+
+	// Calculate confusion matrix
+	predicted := result.Status == "ALRT"
+	actual := tx.IsFraud
+
+	if predicted && actual {
+		atomic.AddInt64(&metrics.TruePositives, 1)
+	} else if predicted && !actual {
+		atomic.AddInt64(&metrics.FalsePositives, 1)
+	} else if !predicted && !actual {
+		atomic.AddInt64(&metrics.TrueNegatives, 1)
+	} else { // !predicted && actual
+		atomic.AddInt64(&metrics.FalseNegatives, 1)
+	}
+
+	if verbose {
+		status := "✓"
+		if (predicted && !actual) || (!predicted && actual) {
+			status = "✗"
+		}
+		name := tx.NameOrig
+		if len(name) > 10 {
+			name = name[:10]
+		}
+		fmt.Printf("%s %-10s | Type: %-8s | Amount: $%12.2f | Fraud: %-5v | Osprey: %-4s (%.2f) | Drain: %v\n",
+			status,
+			name,
+			tx.Type,
+			tx.Amount,
+			tx.IsFraud,
+			result.Status,
+			result.Score,
+			tx.NewBalanceOrig == 0 && tx.OldBalanceOrg > 0,
+		)
+	}
 }
 
 func evaluateTransaction(client *http.Client, baseURL, tenantID string, tx PaySimTransaction) (*EvaluateResponse, error) {
@@ -371,7 +377,7 @@ func evaluateTransaction(client *http.Client, baseURL, tenantID string, tx PaySi
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)

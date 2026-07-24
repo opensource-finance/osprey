@@ -43,7 +43,7 @@ func createTestServerWithMode(mode domain.EvaluationMode, loadTypologies bool) *
 		Weight:     1.0,
 		Enabled:    true,
 	}
-	engine.LoadRule(testRule)
+	_ = engine.LoadRule(testRule)
 
 	// Create typology engine
 	typologyEngine := rules.NewTypologyEngine()
@@ -187,6 +187,7 @@ func createPersistentTestServerWithEngineAndAdminToken(t *testing.T, engine *rul
 	return server, cleanup
 }
 
+//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestEvaluateEndpoint(t *testing.T) {
 	server := createTestServer()
 
@@ -1228,7 +1229,7 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 
 		var resp map[string]any
-		json.Unmarshal(rr.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rr.Body.Bytes(), &resp)
 
 		if resp["status"] != "healthy" {
 			t.Errorf("expected status 'healthy', got '%s'", resp["status"])

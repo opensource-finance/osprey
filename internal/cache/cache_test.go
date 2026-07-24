@@ -8,6 +8,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
+//nolint:gocognit // sequential subtests sharing fixture state; complexity is scenario count, not branching logic
 func TestLRUCache(t *testing.T) {
 	cache := NewLRUCache(100)
 	ctx := context.Background()
@@ -226,7 +227,7 @@ func TestNewCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New failed: %v", err)
 		}
-		defer cache.Close()
+		defer func() { _ = cache.Close() }()
 
 		_, ok := cache.(*LRUCache)
 		if !ok {

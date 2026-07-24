@@ -18,14 +18,14 @@ func TestGetAggregates(t *testing.T) {
 		t.Fatalf("temp file: %v", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	repo, err := repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: tmpPath})
 	if err != nil {
 		t.Fatalf("repo: %v", err)
 	}
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 
 	svc := NewService(repo, cache.NewLRUCache(100))
 	ctx := context.Background()
