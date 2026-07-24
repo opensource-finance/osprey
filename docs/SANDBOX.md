@@ -116,6 +116,8 @@ set +a
 ### 3. Build and run Osprey
 
 ```bash
+./scripts/check-docker-resource-names.sh
+
 docker build -t osprey-sandbox:local .
 docker volume create osprey-sandbox-data
 
@@ -126,6 +128,10 @@ docker run -d \
   -v osprey-sandbox-data:/app/data \
   osprey-sandbox:local
 ```
+
+The first command stops if the image, container, or volume name already exists.
+It does not delete or replace anything. Choose new names or manage the existing
+resources yourself before continuing.
 
 The named Docker volume persists rules, typologies, transactions, and
 evaluations across container restarts.
@@ -228,7 +234,7 @@ curl --fail-with-body --silent --show-error "$OSPREY_URL/ready"
 The generated transaction ID makes this example safe to repeat:
 
 ```bash
-export NORMAL_TX_ID="sandbox-normal-$(date +%s)"
+export NORMAL_TX_ID="sandbox-normal-$(date +%s)-$(openssl rand -hex 6)"
 
 curl --fail-with-body --silent --show-error \
   -X POST "$OSPREY_URL/evaluate" \
@@ -343,7 +349,7 @@ variable list and authoring guidance.
 ## Trigger the Rule
 
 ```bash
-export ALERT_TX_ID="sandbox-alert-$(date +%s)"
+export ALERT_TX_ID="sandbox-alert-$(date +%s)-$(openssl rand -hex 6)"
 
 curl --fail-with-body --silent --show-error \
   -X POST "$OSPREY_URL/evaluate" \

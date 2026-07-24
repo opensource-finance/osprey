@@ -6,9 +6,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-IMAGE_NAME="${IMAGE_NAME:-osprey:sandbox-verify}"
-CONTAINER_NAME="${CONTAINER_NAME:-osprey-sandbox-verify}"
-VOLUME_NAME="${VOLUME_NAME:-osprey-sandbox-verify-data}"
+RUN_ID="${OSPREY_ASSURANCE_RUN_ID:-$$}"
+IMAGE_NAME="${IMAGE_NAME:-osprey:sandbox-verify-$RUN_ID}"
+CONTAINER_NAME="${CONTAINER_NAME:-osprey-sandbox-verify-$RUN_ID}"
+VOLUME_NAME="${VOLUME_NAME:-osprey-sandbox-verify-data-$RUN_ID}"
 DOCKER_PORT="${DOCKER_PORT:-18081}"
 ADMIN_TOKEN="${OSPREY_ADMIN_TOKEN:-verify-token}"
 TENANT_ID="${TENANT_ID:-sandbox-assurance}"
@@ -18,6 +19,10 @@ BUILD_DATE="${BUILD_DATE:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 SKIP_RACE="${SKIP_RACE:-false}"
 SKIP_INTEGRATION="${SKIP_INTEGRATION:-false}"
 SKIP_DOCKER="${SKIP_DOCKER:-false}"
+RESOURCE_LABEL="org.opensource-finance.osprey.assurance-run"
+image_created=false
+container_created=false
+volume_created=false
 
 cd "$REPO_ROOT"
 
@@ -28,6 +33,32 @@ require_command() {
     exit 1
   fi
 }
+
+cleanup() {
+  local owner
+
+  if [[ "$container_created" == "true" ]]; then
+    owner="$(docker container inspect --format="{{index .Config.Labels \"$RESOURCE_LABEL\"}}" "$CONTAINER_NAME" 2>/dev/null || true)"
+    if [[ "$owner" == "$RUN_ID" ]]; then
+      docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [[ "$volume_created" == "true" ]]; then
+    owner="$(docker volume inspect --format="{{index .Labels \"$RESOURCE_LABEL\"}}" "$VOLUME_NAME" 2>/dev/null || true)"
+    if [[ "$owner" == "$RUN_ID" ]]; then
+      docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [[ "$image_created" == "true" ]]; then
+    owner="$(docker image inspect --format="{{index .Config.Labels \"$RESOURCE_LABEL\"}}" "$IMAGE_NAME" 2>/dev/null || true)"
+    if [[ "$owner" == "$RUN_ID" ]]; then
+      docker image rm "$IMAGE_NAME" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+trap cleanup EXIT
 
 echo "Osprey sandbox assurance"
 echo "Repository: $REPO_ROOT"
@@ -244,11 +275,15 @@ puts "   Markdown links OK"
 '
 
 echo "5. Checking shell script syntax..."
-bash -n scripts/assure-sandbox.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/test-integration-port-guard.sh scripts/test-verify-sandbox-inputs.sh scripts/load-test.sh
+bash -n scripts/assure-sandbox.sh scripts/check-docker-resource-names.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/test-integration-port-guard.sh scripts/test-docker-resource-guard.sh scripts/test-verify-sandbox-inputs.sh scripts/load-test.sh
 
 echo "6. Running sandbox script regression tests..."
 ./scripts/test-integration-port-guard.sh
 ./scripts/test-verify-sandbox-inputs.sh
+if [[ "$SKIP_DOCKER" != "true" ]]; then
+  require_command docker
+  ./scripts/test-docker-resource-guard.sh
+fi
 
 echo "7. Running Go tests..."
 go test ./...
@@ -276,12 +311,19 @@ fi
 if [[ "$SKIP_DOCKER" != "true" ]]; then
   require_command docker
 
+  IMAGE_NAME="$IMAGE_NAME" \
+  CONTAINER_NAME="$CONTAINER_NAME" \
+  VOLUME_NAME="$VOLUME_NAME" \
+    ./scripts/check-docker-resource-names.sh
+
   echo "12. Building Docker image ($IMAGE_NAME)..."
   docker build \
     --build-arg VERSION="$VERSION" \
     --build-arg COMMIT="$COMMIT" \
     --build-arg BUILD_DATE="$BUILD_DATE" \
+    --label "$RESOURCE_LABEL=$RUN_ID" \
     -t "$IMAGE_NAME" .
+  image_created=true
 
   docker image inspect "$IMAGE_NAME" | jq -e '
     .[0].Config.User == "osprey" and
@@ -295,23 +337,32 @@ if [[ "$SKIP_DOCKER" != "true" ]]; then
   echo "   Docker image metadata verified"
 
   echo "13. Running Docker sandbox verification..."
-  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-  docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
-  docker volume create "$VOLUME_NAME" >/dev/null
+  docker volume create --label "$RESOURCE_LABEL=$RUN_ID" "$VOLUME_NAME" >/dev/null
+  volume_created=true
 
-  cleanup() {
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-    docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
-  }
-  trap cleanup EXIT
-
-  docker run -d \
+  if ! docker create \
     --name "$CONTAINER_NAME" \
-    -p "$DOCKER_PORT:8080" \
+    --label "$RESOURCE_LABEL=$RUN_ID" \
+    -p "127.0.0.1:${DOCKER_PORT}:8080" \
     -e OSPREY_SQLITE_PATH=/app/data/osprey.db \
     -e OSPREY_ADMIN_TOKEN="$ADMIN_TOKEN" \
     -v "$VOLUME_NAME:/app/data" \
-    "$IMAGE_NAME" >/dev/null
+    "$IMAGE_NAME" >/dev/null; then
+    echo "ERROR: Docker container could not be created" >&2
+    exit 1
+  fi
+  container_created=true
+
+  if ! docker start "$CONTAINER_NAME" >/dev/null; then
+    echo "ERROR: Docker container failed to start" >&2
+    exit 1
+  fi
+
+  published_port="$(docker port "$CONTAINER_NAME" 8080/tcp)"
+  if [[ "$published_port" != "127.0.0.1:$DOCKER_PORT" ]]; then
+    echo "ERROR: Docker port is not bound to 127.0.0.1: $published_port" >&2
+    exit 1
+  fi
 
   for _ in $(seq 1 20); do
     health_status="$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || true)"

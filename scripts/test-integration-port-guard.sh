@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
-# Prove the integration runner refuses to attach to an existing Osprey process.
+# Prove the integration runner refuses to use any occupied TCP port.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_ROOT="$(mktemp -d -t osprey-port-guard.XXXXXX)"
-BIN_PATH="$TEST_ROOT/osprey"
-DB_PATH="$TEST_ROOT/existing.db"
-LOG_PATH="$TEST_ROOT/existing.log"
 TEST_PORT="${OSPREY_COLLISION_TEST_PORT:-$(ruby -rsocket -e 'server = TCPServer.new("127.0.0.1", 0); puts server.addr[1]; server.close')}"
 EXISTING_PID=""
 
@@ -17,28 +13,37 @@ cleanup() {
     kill "$EXISTING_PID" 2>/dev/null || true
     wait "$EXISTING_PID" 2>/dev/null || true
   fi
-  rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
 
-go -C "$REPO_ROOT" build -o "$BIN_PATH" ./cmd/osprey
-
-OSPREY_PORT="$TEST_PORT" \
-OSPREY_ADMIN_TOKEN=existing-process-token \
-OSPREY_SQLITE_PATH="$DB_PATH" \
-  "$BIN_PATH" >"$LOG_PATH" 2>&1 &
+TEST_PORT="$TEST_PORT" ruby -rsocket -e '
+server = TCPServer.new("127.0.0.1", ENV.fetch("TEST_PORT"))
+loop do
+  client = nil
+  begin
+    client = server.accept
+    request_line = client.gets
+    if request_line
+      client.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    end
+  rescue IOError, SystemCallError
+    # A plain TCP probe may disconnect without sending an HTTP request.
+  ensure
+    client&.close
+  end
+end
+' >/dev/null 2>&1 &
 EXISTING_PID=$!
 
 for _ in $(seq 1 20); do
-  if curl -fsS "http://localhost:$TEST_PORT/health" >/dev/null 2>&1; then
+  if ruby -rsocket -e 'socket = TCPSocket.new("127.0.0.1", ARGV.fetch(0)); socket.close' "$TEST_PORT" 2>/dev/null; then
     break
   fi
-  sleep 1
+  sleep 0.1
 done
 
-if ! curl -fsS "http://localhost:$TEST_PORT/health" >/dev/null 2>&1; then
+if ! ruby -rsocket -e 'socket = TCPSocket.new("127.0.0.1", ARGV.fetch(0)); socket.close' "$TEST_PORT" 2>/dev/null; then
   echo "ERROR: collision fixture failed to start" >&2
-  tail -n 50 "$LOG_PATH" >&2 || true
   exit 1
 fi
 
@@ -56,7 +61,7 @@ if [[ "$exit_code" -eq 0 ]]; then
   exit 1
 fi
 
-expected="ERROR: http://localhost:$TEST_PORT/health is already responding; choose an unused OSPREY_TEST_PORT"
+expected="ERROR: TCP port $TEST_PORT is already in use; choose an unused OSPREY_TEST_PORT"
 if ! grep -Fq "$expected" <<<"$output"; then
   echo "ERROR: integration runner did not report the occupied port clearly" >&2
   printf '%s\n' "$output" >&2
