@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-BASE_URL="${OSPREY_URL:-https://sandbox.osprey.opensource.finance}"
+BASE_URL="${OSPREY_URL:-}"
 TENANT_ID="${TENANT_ID:-sandbox-verification}"
 ADMIN_TOKEN="${OSPREY_ADMIN_TOKEN:-}"
 EXPECTED_STATUS="${EXPECTED_STATUS:-}"
@@ -20,6 +20,11 @@ do
     exit 1
   fi
 done
+
+if [[ -z "$BASE_URL" ]]; then
+  echo "ERROR: OSPREY_URL is required" >&2
+  exit 1
+fi
 
 if [[ -z "$ADMIN_TOKEN" ]]; then
   echo "ERROR: OSPREY_ADMIN_TOKEN is required for sandbox verification" >&2
