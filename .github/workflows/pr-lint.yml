@@ -1,0 +1,86 @@
+name: PR Lint
+
+# Blocking, unlike PR Size next door, because this text IS the commit message.
+#
+# Merges are squash-only with squash_merge_commit_title=PR_TITLE and
+# squash_merge_commit_message=PR_BODY, so GitHub composes the commit that lands
+# on main from these two fields, server-side. .githooks/commit-msg cannot reach
+# there: it runs on branch commits that squashing throws away. Without this job
+# the message rules are enforced on nothing that survives to main.
+#
+# Rules come from scripts/lint-message.sh, the same file the hook calls, so the
+# two surfaces cannot drift.
+#
+# No `paths:` filter, deliberately. This is one of the few jobs that reports on
+# every PR, which is what makes it eligible as a required status check; a
+# path-filtered check never reports and would deadlock the branch.
+#
+# `edited` is load-bearing in the trigger list. Fixing a rejected title or body
+# is an edit, not a push, and without it the corrected PR would sit red forever.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  message:
+    name: Lint PR title and body
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          ACTOR: ${{ github.event.pull_request.user.login }}
+        # Dependabot composes its own titles and neither failure mode is fixable
+        # from .github/dependabot.yml: a `deps(scope)` prefix is not a
+        # conventional type, and grouped updates run past the 72-char cap
+        # ("bump the go-dependencies group across 1 directory with 12 updates"
+        # is 80). Machine-generated text carries no attribution risk, so it gets
+        # the shared content bans without the subject format. Skipping the job
+        # outright would be worse: a required check that does not report is the
+        # same deadlock as a path-filtered one.
+        run: |
+          if [ "$ACTOR" = "dependabot[bot]" ]; then
+            printf '%s\n' "$TITLE" | bash scripts/lint-message.sh
+          else
+            printf '%s\n' "$TITLE" | bash scripts/lint-message.sh --subject-conventional
+          fi
+
+      - name: Lint the body
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$BODY" | bash scripts/lint-message.sh
+
+      - name: Self-check the rules
+        # A gate is not done until you have watched it fail. These run on every
+        # PR rather than in a separate suite because the script is the gate:
+        # if a carve-out regresses, this job should be the thing that says so.
+        run: |
+          set -euo pipefail
+          expect() {
+            local want="$1" name="$2" text="$3"; shift 3
+            if printf '%s' "$text" | bash scripts/lint-message.sh "$@" >/dev/null 2>&1; then got=pass; else got=fail; fi
+            [ "$got" = "$want" ] || { echo "::error::lint-message self-check: '$name' expected $want, got $got"; exit 1; }
+          }
+          expect fail "em dash"            "Add a thing — with a dash"
+          expect fail "ai attribution"     "Written by claude"
+          expect fail "bare model credit"  "Written by GPT-5"
+          expect fail "filler word"        "Enhance the robust pipeline"
+          expect fail "co-authored-by"     "Co-Authored-By: someone <a@b.c>"
+          expect pass "dated model id"     "Pin gpt-5.4-mini-2026-03-17 as the default"
+          expect pass "named model id"     "Price gpt-5.6-terra at the standard tier"
+          expect pass "conventions doc"    "Update CLAUDE.md gate table"
+          expect fail "plain subject"      "Add a thing" --subject-conventional
+          expect pass "conventional"       "feat(api): add a thing" --subject-conventional
+          expect fail "subject full stop"  "feat(api): add a thing." --subject-conventional
+          # The dependabot path above runs without --subject-conventional. This
+          # pins what that buys: a `deps(...)` title clears the bans, and would
+          # not clear the subject format.
+          expect pass "dependabot title"   "deps(web): bump pako from 2.2.0 to 3.0.0 in /web"
+          expect fail "dependabot as human" "deps(web): bump pako from 2.2.0 to 3.0.0 in /web" --subject-conventional
+          echo "self-check: 13/13"

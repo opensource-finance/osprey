@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# The message rules, in ONE place.
+#
+# Two surfaces need them and they must never drift (standard 13, gates derive
+# rather than duplicate):
+#
+#   .githooks/commit-msg            local commits, before they exist
+#   .github/workflows/pr-lint.yml   the PR title + body
+#
+# The PR surface is not optional. Merges are squash-only with the commit message
+# composed from the PR title and body BY GITHUB, server-side, so the commit-msg
+# hook never sees the text that actually lands on main. Without this running in
+# CI, every rule below is enforced on the commits that get thrown away and on
+# nothing that survives.
+#
+# Usage:  lint-message.sh [--subject-conventional] < text
+#         lint-message.sh --help
+set -euo pipefail
+
+SUBJECT_CONVENTIONAL=0
+for arg in "$@"; do
+  case "$arg" in
+    --subject-conventional) SUBJECT_CONVENTIONAL=1 ;;
+    --help|-h) sed -n '2,20p' "$0"; exit 0 ;;
+    *) printf 'lint-message: unknown flag %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
+
+# Conventional-commit types. Kept here rather than in the workflow so the PR
+# lint and the commit-msg hook read the same list.
+TYPES='feat|fix|chore|docs|refactor|test|perf|build|ci|style|revert'
+SUBJECT_MAX=72
+
+msg=$(cat)
+# Drop git's own comment lines so a developer can write context in the editor.
+body=$(printf '%s\n' "$msg" | grep -v '^#' || true)
+subject=$(printf '%s\n' "$body" | sed '/^[[:space:]]*$/d' | head -1)
+
+fail() {
+  printf '\033[31mx message: %s\033[0m\n' "$1" >&2
+  exit 1
+}
+
+# --- Carve-outs, applied before the scans ------------------------------------
+#
+# The rule is "do not credit an assistant", not "never name a file or a model".
+# Two classes of literal trip the naive scan and both are legitimate:
+#
+#   CLAUDE.md / .claude/   convention files these repos actually carry
+#   model ids              e.g. a priced or pinned model in a config file. A
+#                          commit editing that row must not be rejected for
+#                          quoting the repo's own data.
+#
+# The model carve-out deliberately requires a NAME suffix after the version, so
+# `gpt-5.4-mini-2026-03-17` passes while a bare "written by GPT-5" still fails.
+# Known ceiling: a bare-version id (`gpt-5.6`) does NOT pass, so a commit
+# quoting one has to name the variant. That is the deliberate trade - widening
+# it to bare versions re-opens the attribution hole this exists to close.
+# Character classes, not sed's `I` flag: BSD sed (macOS) does not support it,
+# the same reason this file avoids `\b`.
+scannable=$(printf '%s\n' "$body" \
+  | sed -e 's#CLAUDE\.md#CONVENTIONS_DOC#g' -e 's#\.claude/#DOTDIR/#g' \
+  | sed -E 's#[Gg][Pp][Tt]-[0-9][0-9.]*-[a-zA-Z][a-zA-Z0-9.-]*#MODEL_ID#g')
+
+# --- Shared rules -------------------------------------------------------------
+if printf '%s\n' "$body" | grep -qiE '^Co-Authored-By:'; then
+  fail "Co-Authored-By trailer not allowed."
+fi
+if printf '%s\n' "$scannable" | grep -qiE '(^|[^a-z])(claude|chatgpt|gpt-?[0-9]|copilot|cursor)([^a-z]|$)'; then
+  fail "AI / assistant mentions not allowed."
+fi
+if printf '%s\n' "$body" | grep -qiE 'generated with|🤖'; then
+  fail "AI-attribution language not allowed."
+fi
+if printf '%s\n' "$body" | grep -q '—'; then
+  fail "em dashes are not allowed. Use a hyphen or rewrite."
+fi
+if printf '%s\n' "$body" | grep -qiE '(^|[^a-z])(enhance[ds]?|enhancing|leverage[ds]?|leveraging|streamline[ds]?|streamlining|robust)([^a-z]|$)'; then
+  fail "filler words not allowed: enhance, leverage, streamline, robust."
+fi
+
+# --- Subject rules, PR titles only --------------------------------------------
+#
+# Only the PR title needs these. Squash-only merging means a branch's individual
+# commit subjects never reach main, so holding them to a format nobody reads
+# would be a tax with no reader.
+if [ "$SUBJECT_CONVENTIONAL" -eq 1 ]; then
+  [ -n "$subject" ] || fail "subject is empty."
+  if ! printf '%s\n' "$subject" | grep -qE "^($TYPES)(\([a-z0-9.-]+\))?!?: .+"; then
+    fail "subject must be conventional: <type>(<scope>): <summary>, type one of $TYPES. Got: $subject"
+  fi
+  if [ "${#subject}" -gt "$SUBJECT_MAX" ]; then
+    fail "subject is ${#subject} chars, max $SUBJECT_MAX. Got: $subject"
+  fi
+  if printf '%s\n' "$subject" | grep -qE '\.$'; then
+    fail "subject must not end with a full stop. Got: $subject"
+  fi
+fi
+
+exit 0

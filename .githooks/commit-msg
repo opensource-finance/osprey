@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Enforce commit-message conventions: no AI attribution, no em dashes,
+# no AI-slop filler words. Bypass with --no-verify when intentional.
+#
+# The rules themselves live in scripts/lint-message.sh, because the PR title and
+# body need the identical set: merges are squash-only and GitHub composes the
+# commit message from the PR server-side, where this hook cannot reach. Two
+# copies of these rules would drift, and the copy that drifts is the one that
+# governs what actually lands on main.
+#
+# Subject formatting (conventional prefix, length) is deliberately NOT applied
+# here. Squash merging throws these subjects away; only the PR title survives,
+# so it carries that rule alone.
+set -euo pipefail
+
+# core.hooksPath is an absolute path to the MAIN tree, so this one file runs for
+# every worktree, while --show-toplevel resolves the script from the branch being
+# committed. That is the behaviour we want (a branch is linted by its own rules),
+# but a worktree branched before the script existed has no copy, and a bare
+# `bash missing-file` would fail with a cryptic "No such file".
+root=$(git rev-parse --show-toplevel)
+linter="$root/scripts/lint-message.sh"
+if [ ! -f "$linter" ]; then
+  printf '\033[31mx commit-msg: %s has no scripts/lint-message.sh\033[0m\n' "$root" >&2
+  printf '   This branch predates it. Rebase on main, or: git commit --no-verify\n' >&2
+  exit 1
+fi
+if ! bash "$linter" < "$1"; then
+  printf '   bypass once: git commit --no-verify\n' >&2
+  exit 1
+fi
