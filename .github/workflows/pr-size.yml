@@ -1,0 +1,45 @@
+name: PR Size
+
+# MANAGED BY personal/standards - edit the template there, not this copy.
+# Version lives in .github/standards.lock, so a bump does not churn this file.
+# A local edit here is not lost: `standards status` reports it as modified and
+# `standards harvest` promotes it into the template for every repo.
+#
+# Advisory, never blocking. One reviewer reviews every PR in this workspace, and
+# review quality falls off a cliff somewhere past a few hundred lines; agent
+# written PRs cross that line without noticing. This prints the number so
+# merging a big one is deliberate rather than accidental.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    name: Measure reviewable diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Count reviewable lines
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          lines=$(git diff --numstat "$BASE" "$HEAD" -- \
+            ':(exclude)**/go.sum' \
+            ':(exclude)**/*.gen.go' \
+            ':(exclude)**/vendor/**' \
+            | awk '$1 != "-" { total += $1 + $2 } END { print total + 0 }')
+          echo "Reviewable diff: ${lines} lines"
+          echo "### Reviewable diff: ${lines} lines" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$lines" -gt 400 ]; then
+            echo "::warning::${lines} reviewable lines. Past ~400 a single reviewer skims instead of reads, consider splitting."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Past ~400 lines a single reviewer skims instead of reads. Splitting is usually cheaper than the bug you miss." >> "$GITHUB_STEP_SUMMARY"
+          fi
