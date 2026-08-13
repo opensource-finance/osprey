@@ -4,6 +4,10 @@ BINARY     := osprey
 CMD        := ./cmd/osprey
 GO         ?= go
 
+# Pinned so the scan is reproducible; `go run pkg@version` binds the version
+# at the call site rather than trusting whatever is on PATH (standard 11).
+TOOL_GOVULNCHECK := v1.6.0
+
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -82,6 +86,13 @@ coverage-check:
 	awk -v t="$$total" -v b="$$baseline" 'BEGIN { exit (t < b - 0.5) ? 1 : 0 }' || \
 		{ echo "FAIL: coverage $$total% is more than 0.5pt below baseline $$baseline%"; exit 1; }
 
+## check-vuln: fail on known vulnerabilities reachable from our code.
+## Deliberately outside `check`: it needs the network, and a pre-push gate has
+## to work offline. CI runs it as its own step. Reachability-based, so a
+## finding is real work rather than a version-number complaint.
+check-vuln:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(TOOL_GOVULNCHECK) ./...
+
 ## dead: report code unreachable from main (see `make tools`)
 dead:
 	deadcode ./cmd/osprey
@@ -113,7 +124,7 @@ clean:
 	rm -f $(BINARY)
 	$(GO) clean
 
-.PHONY: help build run test race cover vet fmt fix fix-check lint check coverage-check dead tidy tools assure seed ci clean hooks
+.PHONY: help build run test race cover vet fmt fix fix-check lint check check-vuln coverage-check dead tidy tools assure seed ci clean hooks
 
 hooks: ## Point git at .githooks (commit-msg shares scripts/lint-message.sh with CI)
 	@chmod +x .githooks/* scripts/lint-message.sh 2>/dev/null || true
