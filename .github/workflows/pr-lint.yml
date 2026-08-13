@@ -54,7 +54,13 @@ jobs:
       - name: Lint the body
         env:
           BODY: ${{ github.event.pull_request.body }}
-        run: printf '%s\n' "$BODY" | bash scripts/lint-message.sh
+        # Greptile appends its review into the body, and that block quotes the
+        # words the rules ban. Linting it fails every reviewed PR on text no
+        # human wrote and no human can remove, since the bot rewrites it.
+        # GitHub composes the squash commit from the body as it stands at merge
+        # time, so the bot's text does land, but it is not the author's message
+        # and gating on it only teaches people to bypass the gate.
+        run: printf '%s\n' "$BODY" | sed '/<!-- greptile_comment -->/,$d' | bash scripts/lint-message.sh
 
       - name: Self-check the rules
         # A gate is not done until you have watched it fail. These run on every

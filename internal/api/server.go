@@ -26,11 +26,16 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 	router := chi.NewRouter()
 
 	// Global middleware stack
-	router.Use(CORSMiddleware)         // CORS for browser clients
-	router.Use(RecoverMiddleware)      // Recover from panics
-	router.Use(TracingMiddleware)      // OpenTelemetry tracing
-	router.Use(LoggingMiddleware)      // Request logging
-	router.Use(middleware.RealIP)      // Extract real IP
+	router.Use(CORSMiddleware)    // CORS for browser clients
+	router.Use(RecoverMiddleware) // Recover from panics
+	router.Use(TracingMiddleware) // OpenTelemetry tracing
+	router.Use(LoggingMiddleware) // Request logging
+	// No middleware.RealIP: chi deprecated it in v5.3.0 because it rewrites
+	// RemoteAddr from client-controlled headers whether or not a proxy sets
+	// them (GHSA-3fxj-6jh8-hvhx and two siblings). Nothing here reads
+	// RemoteAddr, so it was spoofable input feeding nothing. Anything that
+	// needs the client IP behind a proxy must parse a header the deployment
+	// actually controls, not trust the leftmost hop.
 	router.Use(middleware.Compress(5)) // Gzip compression
 
 	// Health endpoints (no tenant required)
