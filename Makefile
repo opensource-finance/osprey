@@ -113,4 +113,9 @@ clean:
 	rm -f $(BINARY)
 	$(GO) clean
 
-.PHONY: help build run test race cover vet fmt fix fix-check lint check coverage-check dead tidy tools assure seed ci clean
+.PHONY: help build run test race cover vet fmt fix fix-check lint check coverage-check dead tidy tools assure seed ci clean hooks
+
+hooks: ## Point git at .githooks (commit-msg shares scripts/lint-message.sh with CI)
+	@chmod +x .githooks/* scripts/lint-message.sh 2>/dev/null || true
+	@git config core.hooksPath .githooks
+	@echo "==> git hooks active (.githooks/)"
