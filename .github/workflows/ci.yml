@@ -38,6 +38,11 @@ jobs:
       - name: gofmt drift, vet, lint, build
         run: make check
 
+      # Not in `make check`: it needs the network, and the pre-push hook that
+      # runs check has to work offline.
+      - name: Reachable vulnerabilities
+        run: make check-vuln
+
   test:
     name: Unit Tests & Coverage
     runs-on: ubuntu-latest
