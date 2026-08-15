@@ -1,0 +1,19 @@
+# Policy for personal/standards. Templates live there; this file is the
+# per-repo authority for what we accept and how it is rendered.
+# secret-scanning is omitted on purpose: public repo, GitHub push protection.
+manages:
+  - pr-size
+  - pr-lint
+  - lint-message
+vars:
+  PR_LINT_TITLE_MODE: subject-conventional
+  PR_SIZE_EXCLUDES:
+    - "**/go.sum"
+    - "**/*.gen.go"
+    - "**/vendor/**"
+settings:
+  extra_checks:
+    - check
+    - Unit Tests & Coverage
+    - Integration Tests
+    - Assurance Gate

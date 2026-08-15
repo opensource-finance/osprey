@@ -38,6 +38,13 @@ CEL variable catalog, the mandatory `has()` guards for optional fields, and the
 test-before-promotion criteria. The pre-publish checklist lives in
 [docs/ASSURANCE.md](docs/ASSURANCE.md).
 
+## Shared CI standards
+
+`pr-size.yml`, `pr-lint.yml`, and `scripts/lint-message.sh` are copies from
+`josephgoksu/standards`. Do not edit those files. This repo's policy
+(including the deliberate omission of secret-scanning: public repo, GitHub
+push protection) lives in `.github/standards.yml`.
+
 ## Pull requests
 
 - **Target the `main` branch.**
