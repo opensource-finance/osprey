@@ -1,6 +1,8 @@
 {
-  "version": "2",
+  "version": "3",
   "files": {
-    ".github/workflows/pr-size.yml": "c06e68aec4878451"
+    ".github/workflows/pr-size.yml": "c06e68aec4878451",
+    ".github/workflows/pr-lint.yml": "cc1f55cb46f53252",
+    "scripts/lint-message.sh": "b48608fbf0e7f03f"
   }
 }

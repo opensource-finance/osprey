@@ -28,6 +28,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: Install golangci-lint
@@ -56,6 +57,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: Unit tests
@@ -77,6 +79,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: Install jq
