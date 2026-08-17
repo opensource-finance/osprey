@@ -1,43 +1,54 @@
-name: PR Lint
+name: policy
 
 # MANAGED BY personal/standards - edit the template there, not this copy.
 # Version lives in .github/standards.lock, so a bump does not churn this file.
 # A local edit here is not lost: `standards status` reports it as modified and
 # `standards harvest` promotes it into the template for every repo.
 #
-# Blocking, unlike PR Size next door, because this text IS the commit message.
+# One billed job for the three PR policy gates. GitHub rounds each job up to
+# a minute, so three 20-second workflows cost three minutes; this costs one.
+# Job name `Policy` is the required status check (CHECK_FROM_TEMPLATE).
 #
-# Merges are squash-only with squash_merge_commit_title=PR_TITLE and
-# squash_merge_commit_message=PR_BODY, so GitHub composes the commit that lands
-# on main from these two fields, server-side. The commit-msg hook cannot reach
-# there: it runs on branch commits that squashing throws away. Without this job
-# the message rules are enforced on nothing that survives to main.
+#   lint     blocking: squash commits are composed from the PR title + body
+#            server-side, so the commit-msg hook never sees what lands on main
+#   size     advisory: prints reviewable lines, warns past ~400
+#   gitleaks private repos only (github.event.repository.private). Public
+#            repos use GitHub push protection; a skipped step is not a skip
+#            of the job, so the required check still reports.
 #
-# Rules come from scripts/lint-message.sh, the same file the hook calls, so the
-# two surfaces cannot drift.
-#
-# No `paths:` filter, deliberately. This is one of the few jobs that reports on
-# every PR, which is what makes it eligible as a required status check; a
-# path-filtered check never reports and would deadlock the branch.
-#
-# `edited` is load-bearing in the trigger list. Fixing a rejected title or body
-# is an edit, not a push, and without it the corrected PR would sit red forever.
+# `edited` is load-bearing. Fixing a rejected title is an edit, not a push.
+# No `paths:` filter: a path-filtered required check never reports and
+# deadlocks the branch.
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize, ready_for_review]
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  pull-requests: read
+  security-events: write # SARIF upload
 
 jobs:
-  message:
-    name: Lint PR title and body
+  policy:
+    name: Policy
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks: a secret removed later is still leaked
 
-      - name: Lint the title and body
+      - name: Lint PR title and body
+        if: github.event_name == 'pull_request'
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
@@ -68,6 +79,7 @@ jobs:
           printf '%s\n' "$BODY" | sed '/<!-- greptile_comment -->/,$d' | bash scripts/lint-message.sh
 
       - name: Self-check the rules
+        if: github.event_name == 'pull_request'
         # A gate is not done until you have watched it fail. These run on every
         # PR rather than in a separate suite because the script is the gate:
         # if a carve-out regresses, this job should be the thing that says so.
@@ -98,3 +110,46 @@ jobs:
           expect pass "dependabot title"   "deps(web): bump pako from 2.2.0 to 3.0.0 in /web"
           expect fail "dependabot as human" "deps(web): bump pako from 2.2.0 to 3.0.0 in /web" --subject-conventional
           echo "self-check: 17/17"
+
+      - name: Count reviewable lines
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          lines=$(git diff --numstat "$BASE" "$HEAD" -- \
+            ':(exclude)**/go.sum' \
+            ':(exclude)**/*.gen.go' \
+            ':(exclude)**/vendor/**' \
+            | awk '$1 != "-" { total += $1 + $2 } END { print total + 0 }')
+          echo "Reviewable diff: ${lines} lines"
+          echo "### Reviewable diff: ${lines} lines" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$lines" -gt 400 ]; then
+            echo "::warning::${lines} reviewable lines. Past ~400 a single reviewer skims instead of reads, consider splitting."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Past ~400 lines a single reviewer skims instead of reads. Splitting is usually cheaper than the bug you miss." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Run Gitleaks
+        if: github.event.repository.private
+        # gitleaks/gitleaks-action v2 - SHA-pinned, third-party action
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Upload SARIF report
+        if: failure() && github.event.repository.private
+        uses: github/codeql-action/upload-sarif@v4.37.6
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+
+      - name: Explain the failure
+        if: failure() && github.event.repository.private
+        run: |
+          echo "::error::Secrets detected. Rotate the key first, then remove it from history."
+          echo "Findings are in the Security tab (SARIF, category: gitleaks)."
+          echo "Removing the commit is not enough - assume anything pushed is compromised."
+          exit 1

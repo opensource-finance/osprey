@@ -5,7 +5,7 @@
 # rather than duplicate):
 #
 #   commit-msg hook                 local commits, before they exist
-#   .github/workflows/pr-lint.yml   the PR title + body
+#   .github/workflows/policy.yml    the PR title + body (one billed job)
 #
 # The PR surface is not optional. Merges are squash-only with the commit message
 # composed from the PR title and body BY GITHUB, server-side, so the commit-msg

@@ -1,9 +1,9 @@
 # Policy for personal/standards. Templates live there; this file is the
 # per-repo authority for what we accept and how it is rendered.
-# secret-scanning is omitted on purpose: public repo, GitHub push protection.
+# Gitleaks steps in policy.yml no-op on public repos (repository.private).
+# GitHub push protection stays the secret gate here.
 manages:
-  - pr-size
-  - pr-lint
+  - policy
   - lint-message
 vars:
   PR_LINT_TITLE_MODE: subject-conventional
