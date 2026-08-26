@@ -1,7 +1,6 @@
 {
-  "version": "4",
+  "version": "6",
   "files": {
-    "scripts/lint-message.sh": "426e8249700be155",
-    ".github/workflows/policy.yml": "5709d80f17ecd5b6"
+    "scripts/lint-message.sh": "426e8249700be155"
   }
 }

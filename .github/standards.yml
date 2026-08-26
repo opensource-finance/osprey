@@ -1,9 +1,8 @@
 # Policy for personal/standards. Templates live there; this file is the
 # per-repo authority for what we accept and how it is rendered.
-# Gitleaks steps in policy.yml no-op on public repos (repository.private).
-# GitHub push protection stays the secret gate here.
+# GHA is deploy-only (release.yml). Merge gates are local. GitHub push
+# protection is the secret gate (public repo).
 manages:
-  - policy
   - lint-message
 vars:
   PR_LINT_TITLE_MODE: subject-conventional
@@ -11,9 +10,3 @@ vars:
     - "**/go.sum"
     - "**/*.gen.go"
     - "**/vendor/**"
-settings:
-  extra_checks:
-    - check
-    - Unit Tests & Coverage
-    - Integration Tests
-    - Assurance Gate
