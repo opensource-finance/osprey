@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,10 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opensource-finance/osprey/internal/cache"
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/repository"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
+	"github.com/opensource-finance/osprey/internal/velocity"
 )
 
 // createTestServer creates a server with engine and processor for testing.
@@ -174,6 +177,70 @@ func createPersistentTestServerWithEngineAndAdminToken(t *testing.T, engine *rul
 	processor := tadp.NewProcessor()
 	server := NewServer(
 		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: adminToken},
+		repo,
+		nil,
+		nil,
+		engine,
+		rules.NewTypologyEngine(),
+		processor,
+		"test-v1",
+		domain.ModeDetection,
+	)
+
+	return server, cleanup
+}
+
+// createPersistentTestServerWithVelocity wires a real SQLite repository
+// together with the velocity service (count + aggregates) on the rule engine,
+// mirroring cmd/osprey/main.go. Tests that need velocity_count /
+// velocity_amount_sum / velocity_distinct_creditors to actually reflect
+// persisted transactions use this helper instead of createPersistentTestServer
+// (which leaves the velocity getter nil and would always read 0).
+func createPersistentTestServerWithVelocity(t *testing.T) (*Server, func()) {
+	t.Helper()
+	dbFile, err := os.CreateTemp("", "osprey-api-vel-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp database: %v", err)
+	}
+	dbPath := dbFile.Name()
+	if err := dbFile.Close(); err != nil {
+		t.Fatalf("failed to close temp database: %v", err)
+	}
+
+	repo, err := repository.New(domain.RepositoryConfig{
+		Driver:     "sqlite",
+		SQLitePath: dbPath,
+	})
+	if err != nil {
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create repository: %v", err)
+	}
+
+	velocitySvc := velocity.NewService(repo, cache.NewLRUCache(100))
+	engine, err := rules.NewEngine(velocitySvc.GetVelocityGetter(), 5)
+	if err != nil {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create engine: %v", err)
+	}
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int) (rules.VelocityAggregates, error) {
+		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+		if err != nil {
+			return rules.VelocityAggregates{}, err
+		}
+		return rules.VelocityAggregates{Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors}, nil
+	})
+
+	cleanup := func() {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+	}
+
+	processor := tadp.NewProcessor()
+	server := NewServer(
+		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: testAdminToken},
 		repo,
 		nil,
 		nil,
@@ -1421,6 +1488,121 @@ func TestMiddleware(t *testing.T) {
 		}
 		if rr.Header().Get("Access-Control-Allow-Headers") == "" {
 			t.Fatalf("expected allowed CORS headers")
+		}
+	})
+}
+
+// TestVelocityNotBypassableByBackdatedTimestamp is the end-to-end reproduction
+// of the velocity-timestamp bypass. Before the fix, a caller could backdate
+// every transaction's `timestamp` field to a value outside the 1-hour velocity
+// window; GetTransactionsByEntity filtered on `timestamp >= now-window`, so the
+// burst was excluded, velocity_count read 0, and the velocity rule never fired
+// — flipping an ALRT verdict to NALT solely by editing `timestamp`. This test
+// wires the real velocity service (count + aggregates) on a real SQLite
+// repository, loads a velocity-based `.fail` rule, and submits a burst of
+// backdated transactions from one debtor, asserting the verdict still crosses
+// to ALRT exactly at the rule threshold — and that the outcome matches what an
+// honest (server-time) submitter would receive.
+func TestVelocityNotBypassableByBackdatedTimestamp(t *testing.T) {
+	server, cleanup := createPersistentTestServerWithVelocity(t)
+	defer cleanup()
+
+	// Load a velocity rule with a `.fail` band: velocity_count > 3 => 1.0.
+	// A `.fail` outcome sets HasCriticalFailure, which forces ALRT regardless of
+	// the aggregate score, so the verdict is driven purely by velocity_count.
+	rulePayload := map[string]any{
+		"id":          "velocity-bypass-rule",
+		"name":        "Velocity Bypass Rule",
+		"description": "Fires .fail when velocity_count > 3",
+		"expression":  "velocity_count > 3 ? 1.0 : 0.0",
+		"bands": []map[string]any{
+			{"lowerLimit": 1.0, "upperLimit": nil, "subRuleRef": ".fail", "reason": "High transaction velocity detected"},
+			{"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal velocity"},
+		},
+		"weight":  1.0,
+		"enabled": true,
+	}
+	ruleBody, _ := json.Marshal(rulePayload)
+	createReq := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(ruleBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-Tenant-ID", "tenant-001")
+	setAdminAuth(createReq)
+	createResp := httptest.NewRecorder()
+	server.Router().ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected rule create 201, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+
+	// submitBurst posts N transactions from debtor with the given timestamp
+	// value and returns the per-transaction verdict statuses. Each call must
+	// use a fresh debtor so persisted transaction IDs do not collide across
+	// subtests (the SQLite database is shared for the lifetime of the server).
+	submitBurst := func(t *testing.T, debtor, timestamp string, n int) []string {
+		t.Helper()
+		var statuses []string
+		for i := 1; i <= n; i++ {
+			reqBody := TransactionRequest{
+				ID:        fmt.Sprintf("%s-tx-%d", debtor, i),
+				Type:      "transfer",
+				Debtor:    PartyInfo{ID: debtor, AccountID: "acc-d"},
+				Creditor:  PartyInfo{ID: "creditor-1", AccountID: "acc-c"},
+				Amount:    AmountInfo{Value: 100, Currency: "USD"},
+				Timestamp: timestamp,
+			}
+			body, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Tenant-ID", "tenant-001")
+
+			rr := httptest.NewRecorder()
+			server.Router().ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("evaluate %s-tx-%d: expected 200, got %d: %s", debtor, i, rr.Code, rr.Body.String())
+			}
+			var resp EvaluateResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("evaluate %s-tx-%d: failed to parse response: %v", debtor, i, err)
+			}
+			statuses = append(statuses, resp.Status)
+		}
+		return statuses
+	}
+
+	t.Run("BackdatedBurstStillAlertsAtThreshold", func(t *testing.T) {
+		// Every transaction's timestamp is backdated to 2020, far outside the
+		// 1-hour velocity window. Before the fix, velocity_count read 0 and the
+		// rule never fired. After the fix (window keyed on created_at = now),
+		// velocity_count reaches 4 on the 4th transaction and the rule fires
+		// .fail -> ALRT.
+		statuses := submitBurst(t, "debtor-backdated", "2020-01-01T00:00:00Z", 4)
+		if statuses[3] != domain.StatusAlert {
+			t.Fatalf("expected 4th backdated transaction to ALRT (velocity_count=4 > 3), got statuses=%v", statuses)
+		}
+		// The first three sit below the threshold and must remain NALT, proving
+		// the rule fires exactly at the threshold crossing (no over-counting).
+		for i, s := range statuses[:3] {
+			if s != domain.StatusNoAlert {
+				t.Errorf("backdated tx %d: expected NALT (velocity_count=%d <= 3), got %s", i+1, i+1, s)
+			}
+		}
+	})
+
+	t.Run("BackdatedVerdictMatchesHonestVerdict", func(t *testing.T) {
+		// No-regression / parity: an honest submitter (no timestamp -> server
+		// uses now) must receive the same verdict sequence as the backdated
+		// submitter. Before the fix these diverged (honest -> ALRT on 4th,
+		// backdated -> NALT on 4th); after the fix they must be identical,
+		// proving backdating no longer buys a softer decision. Uses fresh
+		// debtors so persisted rows from the threshold subtest do not collide.
+		backdated := submitBurst(t, "debtor-par-backdated", "2020-01-01T00:00:00Z", 4)
+		honest := submitBurst(t, "debtor-par-honest", "", 4)
+		for i := range backdated {
+			if backdated[i] != honest[i] {
+				t.Fatalf("verdict divergence at tx %d: backdated=%s honest=%s (backdating still bypasses velocity)", i+1, backdated[i], honest[i])
+			}
+		}
+		if honest[3] != domain.StatusAlert {
+			t.Fatalf("expected honest 4th transaction to ALRT (sanity), got %v", honest)
 		}
 	})
 }

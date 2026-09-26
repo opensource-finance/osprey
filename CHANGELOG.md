@@ -15,6 +15,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
 
+### Security
+
+- Velocity controls now window on the server-controlled ingest time
+  (`created_at`) instead of the client-supplied event timestamp, closing a
+  bypass where any `POST /evaluate` caller could backdate `timestamp` to
+  silence all velocity rules and the FATF typologies that weight them.
+
 ## [0.1.0] - 2026-07-07
 
 First tagged release. Osprey evaluates transactions against CEL rules and returns
