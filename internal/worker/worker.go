@@ -94,7 +94,7 @@ func (w *Worker) startGlobalWorker() error {
 func (w *Worker) startTenantWorker(tenantID string) error {
 	// Subscribe to transaction ingested topic
 	sub, err := w.bus.Subscribe(w.ctx, tenantID, domain.TopicTransactionIngested, w.track(func(ctx context.Context, msg *domain.Message) error {
-		return w.processTransaction(ctx, tenantID, msg)
+		return w.processTransaction(ctx, tenantID, msg, false)
 	}))
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func (w *Worker) startTenantWorker(tenantID string) error {
 
 // handleMessage handles messages from global subscription.
 func (w *Worker) handleMessage(ctx context.Context, msg *domain.Message) error {
-	return w.processTransaction(ctx, msg.TenantID, msg)
+	return w.processTransaction(ctx, msg.TenantID, msg, true)
 }
 
 // track wraps a handler so Stop()'s wg.Wait() drains in-flight processing before
@@ -146,7 +146,19 @@ type TransactionMessage struct {
 }
 
 // processTransaction evaluates a transaction through the pipeline.
-func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *domain.Message) error {
+//
+// tenantID is the authoritative routing/subscription tenant under which the
+// evaluation is persisted and the decision/alert are published. trustPayloadTenant
+// controls whether an untrusted tenantId field embedded in the JSON payload may
+// override it. Only the global (testing/dev) worker passes true, because it
+// subscribes under the synthetic "_global" subject and must recover the real
+// tenant from the payload. Per-tenant production workers pass false so a payload
+// tenantId that disagrees with the subscription tenant cannot re-attribute
+// persistence and downstream events to another tenant; a conflict is logged and
+// the subscription tenant wins. This matches the synchronous Evaluate path,
+// where the X-Tenant-ID routing tenant is authoritative and the request body
+// carries no tenantId.
+func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *domain.Message, trustPayloadTenant bool) error {
 	start := time.Now()
 
 	if w.mode == domain.ModeCompliance && (w.typologyEngine == nil || w.typologyEngine.TypologyCount() == 0) {
@@ -169,9 +181,19 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		return err
 	}
 
-	// Use message tenant if provided
-	if txMsg.TenantID != "" {
+	// Only the global (testing/dev) path trusts the payload tenantId: its
+	// subscription tenant is the synthetic "_global" and the payload is its only
+	// source of the real tenant. Per-tenant workers treat the routing tenant as
+	// authoritative and ignore a conflicting payload tenantId.
+	if trustPayloadTenant && txMsg.TenantID != "" {
 		tenantID = txMsg.TenantID
+	} else if !trustPayloadTenant && txMsg.TenantID != "" && txMsg.TenantID != tenantID {
+		slog.Warn("payload tenantId ignored; subscription tenant is authoritative",
+			"subscription_tenant", tenantID,
+			"payload_tenant", txMsg.TenantID,
+			"message_id", msg.ID,
+			"tx_id", txMsg.TxID,
+		)
 	}
 
 	traceID := txMsg.TraceID

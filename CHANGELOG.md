@@ -14,6 +14,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
+- Per-tenant async worker now attributes evaluations and decision/alert events
+  to the subscription tenant, not the `tenantId` field of the untrusted message
+  payload; the global (testing/dev) path still recovers the tenant from the
+  payload.
 
 ## [0.1.0] - 2026-07-07
 

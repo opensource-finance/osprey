@@ -295,7 +295,7 @@ func TestProcessTransaction_ComplianceModeRequiresTypologies(t *testing.T) {
 		TenantID: "tenant-001",
 		Topic:    domain.TopicTransactionIngested,
 		Payload:  payload,
-	})
+	}, true)
 	if err == nil {
 		t.Fatal("expected error when compliance mode has no typologies")
 	}
@@ -345,7 +345,7 @@ func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
 			domain.ModeDetection,
 		)
 
-		err := w.processTransaction(context.Background(), "tenant-001", msg)
+		err := w.processTransaction(context.Background(), "tenant-001", msg, true)
 		if err == nil || !strings.Contains(err.Error(), "failed to save evaluation") {
 			t.Fatalf("expected save evaluation error, got %v", err)
 		}
@@ -361,7 +361,7 @@ func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
 			domain.ModeDetection,
 		)
 
-		err := w.processTransaction(context.Background(), "tenant-001", msg)
+		err := w.processTransaction(context.Background(), "tenant-001", msg, true)
 		if err == nil || !strings.Contains(err.Error(), "failed to publish decision") {
 			t.Fatalf("expected publish decision error, got %v", err)
 		}
