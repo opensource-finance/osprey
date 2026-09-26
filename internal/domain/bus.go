@@ -15,9 +15,6 @@ type EventBus interface {
 	// Returns a subscription that can be used to unsubscribe.
 	Subscribe(ctx context.Context, tenantID string, topic string, handler MessageHandler) (Subscription, error)
 
-	// Request sends a message and waits for a response (request-reply pattern).
-	Request(ctx context.Context, tenantID string, topic string, payload []byte) ([]byte, error)
-
 	// Health check
 	Ping(ctx context.Context) error
 
