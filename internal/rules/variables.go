@@ -16,7 +16,8 @@ type VariableDoc struct {
 	Note        string `json:"note,omitempty"`
 	Description string `json:"description,omitempty"`
 
-	celType *cel.Type // not serialized; used to build the CEL environment
+	celType         *cel.Type // not serialized; used to build the CEL environment
+	metadataSourced bool      // not serialized; true when the value is sourced from caller metadata and may override the engine default (e.g. old_balance/new_balance)
 }
 
 // dynMap is the open-ended map type used for tx / meta / enrichment.
@@ -30,8 +31,8 @@ var Catalog = []VariableDoc{
 	{Name: "tx_type", Type: "string", Group: "core", Description: "Transaction type (uppercase)", celType: cel.StringType},
 	{Name: "debtor_id", Type: "string", Group: "core", Description: "Debtor (sender) entity ID", celType: cel.StringType},
 	{Name: "creditor_id", Type: "string", Group: "core", Description: "Creditor (receiver) entity ID", celType: cel.StringType},
-	{Name: "old_balance", Type: "double", Group: "core", Note: "from metadata.old_balance; defaults to 0.0", Description: "Debtor balance before the transaction", celType: cel.DoubleType},
-	{Name: "new_balance", Type: "double", Group: "core", Note: "from metadata.new_balance; defaults to 0.0", Description: "Debtor balance after the transaction", celType: cel.DoubleType},
+	{Name: "old_balance", Type: "double", Group: "core", Note: "from metadata.old_balance; defaults to 0.0", Description: "Debtor balance before the transaction", celType: cel.DoubleType, metadataSourced: true},
+	{Name: "new_balance", Type: "double", Group: "core", Note: "from metadata.new_balance; defaults to 0.0", Description: "Debtor balance after the transaction", celType: cel.DoubleType, metadataSourced: true},
 	{Name: "tx", Type: "map(string, dyn)", Group: "core", Access: "tx.<field>", Description: "Core transaction fields: id, type, debtor_id, creditor_id, amount, currency", celType: dynMap},
 
 	// Velocity aggregates (engine-computed over Osprey's own transaction store)
@@ -61,3 +62,26 @@ func EnvOptions() []cel.EnvOption {
 	}
 	return opts
 }
+
+// metadataOverridable is the set of Catalog variable names whose values are
+// sourced from caller metadata and may legitimately override the engine
+// default (old_balance/new_balance) via the top-level activation merge. It is
+// derived from Catalog (single source of truth) so it cannot drift as new
+// variables are added: a variable is overridable only when its VariableDoc
+// sets metadataSourced.
+//
+// Every other Catalog variable (amount, currency, tx_type, debtor_id,
+// creditor_id, tx, velocity_*) is engine-authoritative and must never be
+// clobbered by a caller-supplied metadata key. The engine uses this set as a
+// default-deny allow-list when merging metadata into the activation, so an
+// attacker cannot bypass or force fraud rules by sending a metadata key whose
+// name collides with an engine-authoritative variable.
+var metadataOverridable = func() map[string]struct{} {
+	allow := make(map[string]struct{}, 2)
+	for _, v := range Catalog {
+		if v.metadataSourced {
+			allow[v.Name] = struct{}{}
+		}
+	}
+	return allow
+}()

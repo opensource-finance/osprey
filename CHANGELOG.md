@@ -15,6 +15,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
 
+### Security
+
+- `POST /evaluate` no longer lets caller `metadata` override engine-authoritative
+  CEL variables. `metadata` keys that collide with authoritative Catalog names
+  (`amount`, `currency`, `tx_type`, `debtor_id`, `creditor_id`, `tx`,
+  `velocity_count`, `velocity_amount_sum`, `velocity_distinct_creditors`) are now
+  dropped from the top-level activation merge instead of clobbering the real
+  transaction value. Only the intended metadata-sourced variables (`old_balance`,
+  `new_balance`) are honored. This closes a rule-bypass where, for example,
+  `metadata:{"amount":1.0}` sent with a real 500000 transaction would make
+  `amount > 200000.0` score 0 and silently pass a high-value fraud rule.
+
 ## [0.1.0] - 2026-07-07
 
 First tagged release. Osprey evaluates transactions against CEL rules and returns
