@@ -12,6 +12,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Startup now fails loudly when the database rules/typologies loader errors
+  (e.g. connection loss, query timeout, or a corrupt row). Previously the
+  loaders swallowed the error and started with zero rules/typologies, silently
+  classifying every transaction as `no_alert`. A legitimately empty database
+  still starts cleanly for first-run onboarding.
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
 
