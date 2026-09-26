@@ -268,6 +268,7 @@ paths:
           AdminHeader: []
       parameters:
         - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/Force"
       requestBody:
         required: true
         content:
@@ -289,6 +290,14 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Admin token required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: >-
+            Rule is referenced by a loaded typology and cannot be disabled;
+            remove the typology reference or retry with ?force=true.
           content:
             application/json:
               schema:
@@ -545,6 +554,18 @@ components:
       required: true
       schema:
         type: string
+    Force:
+      name: force
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: >-
+        Bypass the typology referential-integrity guard when disabling a rule
+        referenced by a loaded typology. When true the response carries a
+        warnings array naming the referencing typologies. Defaults to false,
+        in which case disabling a referenced rule returns 409.
   schemas:
     ErrorResponse:
       type: object
@@ -882,6 +903,14 @@ components:
           $ref: "#/components/schemas/RuleConfig"
         message:
           type: string
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Present only when the mutation bypassed the typology
+            referential-integrity guard via ?force=true; lists the typologies
+            whose scoring will change while the rule is disabled.
     Typology:
       type: object
       additionalProperties: false
