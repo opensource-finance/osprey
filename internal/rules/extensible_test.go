@@ -2,6 +2,7 @@ package rules
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/opensource-finance/osprey/internal/domain"
@@ -55,6 +56,10 @@ func TestExtensibleVariables(t *testing.T) {
 	})
 
 	// Unguarded reference to a missing key errors at eval — documents the foot-gun.
+	// Fail-secure: the evaluation error must be propagated from EvaluateAll
+	// (mirroring the velocity-lookup precedent) so the decision path fails loudly
+	// as a 5xx instead of silently degrading to a clean no-signal NALT that hides
+	// the broken rule from every operator surface.
 	t.Run("UnguardedMissingFieldErrors", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
 		defer func() { _ = engine.Close() }()
@@ -62,11 +67,23 @@ func TestExtensibleVariables(t *testing.T) {
 			ID: "meta-unguarded", Name: "m", Expression: "meta.country == 'US'", Weight: 1.0, Enabled: true,
 		})
 		res, err := engine.EvaluateAll(ctx, &EvaluateInput{TenantID: "t", TxID: "x3"})
-		if err != nil {
-			t.Fatalf("eval: %v", err)
+		if err == nil {
+			t.Fatal("expected evaluation error for unguarded missing key, got nil")
+		}
+		if !strings.Contains(err.Error(), "meta-unguarded") {
+			t.Errorf("expected error to identify failing rule %q, got: %v", "meta-unguarded", err)
+		}
+		if !strings.Contains(err.Error(), "no such key") {
+			t.Errorf("expected error to surface CEL eval cause, got: %v", err)
+		}
+		if len(res) != 1 {
+			t.Fatalf("expected 1 result returned alongside the error, got %d", len(res))
 		}
 		if res[0].SubRuleRef != domain.RuleOutcomeError {
 			t.Errorf("expected RuleOutcomeError for unguarded missing key, got %s", res[0].SubRuleRef)
+		}
+		if res[0].Reason == "" {
+			t.Error("expected non-empty reason on the errored rule result")
 		}
 	})
 

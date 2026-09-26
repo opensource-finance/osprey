@@ -197,14 +197,15 @@ func TestGetReasons(t *testing.T) {
 			{SubRuleRef: domain.RuleOutcomePass, Reason: "All good"},
 			{SubRuleRef: domain.RuleOutcomeFail, Reason: "Velocity exceeded"},
 			{SubRuleRef: domain.RuleOutcomeReview, Reason: "High value"},
+			{SubRuleRef: domain.RuleOutcomeError, Reason: "evaluation error: no such key: ml_score"},
 			{SubRuleRef: domain.RuleOutcomePass, Reason: "Normal"},
 		},
 	}
 
 	reasons := GetReasons(eval)
 
-	if len(reasons) != 2 {
-		t.Fatalf("expected 2 reasons, got %d", len(reasons))
+	if len(reasons) != 3 {
+		t.Fatalf("expected 3 reasons (fail + review + err), got %d: %v", len(reasons), reasons)
 	}
 
 	if reasons[0] != "Velocity exceeded" {
@@ -212,6 +213,31 @@ func TestGetReasons(t *testing.T) {
 	}
 	if reasons[1] != "High value" {
 		t.Errorf("expected 'High value', got '%s'", reasons[1])
+	}
+	if reasons[2] != "evaluation error: no such key: ml_score" {
+		t.Errorf("expected errored rule reason surfaced, got '%s'", reasons[2])
+	}
+}
+
+// TestGetReasonsSurfacesErrorOutcome is a focused regression guard for the
+// fail-open bug: a rule that errored at evaluation time must appear in the
+// operator-facing reasons, not be silently dropped. Before the fix, GetReasons
+// only emitted .fail/.review reasons, hiding "evaluation error: ..." from the
+// API response and every other consumer of this helper.
+func TestGetReasonsSurfacesErrorOutcome(t *testing.T) {
+	eval := &domain.Evaluation{
+		RuleResults: []domain.RuleResult{
+			{SubRuleRef: domain.RuleOutcomeError, Reason: "evaluation error: division by zero"},
+		},
+	}
+
+	reasons := GetReasons(eval)
+
+	if len(reasons) != 1 {
+		t.Fatalf("expected errored rule reason to be surfaced, got %d: %v", len(reasons), reasons)
+	}
+	if reasons[0] != "evaluation error: division by zero" {
+		t.Errorf("expected evaluation error reason, got '%s'", reasons[0])
 	}
 }
 
