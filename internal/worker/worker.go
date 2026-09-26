@@ -296,21 +296,3 @@ func (w *Worker) Stop() error {
 	slog.Info("workers stopped")
 	return nil
 }
-
-// Stats returns worker statistics.
-type Stats struct {
-	SubscriptionCount int      `json:"subscriptionCount"`
-	Topics            []string `json:"topics"`
-}
-
-// GetStats returns current worker statistics.
-func (w *Worker) GetStats() Stats {
-	topics := make([]string, len(w.subscriptions))
-	for i, sub := range w.subscriptions {
-		topics[i] = sub.Topic()
-	}
-	return Stats{
-		SubscriptionCount: len(w.subscriptions),
-		Topics:            topics,
-	}
-}
