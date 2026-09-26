@@ -254,9 +254,6 @@ func TestSQLiteRepository(t *testing.T) {
 			t.Fatalf("failed to insert corrupt rule config: %v", err)
 		}
 
-		if _, err := repo.GetRuleConfig(ctx, tenantID, "corrupt-rule-bands"); err == nil {
-			t.Fatal("expected corrupt rule bands to fail on get")
-		}
 		if _, err := repo.ListRuleConfigs(ctx, tenantID); err == nil {
 			t.Fatal("expected corrupt rule bands to fail on list")
 		}

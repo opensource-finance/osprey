@@ -383,44 +383,6 @@ func (r *SQLRepository) DeleteRuleConfig(ctx context.Context, tenantID string, r
 	return nil
 }
 
-// GetRuleConfig retrieves a rule configuration with tenant isolation.
-func (r *SQLRepository) GetRuleConfig(ctx context.Context, tenantID string, ruleID string) (*domain.RuleConfig, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
-	}
-
-	query := `
-		SELECT id, tenant_id, name, description, version, expression, bands, weight, enabled
-		FROM rule_configs
-		WHERE tenant_id = ? AND id = ? AND enabled = 1
-		ORDER BY version DESC
-		LIMIT 1
-	`
-
-	var cfg domain.RuleConfig
-	var bands string
-	var enabled int
-
-	err := r.db.QueryRowContext(ctx, r.rebind(query), tenantID, ruleID).Scan(
-		&cfg.ID, &cfg.TenantID, &cfg.Name, &cfg.Description,
-		&cfg.Version, &cfg.Expression, &bands, &cfg.Weight, &enabled,
-	)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	cfg.Enabled = enabled == 1
-	if err := decodeRuleBands(cfg.ID, bands, &cfg.Bands); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
-}
-
 // ListRuleConfigs retrieves all active rule configurations for a tenant.
 func (r *SQLRepository) ListRuleConfigs(ctx context.Context, tenantID string) ([]*domain.RuleConfig, error) {
 	if tenantID == "" {
@@ -581,45 +543,6 @@ func (r *SQLRepository) SaveTypology(ctx context.Context, tenantID string, typol
 		now, now,
 	)
 	return err
-}
-
-// GetTypology retrieves a typology configuration with tenant isolation.
-func (r *SQLRepository) GetTypology(ctx context.Context, tenantID string, typologyID string) (*domain.Typology, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
-	}
-
-	query := `
-		SELECT id, tenant_id, name, description, version, rules, alert_threshold, enabled, created_at, updated_at
-		FROM typologies
-		WHERE tenant_id = ? AND id = ? AND enabled = 1
-		ORDER BY version DESC
-		LIMIT 1
-	`
-
-	var t domain.Typology
-	var rules string
-	var enabled int
-
-	err := r.db.QueryRowContext(ctx, r.rebind(query), tenantID, typologyID).Scan(
-		&t.ID, &t.TenantID, &t.Name, &t.Description,
-		&t.Version, &rules, &t.AlertThreshold, &enabled,
-		&t.CreatedAt, &t.UpdatedAt,
-	)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	t.Enabled = enabled == 1
-	if err := json.Unmarshal([]byte(rules), &t.Rules); err != nil {
-		return nil, fmt.Errorf("failed to parse typology rules: %w", err)
-	}
-
-	return &t, nil
 }
 
 // ListTypologies retrieves all active typology configurations for a tenant.

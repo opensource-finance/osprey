@@ -16,7 +16,6 @@ type Repository interface {
 
 	// Rule configuration operations
 	SaveRuleConfig(ctx context.Context, tenantID string, rule *RuleConfig) error
-	GetRuleConfig(ctx context.Context, tenantID string, ruleID string) (*RuleConfig, error)
 	ListRuleConfigs(ctx context.Context, tenantID string) ([]*RuleConfig, error)
 	DeleteRuleConfig(ctx context.Context, tenantID string, ruleID string) error
 
@@ -26,7 +25,6 @@ type Repository interface {
 
 	// Typology configuration operations
 	SaveTypology(ctx context.Context, tenantID string, typology *Typology) error
-	GetTypology(ctx context.Context, tenantID string, typologyID string) (*Typology, error)
 	ListTypologies(ctx context.Context, tenantID string) ([]*Typology, error)
 	DeleteTypology(ctx context.Context, tenantID string, typologyID string) error
 
