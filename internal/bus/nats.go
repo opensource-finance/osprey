@@ -175,53 +175,6 @@ func (b *NATSBus) Subscribe(ctx context.Context, tenantID string, topic string, 
 	return sub, nil
 }
 
-// Request implements request-reply pattern using NATS.
-func (b *NATSBus) Request(ctx context.Context, tenantID string, topic string, payload []byte) ([]byte, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("tenantID is required")
-	}
-
-	// Create message envelope
-	msg := &domain.Message{
-		ID:        uuid.New().String(),
-		TenantID:  tenantID,
-		Topic:     topic,
-		Payload:   payload,
-		Metadata:  make(map[string]string),
-		Timestamp: time.Now().UnixNano(),
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal message: %w", err)
-	}
-
-	subject := b.makeSubject(tenantID, topic)
-
-	// Get timeout from context or use default
-	timeout := 30 * time.Second
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, ctx.Err()
-		}
-		timeout = remaining
-	}
-
-	reply, err := b.conn.Request(subject, data, timeout)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	// Unmarshal reply
-	var replyMsg domain.Message
-	if err := json.Unmarshal(reply.Data, &replyMsg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal reply: %w", err)
-	}
-
-	return replyMsg.Payload, nil
-}
-
 // Ping checks NATS connectivity.
 func (b *NATSBus) Ping(ctx context.Context) error {
 	if !b.conn.IsConnected() {
