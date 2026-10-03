@@ -12,6 +12,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- When a CEL rule errors at runtime, `POST /evaluate` now returns 500 instead of
+  silently degrading to NALT, and the evaluation error is surfaced in the
+  response `reasons`.
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
 

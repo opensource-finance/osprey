@@ -147,7 +147,13 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 			weight = 1.0
 		}
 
-		// Check for critical failures
+		// Check for critical failures. RuleOutcomeError (.err) is intentionally
+		// NOT a case here: a rule that errored at evaluation time is propagated
+		// as a Go error from rules.EvaluateAll, so the live decision path fails
+		// loudly (5xx) before reaching aggregation. Treating .err as an alert or
+		// review here would double-handle the failure and, in the alert case,
+		// train operators to ignore alerts. GetReasons still surfaces .err
+		// reasons for operator visibility.
 		switch r.SubRuleRef {
 		case domain.RuleOutcomeFail:
 			agg.HasCriticalFailure = true
@@ -197,11 +203,17 @@ func ShouldAlert(eval *domain.Evaluation) bool {
 	return eval.Status == domain.StatusAlert
 }
 
-// GetReasons extracts human-readable reasons from an evaluation.
+// GetReasons extracts human-readable reasons from an evaluation. Fail and
+// review outcomes are surfaced as decision reasons; rule evaluation errors
+// (.err) are surfaced too so a broken rule's failure is visible to operators
+// on the very evaluation it affected, rather than being silently dropped
+// from the API response.
 func GetReasons(eval *domain.Evaluation) []string {
 	var reasons []string
 	for _, r := range eval.RuleResults {
-		if r.SubRuleRef == domain.RuleOutcomeFail || r.SubRuleRef == domain.RuleOutcomeReview {
+		if r.SubRuleRef == domain.RuleOutcomeFail ||
+			r.SubRuleRef == domain.RuleOutcomeReview ||
+			r.SubRuleRef == domain.RuleOutcomeError {
 			if r.Reason != "" {
 				reasons = append(reasons, r.Reason)
 			}
