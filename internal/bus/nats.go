@@ -29,17 +29,7 @@ type natsSubscription struct {
 	sub      *nats.Subscription
 }
 
-// natsErrorHandler is the async error handler installed on the NATS
-// connection. The NATS client invokes it from its own asyncCBDispatcher
-// goroutine (which has no recover) for connection/subscription errors.
-// The library passes a nil *Subscription on several internal error paths
-// (reconnect-handshake read failures, transient server errors such as
-// permissions violations or max-subscriptions-exceeded), so sub must be
-// nil-guarded before it is dereferenced — mirroring the library's own
-// defaultErrHandler. sub.mu and sub.jsi are unexported and therefore
-// inaccessible outside the nats package; for osprey's plain (non-JetStream)
-// subscriptions sub.Subject is set once at creation and never mutated, so
-// reading it without the lock is safe.
+// natsErrorHandler logs async NATS errors. sub is nil on some library error paths.
 func natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
 	args := []any{"error", err}
 	if sub != nil {

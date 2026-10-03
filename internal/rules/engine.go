@@ -196,15 +196,7 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 		"new_balance": 0.0,
 	}
 
-	// Back-compat: only metadata-sourced Catalog variables (old_balance/new_balance)
-	// may override their engine defaults via the top-level activation. Every other
-	// Catalog variable (amount, currency, tx_type, debtor_id, creditor_id, tx,
-	// velocity_*) is engine-authoritative and must never be clobbered by a
-	// caller-supplied metadata key — otherwise a caller could bypass fraud rules
-	// (e.g. metadata:{"amount": 1.0} for a real 500000 tx) or force them to fire
-	// (e.g. metadata:{"tx_type": "CASH_OUT"}) by colliding with a Catalog name.
-	// The overridable set is derived from the Catalog's single source of truth
-	// (variables.go: metadataOverridable) so it cannot drift as new variables are added.
+	// Metadata may only set metadata-sourced vars, never amount, tx_type, velocity_*, etc.
 	for k, v := range input.AdditionalData {
 		if _, ok := metadataOverridable[k]; ok {
 			activation[k] = v
@@ -238,8 +230,6 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 
 	wg.Wait()
 
-	// A rule that errors at eval keeps its RuleOutcomeError result; TADP treats it
-	// as a critical failure (ALRT) so the other rules still score.
 	return results, nil
 }
 

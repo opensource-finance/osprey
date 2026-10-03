@@ -151,13 +151,7 @@ func TestNoDataSource(t *testing.T) {
 	}
 }
 
-// TestVelocityCountWindowsOnIngestTime locks in the fix for the
-// velocity-timestamp bypass at the velocity-service layer. Velocity is a
-// rate-limit control over processing activity, so the window must key on
-// the server-controlled ingest time (created_at), not the client-supplied
-// event time (timestamp) that POST /evaluate accepts verbatim. Every subtest
-// sets Timestamp != CreatedAt so a regression back to `timestamp >= ?` would
-// change the count and fail the assertion.
+// TestVelocityCountWindowsOnIngestTime checks the velocity window uses created_at, not timestamp.
 func TestVelocityCountWindowsOnIngestTime(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "velocity-bypass-*.db")
 	if err != nil {
@@ -202,8 +196,7 @@ func TestVelocityCountWindowsOnIngestTime(t *testing.T) {
 	}
 
 	t.Run("BackdatedTimestampsStillCounted", func(t *testing.T) {
-		// A caller backdates every event timestamp outside the 1-hour window.
-		// Velocity must still count them: created_at is within the window.
+		// Backdated event timestamps still count.
 		oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		now := time.Now().UTC()
 		for i := range 6 {
@@ -220,9 +213,7 @@ func TestVelocityCountWindowsOnIngestTime(t *testing.T) {
 	})
 
 	t.Run("RecentTimestampButOldCreatedAtExcluded", func(t *testing.T) {
-		// Inverse guard: a recent event timestamp with a stale ingest time must
-		// be excluded from the window. Fails if the predicate reverts to
-		// `timestamp >= ?`.
+		// A recent timestamp with a stale created_at is excluded.
 		now := time.Now().UTC()
 		staleIngest := now.Add(-2 * time.Hour)
 		for i := range 3 {
@@ -239,9 +230,7 @@ func TestVelocityCountWindowsOnIngestTime(t *testing.T) {
 	})
 
 	t.Run("WindowBoundaryOnCreatedAt", func(t *testing.T) {
-		// Two transactions: one ingested inside the window, one ingested outside
-		// it (both with the same backdated event timestamp). Only the in-window
-		// ingest should be counted.
+		// Only the transaction ingested inside the window counts.
 		oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		now := time.Now().UTC()
 		saveTx("boundary-in", "debtor-boundary", oldEventTime, now.Add(-30*time.Second))

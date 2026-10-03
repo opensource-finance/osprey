@@ -285,15 +285,7 @@ func parseTenantIDs(value string) []string {
 
 // loadRulesFromDatabase loads rules from the database into the engine.
 // All rules must be configured via POST /rules API - no hardcoded defaults.
-//
-// A legitimately empty table is a benign onboarding state (a fresh deployment
-// where rules will be added via the API) and is handled by the len == 0 branch
-// below. A ListRuleConfigs error, by contrast, is an infrastructure or data
-// problem (e.g. connection loss, query timeout, or a corrupt row that fails
-// JSON decoding) that already prevented the engine from loading its ruleset.
-// Propagating it lets main()'s existing os.Exit(1) fail the startup loudly
-// instead of silently starting with zero rules, which would classify every
-// transaction as no_alert (a fail-open of the detection pipeline).
+// A list error fails startup instead of running with zero rules; an empty table is fine.
 func loadRulesFromDatabase(ctx context.Context, repo domain.Repository, engine *rules.Engine) error {
 	dbRules, err := repo.ListRuleConfigs(ctx, domain.GlobalTenantID)
 	if err != nil {
@@ -311,12 +303,7 @@ func loadRulesFromDatabase(ctx context.Context, repo domain.Repository, engine *
 
 // loadTypologiesFromDatabase loads typologies from the database into the engine.
 // All typologies must be configured via POST /typologies API - no hardcoded defaults.
-//
-// Mirrors loadRulesFromDatabase: a legitimately empty table is a benign
-// onboarding state and returns nil, but a ListTypologies error is an
-// infrastructure or data problem that must fail the startup loudly via
-// main()'s existing os.Exit(1) rather than silently starting with zero
-// typologies.
+// A list error fails startup; an empty table is fine.
 func loadTypologiesFromDatabase(ctx context.Context, repo domain.Repository, engine *rules.TypologyEngine) error {
 	dbTypologies, err := repo.ListTypologies(ctx, domain.GlobalTenantID)
 	if err != nil {

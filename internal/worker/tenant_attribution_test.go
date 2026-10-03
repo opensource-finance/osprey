@@ -20,9 +20,6 @@ type capturedEval struct {
 }
 
 // capturingRepository records SaveEvaluation calls without persisting.
-// Embedding the nil domain.Repository satisfies the interface; only
-// SaveEvaluation is exercised here, mirroring the failingEvaluationRepository
-// pattern in worker_test.go.
 type capturingRepository struct {
 	domain.Repository
 	mu    sync.Mutex
@@ -93,8 +90,7 @@ func publishesForTenant(pub []capturedPublish, tenantID string) int {
 	return n
 }
 
-// noAlertRule yields a clean NALT (score 0, no alert) so only a decision is
-// published, keeping decision-routing assertions free of alert noise.
+// noAlertRule yields a clean NALT so only a decision is published.
 func noAlertRule() []*domain.RuleConfig {
 	return []*domain.RuleConfig{
 		{
@@ -107,8 +103,7 @@ func noAlertRule() []*domain.RuleConfig {
 	}
 }
 
-// alertRule yields an ALRT when debtor == creditor (same-party), matching the
-// proven pattern from the AlertPublished test in worker_test.go.
+// alertRule yields ALRT when debtor == creditor.
 func alertRule() []*domain.RuleConfig {
 	return []*domain.RuleConfig{
 		{
@@ -149,13 +144,8 @@ func newCapturingWorker(t *testing.T, processor *tadp.Processor, ruleConfigs []*
 	return w, repo, busCap
 }
 
-// ---------------------------------------------------------------------------
-// Direct unit tests against processTransaction's trustPayloadTenant flag.
-// ---------------------------------------------------------------------------
+// Unit tests for processTransaction's trustPayloadTenant flag.
 
-// Reproduce the reported bug: a per-tenant (authoritative) call must NOT let
-// the payload tenantId override the subscription tenant for SaveEvaluation or
-// for decision/alert publishing.
 func TestProcessTransaction_PerTenantAuthoritative_IgnoresPayloadTenantOverride(t *testing.T) {
 	w, repo, busCap := newCapturingWorker(t, tadp.NewProcessor(), noAlertRule())
 
@@ -336,9 +326,7 @@ func TestProcessTransaction_GlobalTrustsPayloadTenant(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// End-to-end test through a real ChannelBus and a started Worker.
-// ---------------------------------------------------------------------------
+// End-to-end tests through a real ChannelBus and Worker.
 
 func subscribeChan(t *testing.T, b domain.EventBus, tenantID, topic string) <-chan *domain.Message {
 	t.Helper()
@@ -377,8 +365,7 @@ func assertNoMsg(t *testing.T, ch <-chan *domain.Message, label string) {
 	}
 }
 
-// End-to-end repro of the reported scenario: a message published to tenantA's
-// ingested subject whose payload claims tenantB is attributed to tenantA.
+// End-to-end: a payload claiming tenantB on tenantA's subject is attributed to tenantA.
 func TestPerTenantWorker_E2E_IgnoresPayloadTenantOverride(t *testing.T) {
 	eventBus := bus.NewChannelBus(100)
 	defer func() { _ = eventBus.Close() }()

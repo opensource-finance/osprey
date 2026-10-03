@@ -146,18 +146,8 @@ type TransactionMessage struct {
 }
 
 // processTransaction evaluates a transaction through the pipeline.
-//
-// tenantID is the authoritative routing/subscription tenant under which the
-// evaluation is persisted and the decision/alert are published. trustPayloadTenant
-// controls whether an untrusted tenantId field embedded in the JSON payload may
-// override it. Only the global (testing/dev) worker passes true, because it
-// subscribes under the synthetic "_global" subject and must recover the real
-// tenant from the payload. Per-tenant production workers pass false so a payload
-// tenantId that disagrees with the subscription tenant cannot re-attribute
-// persistence and downstream events to another tenant; a conflict is logged and
-// the subscription tenant wins. This matches the synchronous Evaluate path,
-// where the X-Tenant-ID routing tenant is authoritative and the request body
-// carries no tenantId.
+// Only the global worker trusts the payload tenantId (trustPayloadTenant);
+// per-tenant workers keep the subscription tenant.
 func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *domain.Message, trustPayloadTenant bool) error {
 	start := time.Now()
 
@@ -181,10 +171,6 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		return err
 	}
 
-	// Only the global (testing/dev) path trusts the payload tenantId: its
-	// subscription tenant is the synthetic "_global" and the payload is its only
-	// source of the real tenant. Per-tenant workers treat the routing tenant as
-	// authoritative and ignore a conflicting payload tenantId.
 	if trustPayloadTenant && txMsg.TenantID != "" {
 		tenantID = txMsg.TenantID
 	} else if !trustPayloadTenant && txMsg.TenantID != "" && txMsg.TenantID != tenantID {

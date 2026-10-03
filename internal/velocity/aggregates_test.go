@@ -76,13 +76,7 @@ func TestGetAggregates(t *testing.T) {
 	})
 }
 
-// TestGetAggregatesBackdatedTimestamps locks in the fix for the
-// velocity-timestamp bypass on the richer GetAggregates path (count +
-// amount-sum + distinct-counterparties), which shares GetTransactionsByEntity
-// with GetTransactionCount. A caller backdating every event timestamp outside
-// the window must NOT be able to zero out count / amount_sum /
-// distinct_creditors, because the window keys on the server-controlled
-// created_at (ingest time), not the client-controllable timestamp.
+// TestGetAggregatesBackdatedTimestamps checks backdated timestamps cannot zero out the aggregates.
 func TestGetAggregatesBackdatedTimestamps(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "velagg-bypass-*.db")
 	if err != nil {
@@ -104,10 +98,7 @@ func TestGetAggregatesBackdatedTimestamps(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "t1-bypass"
 
-	// d1-bd -> c1-bd x3, d1-bd -> c2-bd x2, all 100.0, all backdated to 2020.
-	// Expected aggregates (window keyed on created_at = now): count 5, sum 500,
-	// distinct creditors 2. With the old `timestamp >= ?` predicate the count
-	// would be 0 and the aggregates would collapse to zero, hiding the burst.
+	// 5 backdated txs to 2 creditors: count 5, sum 500, 2 distinct creditors.
 	oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Now().UTC()
 	creditors := []string{"c1-bd", "c1-bd", "c1-bd", "c2-bd", "c2-bd"}

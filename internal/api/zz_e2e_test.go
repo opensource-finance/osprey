@@ -15,18 +15,11 @@ import (
 	"github.com/opensource-finance/osprey/internal/tadp"
 )
 
-// These tests cover the PUT /rules/{id} referential-integrity guard added to
-// UpdateRule. Disabling (enabled:false) a rule that a loaded typology
-// references must be refused with 409 (mirroring DeleteRule) unless the
-// operator opts in with ?force=true, in which case the dependency is surfaced
-// as a warnings array. The e2e tests reproduce the compliance-mode decision
-// flip the unguarded path allowed and confirm it no longer happens silently.
+// PUT /rules/{id} guard: disabling a typology-referenced rule returns 409 unless ?force=true.
 
 const zzTenant = "t-zz"
 
-// createComplianceServer builds a compliance-mode server backed by a real
-// SQLite repository with fresh rule and typology engines, so rule disabling
-// via the admin API can be exercised end-to-end against a loaded typology.
+// createComplianceServer builds a compliance-mode server on a real SQLite repo.
 func createComplianceServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	dbFile, err := os.CreateTemp("", "osprey-api-*.db")
@@ -188,11 +181,6 @@ func decodeAnyMap(t *testing.T, body []byte) map[string]any {
 	return m
 }
 
-// TestZZ_PutDisableReferencedRuleReturns409AndErrorNamesTypology asserts the
-// core fix: disabling (enabled:false) a rule referenced by a loaded typology
-// is refused with 409, the error names both the rule and the typology, and
-// points the operator at the ?force=true opt-in. DELETE on the same rule must
-// remain 409, and the refused disable must leave the rule active.
 func TestZZ_PutDisableReferencedRuleReturns409AndErrorNamesTypology(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -236,9 +224,6 @@ func TestZZ_PutDisableReferencedRuleReturns409AndErrorNamesTypology(t *testing.T
 	}
 }
 
-// TestZZ_PutDisableReferencedRuleForceReturns200WithWarnings asserts the
-// ?force=true opt-in path: the rule is disabled (engine reloaded without it)
-// and the response carries a warnings array naming the referencing typology.
 func TestZZ_PutDisableReferencedRuleForceReturns200WithWarnings(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -290,9 +275,6 @@ func TestZZ_PutDisableReferencedRuleForceReturns200WithWarnings(t *testing.T) {
 	}
 }
 
-// TestZZ_PutDisableNonReferencedRuleReturns200WithoutWarnings asserts the
-// guard only fires for rules referenced by loaded typologies. Disabling a
-// rule no typology references succeeds with 200 and no warnings.
 func TestZZ_PutDisableNonReferencedRuleReturns200WithoutWarnings(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -313,9 +295,7 @@ func TestZZ_PutDisableNonReferencedRuleReturns200WithoutWarnings(t *testing.T) {
 	}
 }
 
-// TestZZ_PutEnableReferencedRuleNoGuard asserts the guard is scoped to the
-// disable case: updating a referenced rule with enabled:true never returns
-// 409 and carries no warnings, since enabling does not drop the rule.
+// TestZZ_PutEnableReferencedRuleNoGuard checks enabling a referenced rule is never blocked.
 func TestZZ_PutEnableReferencedRuleNoGuard(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -334,9 +314,7 @@ func TestZZ_PutEnableReferencedRuleNoGuard(t *testing.T) {
 	}
 }
 
-// TestZZ_PutDisableReferencedRuleInvalidCelStill400 asserts input validation
-// (CEL compile check) precedes the referential-integrity guard: an invalid
-// expression yields 400 even when the rule is typology-referenced.
+// TestZZ_PutDisableReferencedRuleInvalidCelStill400 checks CEL validation runs before the guard.
 func TestZZ_PutDisableReferencedRuleInvalidCelStill400(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -355,9 +333,6 @@ func TestZZ_PutDisableReferencedRuleInvalidCelStill400(t *testing.T) {
 	}
 }
 
-// TestZZ_PutDisableRuleReferencedByMultipleTypologies asserts the guard
-// aggregates every referencing typology: the 409 error names all of them, and
-// the forced 200 warnings array lists all of them.
 func TestZZ_PutDisableRuleReferencedByMultipleTypologies(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -394,8 +369,7 @@ func TestZZ_PutDisableRuleReferencedByMultipleTypologies(t *testing.T) {
 	}
 }
 
-// TestZZ_PutDisableReferencedRuleRequiresAdminToken asserts the admin-token
-// middleware still gates the PUT path before the handler/guard runs.
+// TestZZ_PutDisableReferencedRuleRequiresAdminToken checks the admin token still gates PUT.
 func TestZZ_PutDisableReferencedRuleRequiresAdminToken(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
@@ -417,11 +391,6 @@ func TestZZ_PutDisableReferencedRuleRequiresAdminToken(t *testing.T) {
 	}
 }
 
-// TestZZ_E2ENoDecisionFlipAfterPutDisableWithoutForce reproduces the reported
-// compliance-mode decision flip: two pivotal rules (weights 0.5/0.5) in a
-// typology with alertThreshold 0.7 both fire on amount=9000 (score 1.0 >= 0.7
-// -> ALRT). Disabling a pivotal rule via PUT must now be refused (409) so the
-// decision stays ALRT instead of silently flipping to NALT (0.5 < 0.7).
 func TestZZ_E2ENoDecisionFlipAfterPutDisableWithoutForce(t *testing.T) {
 	server, cleanup := createComplianceServer(t)
 	defer cleanup()
@@ -453,10 +422,6 @@ func TestZZ_E2ENoDecisionFlipAfterPutDisableWithoutForce(t *testing.T) {
 	}
 }
 
-// TestZZ_E2EObjectFlipWithForceAndWarnings asserts the ?force=true opt-in
-// path end-to-end: the pivotal rule is disabled, the response surfaces a
-// warning naming the typology, and the decision flips to NALT because the
-// operator explicitly acknowledged the dependency.
 func TestZZ_E2EObjectFlipWithForceAndWarnings(t *testing.T) {
 	server, cleanup := createComplianceServer(t)
 	defer cleanup()
@@ -495,10 +460,6 @@ func TestZZ_E2EObjectFlipWithForceAndWarnings(t *testing.T) {
 	}
 }
 
-// TestZZ_E2ENoFlipWhenRuleNotPivotal characterizes the pivotality boundary:
-// with the same rule weights but a lower alertThreshold (0.3), disabling one
-// rule via force leaves the remaining contribution (0.5) above threshold, so
-// the decision stays ALRT. The guard still fires (409) without force.
 func TestZZ_E2ENoFlipWhenRuleNotPivotal(t *testing.T) {
 	server, cleanup := createComplianceServer(t)
 	defer cleanup()
@@ -532,13 +493,6 @@ func TestZZ_E2ENoFlipWhenRuleNotPivotal(t *testing.T) {
 	}
 }
 
-// TestZZ_E2EFlipOnShippedFatfStructuringTypology reproduces the flip on the
-// shipped FATF structuring typology (alertThreshold 0.5; weights
-// structuring-001 0.5, round-amount-001 0.25, velocity-001 0.25) and the
-// shipped rule expressions. A transaction of amount=9000 scores 0.75 (>= 0.5
-// -> ALRT). Without force, disabling structuring-001 is refused (409) so the
-// decision stays ALRT. With force it is disabled, the depleted score 0.25
-// (< 0.5) flips the decision to NALT, and the warning names the typology.
 func TestZZ_E2EFlipOnShippedFatfStructuringTypology(t *testing.T) {
 	server, cleanup := createComplianceServer(t)
 	defer cleanup()
@@ -570,7 +524,7 @@ func TestZZ_E2EFlipOnShippedFatfStructuringTypology(t *testing.T) {
 		t.Fatalf("expected 409 to name typology-structuring, got %s", rr.Body.String())
 	}
 
-	// Refused disable: decision stays ALRT (bug fixed on shipped config).
+	// Refused disable: decision stays ALRT.
 	if after := doEvaluate(t, server, zzTenant, 9000.0); after.Status != domain.StatusAlert {
 		t.Fatalf("shipped: after refused disable expected ALRT, got %s (score %.2f)", after.Status, after.Score)
 	}

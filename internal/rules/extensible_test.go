@@ -56,10 +56,7 @@ func TestExtensibleVariables(t *testing.T) {
 	})
 
 	// Unguarded reference to a missing key errors at eval — documents the foot-gun.
-	// Fail-secure: the evaluation error must be propagated from EvaluateAll
-	// (mirroring the velocity-lookup precedent) so the decision path fails loudly
-	// as a 5xx instead of silently degrading to a clean no-signal NALT that hides
-	// the broken rule from every operator surface.
+	// An unguarded missing meta key yields .err with the CEL cause.
 	t.Run("UnguardedMissingFieldErrors", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
 		defer func() { _ = engine.Close() }()

@@ -17,7 +17,7 @@ type VariableDoc struct {
 	Description string `json:"description,omitempty"`
 
 	celType         *cel.Type // not serialized; used to build the CEL environment
-	metadataSourced bool      // not serialized; true when the value is sourced from caller metadata and may override the engine default (e.g. old_balance/new_balance)
+	metadataSourced bool      // not serialized; caller metadata may override it
 }
 
 // dynMap is the open-ended map type used for tx / meta / enrichment.
@@ -63,19 +63,7 @@ func EnvOptions() []cel.EnvOption {
 	return opts
 }
 
-// metadataOverridable is the set of Catalog variable names whose values are
-// sourced from caller metadata and may legitimately override the engine
-// default (old_balance/new_balance) via the top-level activation merge. It is
-// derived from Catalog (single source of truth) so it cannot drift as new
-// variables are added: a variable is overridable only when its VariableDoc
-// sets metadataSourced.
-//
-// Every other Catalog variable (amount, currency, tx_type, debtor_id,
-// creditor_id, tx, velocity_*) is engine-authoritative and must never be
-// clobbered by a caller-supplied metadata key. The engine uses this set as a
-// default-deny allow-list when merging metadata into the activation, so an
-// attacker cannot bypass or force fraud rules by sending a metadata key whose
-// name collides with an engine-authoritative variable.
+// metadataOverridable lists Catalog vars that caller metadata may set (old_balance/new_balance).
 var metadataOverridable = func() map[string]struct{} {
 	allow := make(map[string]struct{}, 2)
 	for _, v := range Catalog {

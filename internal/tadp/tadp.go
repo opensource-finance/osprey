@@ -147,9 +147,7 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 			weight = 1.0
 		}
 
-		// Check for critical failures. A rule that errored at evaluation time
-		// (.err) fails secure: it forces ALRT instead of silently passing, while
-		// the remaining rules still score. GetReasons names the broken rule.
+		// .fail and .err (rule failed to evaluate) force ALRT.
 		switch r.SubRuleRef {
 		case domain.RuleOutcomeFail:
 			agg.HasCriticalFailure = true
@@ -201,11 +199,7 @@ func ShouldAlert(eval *domain.Evaluation) bool {
 	return eval.Status == domain.StatusAlert
 }
 
-// GetReasons extracts human-readable reasons from an evaluation. Fail and
-// review outcomes are surfaced as decision reasons; rule evaluation errors
-// (.err) are surfaced too so a broken rule's failure is visible to operators
-// on the very evaluation it affected, rather than being silently dropped
-// from the API response.
+// GetReasons extracts the fail, review and error reasons from an evaluation.
 func GetReasons(eval *domain.Evaluation) []string {
 	var reasons []string
 	for _, r := range eval.RuleResults {

@@ -7,8 +7,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
-// clobberBands is the standard 0/1 band pair used by the metadata-clobber tests:
-// score == 0.0 resolves to .pass, score >= 1.0 resolves to .fail.
+// clobberBands maps score 0 to .pass and >= 1 to .fail.
 func clobberBands() []domain.RuleBand {
 	zero, one := 0.0, 1.0
 	return []domain.RuleBand{
@@ -27,10 +26,7 @@ func loadClobberRule(t *testing.T, eng *Engine, id, expr string) {
 	}
 }
 
-// evalClobber evaluates a single rule against a high-value PAYMENT transaction and
-// returns the result. The authoritative fields (amount=500000, tx_type=PAYMENT,
-// currency=USD, debtor_id=d-1, creditor_id=c-1) are chosen so that real-value rules
-// trigger; metadata is the attacker-controlled payload under test.
+// evalClobber evaluates one rule against a fixed high-value PAYMENT with the given metadata.
 func evalClobber(t *testing.T, eng *Engine, metadata map[string]any) domain.RuleResult {
 	t.Helper()
 	ctx := context.Background()
@@ -55,13 +51,7 @@ func evalClobber(t *testing.T, eng *Engine, metadata map[string]any) domain.Rule
 	return results[0]
 }
 
-// TestMetadataClobberRepro asserts that caller-supplied metadata keys whose names
-// collide with engine-authoritative Catalog variables can no longer override the
-// authoritative value in the CEL activation. Each case mirrors a row of the bug
-// reproduction table: before the fix every colliding key clobbered the real value
-// (bypassing or forcing the rule); after the fix the real value always wins.
-//
-// Pre-fix behaviour documented per case (in comments) for regression traceability.
+// TestMetadataClobberRepro checks metadata keys cannot override engine-authoritative variables.
 func TestMetadataClobberRepro(t *testing.T) {
 	ctx := context.Background()
 	_ = ctx
@@ -77,9 +67,9 @@ func TestMetadataClobberRepro(t *testing.T) {
 		metadata map[string]any
 		ruleID   string
 		expr     string
-		// expected AFTER the fix — the engine-authoritative value wins.
+		// Expected: the authoritative value wins.
 		want expect
-		// preFix documents the observed behaviour before the fix (for context only).
+		// Behaviour before the fix, for reference only.
 		preFix expect
 	}{
 		{
@@ -184,10 +174,7 @@ func TestMetadataClobberRepro(t *testing.T) {
 		})
 	}
 
-	// Sanity: the velocity cases above use a nil getter (velocity_count/sum = 0).
-	// Confirm the velocity aggregates still read the engine-computed value when a
-	// real AggregatesGetter is wired, and that a colliding metadata key cannot
-	// override it.
+	// Colliding metadata cannot override aggregates from a real getter.
 	t.Run("velocity aggregates from getter win over metadata", func(t *testing.T) {
 		eng, _ := NewEngine(nil, 5)
 		defer func() { _ = eng.Close() }()
@@ -222,11 +209,7 @@ func TestMetadataClobberRepro(t *testing.T) {
 	})
 }
 
-// TestMetadataClobberBaseline asserts the happy path is unchanged by the fix:
-// non-colliding metadata (e.g. country, mcc) is still accessible via the meta bag,
-// and engine-authoritative rules still trigger on the real values when no key
-// collides. This guards against an over-broad fix that would break legitimate
-// metadata use.
+// TestMetadataClobberBaseline checks non-colliding metadata still works.
 func TestMetadataClobberBaseline(t *testing.T) {
 	t.Run("non-colliding metadata keeps real amount and exposes meta bag", func(t *testing.T) {
 		eng, _ := NewEngine(nil, 5)
@@ -262,8 +245,7 @@ func TestMetadataClobberBaseline(t *testing.T) {
 		defer func() { _ = eng.Close() }()
 		loadClobberRule(t, eng, "meta-nil", "has(meta.country) && meta.country == 'US' ? 1.0 : 0.0")
 
-		// A caller sending metadata: {"meta": null} must not break the meta bag
-		// (the bag is re-asserted after the merge).
+		// Metadata {"meta": null} must not break the meta bag.
 		got := evalClobber(t, eng, map[string]any{"meta": nil, "country": "US"})
 		if got.SubRuleRef == domain.RuleOutcomeError {
 			t.Errorf("meta bag must not error when caller sends meta=null: %s", got.Reason)
@@ -299,10 +281,7 @@ func TestMetadataClobberBaseline(t *testing.T) {
 	})
 }
 
-// TestMetadataClobberBackcompat asserts the two intended metadata-overridable
-// Catalog variables (old_balance/new_balance) still override their 0.0 defaults
-// when supplied via metadata. This is the legitimate back-compat path the
-// unfiltered merge existed to support; the allow-list must preserve it.
+// TestMetadataClobberBackcompat checks old_balance/new_balance stay overridable via metadata.
 func TestMetadataClobberBackcompat(t *testing.T) {
 	t.Run("old_balance/new_balance override defaults via metadata", func(t *testing.T) {
 		eng, _ := NewEngine(nil, 5)
@@ -347,10 +326,6 @@ func TestMetadataClobberBackcompat(t *testing.T) {
 	})
 }
 
-// TestMetadataOverridableDerivedFromCatalog asserts the allow-list is the single
-// source of truth: it must contain exactly the Catalog variables marked
-// metadataSourced (old_balance, new_balance) and nothing else — in particular
-// none of the engine-authoritative names.
 func TestMetadataOverridableDerivedFromCatalog(t *testing.T) {
 	want := map[string]struct{}{
 		"old_balance": {},

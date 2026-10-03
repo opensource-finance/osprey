@@ -522,8 +522,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// enabled is required on PUT (see openapi RuleConfig): a plain bool would
-	// read an omitted field as false and silently disable the rule.
+	// enabled is required: an omitted bool would silently disable the rule.
 	var body struct {
 		CreateRuleRequest
 		Enabled *bool `json:"enabled"`
@@ -567,14 +566,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Referential integrity: refuse to disable a rule a loaded typology
-	// depends on, mirroring DeleteRule. Disabled rules are dropped from the
-	// active engine on reload, but typologies still reference them, so
-	// typology evaluation silently skips the missing rule and can flip a
-	// Triggered/Score result (and the compliance decision) without notice.
-	// A ?force=true opt-in lets an operator intentionally disable a
-	// referenced rule (e.g. for debugging) while surfacing the dependency as
-	// a warning so the scoring change is never silent.
+	// Refuse to disable a rule a typology uses, unless ?force=true (then warn).
 	var warnings []string
 	if !req.Enabled {
 		if refs := h.typologiesReferencing(ruleID); len(refs) > 0 {
@@ -768,8 +760,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// typologiesReferencing returns the IDs of loaded typologies that reference
-// ruleID, each listed once.
+// typologiesReferencing returns the IDs of loaded typologies that use ruleID.
 func (h *Handler) typologiesReferencing(ruleID string) []string {
 	if h.typologyEngine == nil {
 		return nil
@@ -786,10 +777,7 @@ func (h *Handler) typologiesReferencing(ruleID string) []string {
 	return refs
 }
 
-// forceFlag reports whether the request opted into a force override via the
-// ?force=true query parameter. Rule disabling uses it to bypass the typology
-// referential-integrity guard when an operator intentionally disables a rule
-// a loaded typology depends on; the dependency is then surfaced as a warning.
+// forceFlag reports whether the request has ?force=true.
 func forceFlag(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("force")), "true")
 }

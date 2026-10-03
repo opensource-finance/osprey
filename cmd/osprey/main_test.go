@@ -108,10 +108,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 	})
 }
 
-// loaderRepo is a configurable fake domain.Repository for the DB loader tests.
-// It embeds domain.Repository so only the methods exercised by the loaders need
-// to be implemented, mirroring the fake-repo pattern used in internal/api and
-// internal/worker tests.
+// loaderRepo is a fake domain.Repository for the DB loader tests.
 type loaderRepo struct {
 	domain.Repository
 
@@ -151,9 +148,7 @@ func newTestEngine(t *testing.T) *rules.Engine {
 }
 
 func TestLoadRulesFromDatabase_PropagatesListError(t *testing.T) {
-	// Regression guard: a ListRuleConfigs failure must fail startup loudly
-	// rather than being swallowed and leaving the engine inert with zero
-	// rules (which would classify every transaction as no_alert).
+	// A ListRuleConfigs error must fail startup.
 	dbErr := errors.New("db connection refused")
 	repo := &loaderRepo{listRulesErr: dbErr}
 	engine := newTestEngine(t)
@@ -177,8 +172,7 @@ func TestLoadRulesFromDatabase_PropagatesListError(t *testing.T) {
 }
 
 func TestLoadRulesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
-	// Onboarding guarantee: a legitimately empty table is a benign first-run
-	// state and must still start the service so operators can POST /rules.
+	// An empty rules table still starts.
 	repo := &loaderRepo{rules: nil}
 	engine := newTestEngine(t)
 
@@ -194,8 +188,7 @@ func TestLoadRulesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
 }
 
 func TestLoadTypologiesFromDatabase_PropagatesListError(t *testing.T) {
-	// Regression guard: a ListTypologies failure must fail startup loudly
-	// rather than being swallowed and leaving the typology engine inert.
+	// A ListTypologies error must fail startup.
 	dbErr := errors.New("context deadline exceeded")
 	repo := &loaderRepo{listTypologiesErr: dbErr}
 	engine := rules.NewTypologyEngine()
@@ -219,8 +212,7 @@ func TestLoadTypologiesFromDatabase_PropagatesListError(t *testing.T) {
 }
 
 func TestLoadTypologiesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
-	// Onboarding guarantee: a legitimately empty typology table must still
-	// start the service so operators can POST /typologies.
+	// An empty typologies table still starts.
 	repo := &loaderRepo{typologies: nil}
 	engine := rules.NewTypologyEngine()
 

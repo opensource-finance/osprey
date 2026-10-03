@@ -479,9 +479,7 @@ func TestRebind(t *testing.T) {
 	}
 }
 
-// saveWindowTx stores a transaction with explicit, distinct Timestamp and
-// CreatedAt so the velocity windowing column can be asserted independently of
-// the event-time column. Helper for TestGetTransactionsByEntityWindowsOnCreatedAt.
+// saveWindowTx stores a transaction with distinct Timestamp and CreatedAt.
 func saveWindowTx(t *testing.T, repo domain.Repository, ctx context.Context, tenantID, id, debtor, creditor string, ts, createdAt time.Time) {
 	t.Helper()
 	tx := &domain.Transaction{
@@ -508,24 +506,12 @@ type windowSuite struct {
 	tenantID string
 }
 
-// TestGetTransactionsByEntityWindowsOnCreatedAt locks in the fix for the
-// velocity-timestamp bypass: the velocity window must be keyed on the
-// server-controlled created_at (ingest time) column, not the client-controllable
-// timestamp (event time) column. Every subtest constructs rows where
-// Timestamp != CreatedAt so the previous `AND timestamp >= ?` predicate and
-// the new `AND created_at >= ?` predicate would disagree, and asserts the
-// created_at-keyed behavior. This guards against a regression back to the
-// attacker-controllable timestamp column.
 func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 	s := newWindowSuite(t)
 	defer func() { _ = s.repo.Close() }()
 
 	t.Run("BackdatedTimestampsStillCountedInWindow", func(t *testing.T) {
-		// A caller backdates every transaction's event timestamp far outside the
-		// 1-hour velocity window. With the fix, the velocity window keys on
-		// created_at (= now), so all rows are still returned. With the previous
-		// `timestamp >= ?` predicate these would be excluded and velocity would
-		// silently read 0 — the bypass being fixed.
+		// Backdated event timestamps are still inside the window.
 		oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		now := time.Now().UTC()
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "bd-1", "debtor-backdated", "creditor-1", oldEventTime, now)
@@ -544,11 +530,7 @@ func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 	})
 
 	t.Run("RecentTimestampButOldCreatedAtExcluded", func(t *testing.T) {
-		// The inverse guard: a row whose event timestamp is recent but whose
-		// ingest time is outside the window must be excluded. With the previous
-		// `timestamp >= ?` predicate this row would be returned even though its
-		// created_at is stale, which is the wrong basis for a rate-limiting
-		// control. This subtest fails if the predicate is reverted to timestamp.
+		// A recent timestamp with a stale created_at is excluded.
 		now := time.Now().UTC()
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "future-ts-old-ca", "debtor-stale-ca", "creditor-x", now, now.Add(-2*time.Hour))
 
@@ -559,10 +541,7 @@ func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 	})
 
 	t.Run("LateReportedEventIncludedInWindow", func(t *testing.T) {
-		// Legitimate late reporting: an event that really occurred hours ago is
-		// ingested now. The velocity window (a processing-time / rate control)
-		// must count it now, because the system is processing it now. With the
-		// old `timestamp >= ?` predicate this event was dropped from velocity.
+		// Late-reported events count at ingest time.
 		now := time.Now().UTC()
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "late-1", "debtor-late", "creditor-1", now.Add(-2*time.Hour), now)
 
@@ -573,9 +552,7 @@ func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 	})
 
 	t.Run("OrderedByCreatedAtDesc", func(t *testing.T) {
-		// The ORDER BY must also track created_at, not timestamp: an older
-		// ingest with a newer client timestamp must not sort ahead of a newer
-		// ingest with an older client timestamp.
+		// Results are ordered by created_at, not timestamp.
 		now := time.Now().UTC()
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "ord-new-ca-old-ts", "debtor-order", "creditor-1", now.Add(-3*time.Hour), now)
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "ord-mid", "debtor-order", "creditor-2", now.Add(-2*time.Hour), now.Add(-30*time.Second))
@@ -594,8 +571,7 @@ func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 	})
 
 	t.Run("MatchesDebtorAndCreditorRoles", func(t *testing.T) {
-		// Regression guard: the entity match (debtor OR creditor) is unchanged
-		// by moving the time predicate onto created_at.
+		// Debtor-or-creditor matching is unchanged.
 		now := time.Now().UTC()
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "role-d", "debtor-role", "creditor-unrelated", now, now)
 		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "role-c", "debtor-unrelated", "creditor-role", now, now)
@@ -633,8 +609,7 @@ func newWindowSuite(t *testing.T) *windowSuite {
 	return &windowSuite{repo: repo, ctx: context.Background(), tenantID: "tenant-window"}
 }
 
-// fetch wraps GetTransactionsByEntity with an offset-from-now window, failing
-// the test on repo errors so subtests stay concise.
+// fetch calls GetTransactionsByEntity with a window of offset from now.
 func (s *windowSuite) fetch(t *testing.T, entityID string, offset time.Duration) []*domain.Transaction {
 	t.Helper()
 	since := time.Now().UTC().Add(offset)

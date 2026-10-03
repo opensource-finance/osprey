@@ -15,10 +15,7 @@ import (
 )
 
 func TestPQQuote(t *testing.T) {
-	// pqQuote must produce a lib/pq single-quoted value where empty stays
-	// empty, whitespace is preserved, and backslash/single-quote are
-	// backslash-escaped. lib/pq's parseOpts does not accept '' doubling, so
-	// backslash escaping is the only correct form.
+	// lib/pq needs backslash escaping; it does not accept '' doubling.
 	cases := []struct {
 		in   string
 		want string
@@ -42,10 +39,7 @@ func TestPQQuote(t *testing.T) {
 }
 
 func TestBuildPostgresDSN(t *testing.T) {
-	// Every string field is single-quoted/escaped. Empty fields become '' so
-	// lib/pq parses them as clean empty values and does not fold the following
-	// key=value token into the empty value. Whitespace and special characters
-	// in values are preserved verbatim through quoting.
+	// Every field is quoted so an empty value cannot swallow the next token.
 	cases := []struct {
 		name string
 		cfg  domain.RepositoryConfig
@@ -121,20 +115,7 @@ func TestBuildPostgresDSN(t *testing.T) {
 	}
 }
 
-// TestOpenPostgresStartupPacketFields drives openPostgres end-to-end against a
-// mock PostgreSQL server that captures the v3 startup packet lib/pq sends on
-// db.Ping(). The startup packet carries the "user" and "database" lib/pq parsed
-// out of the DSN, so it proves three things at once:
-//
-//  1. The DSN parsed without error (a parse error sends no packet at all).
-//  2. Empty credentials do not fold the following token into the value - the
-//     startup packet's user field is the intended empty string, not the literal
-//     "password=..." token that the pre-fix unquoted DSN produced.
-//  3. Whitespace- and special-character-bearing passwords no longer prevent the
-//     connection from reaching the server.
-//
-// The mock never completes authentication, so openPostgres always returns an
-// error here; only the captured packet matters.
+// TestOpenPostgresStartupPacketFields checks the DSN user and db reach the server.
 func TestOpenPostgresStartupPacketFields(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -174,9 +155,7 @@ func TestOpenPostgresStartupPacketFields(t *testing.T) {
 				PostgresUser:     c.user,
 				PostgresPassword: c.password,
 				PostgresDB:       c.wantDB,
-				// sslmode unset -> getSSLMode returns "disable", so lib/pq skips
-				// SSL negotiation and the first bytes on the wire are the
-				// startup packet the mock reads.
+				// Unset sslmode means "disable", so the startup packet is sent first.
 			}
 
 			if _, err := openPostgres(cfg); err == nil {
@@ -249,10 +228,7 @@ func (m *mockPostgres) waitForPacket(timeout time.Duration) map[string]string {
 	return m.opts
 }
 
-// readPostgresStartupPacket reads a PostgreSQL v3 startup message from conn and
-// returns its key/value parameters. A v3 startup message is: uint32 total
-// length (including the length field), uint32 protocol version (196608), then
-// NUL-terminated key/value string pairs terminated by an empty key.
+// readPostgresStartupPacket parses a v3 startup message into its key/value params.
 func readPostgresStartupPacket(conn net.Conn) (map[string]string, error) {
 	lenBuf := make([]byte, 4)
 	if _, err := io.ReadFull(conn, lenBuf); err != nil {

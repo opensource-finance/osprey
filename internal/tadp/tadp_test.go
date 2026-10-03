@@ -234,11 +234,7 @@ func TestGetReasons(t *testing.T) {
 	}
 }
 
-// TestGetReasonsSurfacesErrorOutcome is a focused regression guard for the
-// fail-open bug: a rule that errored at evaluation time must appear in the
-// operator-facing reasons, not be silently dropped. Before the fix, GetReasons
-// only emitted .fail/.review reasons, hiding "evaluation error: ..." from the
-// API response and every other consumer of this helper.
+// TestGetReasonsSurfacesErrorOutcome checks a rule that errored at eval appears in the reasons.
 func TestGetReasonsSurfacesErrorOutcome(t *testing.T) {
 	eval := &domain.Evaluation{
 		RuleResults: []domain.RuleResult{

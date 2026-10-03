@@ -8,9 +8,6 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
-// TestEvaluateAllLabelsRuleEvalError asserts that a rule which compiles but
-// errors at evaluation time is labeled .err with the CEL cause in its reason,
-// without failing the whole evaluation. TADP turns .err into ALRT.
 func TestEvaluateAllLabelsRuleEvalError(t *testing.T) {
 	ctx := context.Background()
 
@@ -50,8 +47,7 @@ func TestEvaluateAllLabelsRuleEvalError(t *testing.T) {
 	}
 }
 
-// TestEvaluateAllKeepsHealthyRulesWhenOneErrors asserts one broken rule does
-// not take down the others.
+// TestEvaluateAllKeepsHealthyRulesWhenOneErrors checks one broken rule does not affect the others.
 func TestEvaluateAllKeepsHealthyRulesWhenOneErrors(t *testing.T) {
 	ctx := context.Background()
 	engine, _ := NewEngine(nil, 5)
@@ -82,8 +78,6 @@ func TestEvaluateAllKeepsHealthyRulesWhenOneErrors(t *testing.T) {
 	}
 }
 
-// TestEvaluateAllNoErrorWhenAllRulesClean guards the happy path, including a
-// guarded-absent meta field.
 func TestEvaluateAllNoErrorWhenAllRulesClean(t *testing.T) {
 	ctx := context.Background()
 	engine, _ := NewEngine(nil, 5)
