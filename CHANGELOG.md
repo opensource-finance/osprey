@@ -17,6 +17,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   response `reasons`.
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
+- `PUT /rules/{id}` disabling a rule referenced by a loaded typology now
+  returns 409 (matching `DELETE /rules/{id}`) instead of silently dropping it
+  from the engine and under-scoring the typology. Pass `?force=true` to opt in;
+  the 200 response then carries a `warnings` array naming the affected
+  typologies.
 
 ### Security
 
