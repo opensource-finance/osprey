@@ -4,7 +4,6 @@ package rules
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -198,9 +197,20 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 		"new_balance": 0.0,
 	}
 
-	// Back-compat: merge metadata as top-level vars so declared names supplied via
-	// metadata (e.g. old_balance/new_balance) still override their defaults.
-	maps.Copy(activation, input.AdditionalData)
+	// Back-compat: only metadata-sourced Catalog variables (old_balance/new_balance)
+	// may override their engine defaults via the top-level activation. Every other
+	// Catalog variable (amount, currency, tx_type, debtor_id, creditor_id, tx,
+	// velocity_*) is engine-authoritative and must never be clobbered by a
+	// caller-supplied metadata key — otherwise a caller could bypass fraud rules
+	// (e.g. metadata:{"amount": 1.0} for a real 500000 tx) or force them to fire
+	// (e.g. metadata:{"tx_type": "CASH_OUT"}) by colliding with a Catalog name.
+	// The overridable set is derived from the Catalog's single source of truth
+	// (variables.go: metadataOverridable) so it cannot drift as new variables are added.
+	for k, v := range input.AdditionalData {
+		if _, ok := metadataOverridable[k]; ok {
+			activation[k] = v
+		}
+	}
 
 	// Open-ended bags. Set AFTER the merge so metadata keys can't clobber them.
 	// Always present (possibly empty) so has(meta.x)/has(enrichment.x) never error.
