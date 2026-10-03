@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-03
+
 ### Added
 
 - A copyable AI-agent prompt and a complete local Docker sandbox walkthrough.
@@ -88,5 +90,6 @@ an `ALRT`/`NALT` decision, in a single deployable service.
 - Mutation endpoints require `OSPREY_ADMIN_TOKEN`; the server refuses to start
   without one.
 
-[Unreleased]: https://github.com/opensource-finance/osprey/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/opensource-finance/osprey/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/opensource-finance/osprey/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/opensource-finance/osprey/releases/tag/v0.1.0
