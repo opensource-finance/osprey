@@ -26,11 +26,11 @@ def prose(text)
       .gsub(/!?\[([^\]]*)\]\([^)]*\)/, '\1')
       .gsub(/<[^>]+>/, "")
       .gsub(/\*\*|__/, "")
-      .gsub(/\b(?:v?\d+(?:\.\d+)+|[A-Za-z]\.[A-Za-z]\.)/) { |m| m.delete(".") }
 end
 
 def sentences(text)
-  text.split(/(?<=[.!?:])\s+(?=[A-Z"(*`\d])/).map(&:strip).reject(&:empty?)
+  # Mask dots in versions and abbreviations so they do not end a sentence.
+  text.gsub(/\b(?:v?\d+(?:\.\d+)+|[A-Za-z]\.[A-Za-z]\.)/) { |m| m.delete(".") }.split(/(?<=[.!?:])\s+(?=[A-Z"(*`\d])/).map(&:strip).reject(&:empty?)
 end
 
 def check_text(errors, where, text)
