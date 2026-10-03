@@ -41,6 +41,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Postgres startup now quotes the lib/pq connection string, so empty or
   whitespace-bearing credentials no longer fold neighbouring fields or fail
   DSN parsing.
+- NATS event bus no longer crashes the process on NATS client errors that
+  carry a nil subscription (reconnect-handshake read failures, transient
+  server errors). The async error handler now guards the subscription before
+  reading its subject, mirroring the library's own default handler.
 
 ## [0.1.0] - 2026-07-07
 

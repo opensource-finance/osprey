@@ -29,6 +29,25 @@ type natsSubscription struct {
 	sub      *nats.Subscription
 }
 
+// natsErrorHandler is the async error handler installed on the NATS
+// connection. The NATS client invokes it from its own asyncCBDispatcher
+// goroutine (which has no recover) for connection/subscription errors.
+// The library passes a nil *Subscription on several internal error paths
+// (reconnect-handshake read failures, transient server errors such as
+// permissions violations or max-subscriptions-exceeded), so sub must be
+// nil-guarded before it is dereferenced — mirroring the library's own
+// defaultErrHandler. sub.mu and sub.jsi are unexported and therefore
+// inaccessible outside the nats package; for osprey's plain (non-JetStream)
+// subscriptions sub.Subject is set once at creation and never mutated, so
+// reading it without the lock is safe.
+func natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
+	args := []any{"error", err}
+	if sub != nil {
+		args = append(args, "subject", sub.Subject)
+	}
+	slog.Error("NATS error", args...)
+}
+
 // NewNATSBus creates a new NATS-based event bus with resilience.
 func NewNATSBus(cfg domain.EventBusConfig) (*NATSBus, error) {
 	if cfg.NATSUrl == "" {
@@ -60,12 +79,7 @@ func NewNATSBus(cfg domain.EventBusConfig) (*NATSBus, error) {
 		nats.ClosedHandler(func(nc *nats.Conn) {
 			slog.Info("NATS connection closed")
 		}),
-		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
-			slog.Error("NATS error",
-				"error", err,
-				"subject", sub.Subject,
-			)
-		}),
+		nats.ErrorHandler(natsErrorHandler),
 	}
 
 	if cfg.NATSToken != "" {
