@@ -68,8 +68,6 @@ func (e *TypologyEngine) TypologyCount() int {
 // 3. Compare against alert threshold
 // 4. Return triggered typologies
 func (e *TypologyEngine) EvaluateTypologies(ruleResults []domain.RuleResult) []domain.TypologyResult {
-	start := time.Now()
-
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -86,8 +84,13 @@ func (e *TypologyEngine) EvaluateTypologies(ruleResults []domain.RuleResult) []d
 	results := make([]domain.TypologyResult, 0, len(e.typologies))
 
 	for _, typology := range e.typologies {
+		// Measure each typology's own evaluation cost, mirroring the per-item
+		// timing in evaluateRule. A single start captured before the loop would
+		// report cumulative batch time that grows with iteration position and
+		// varies with randomized map iteration order.
+		tStart := time.Now()
 		result := e.evaluateTypology(typology, ruleScores)
-		result.ProcessMs = time.Since(start).Milliseconds()
+		result.ProcessMs = time.Since(tStart).Milliseconds()
 		results = append(results, result)
 	}
 
@@ -144,8 +147,12 @@ func (e *TypologyEngine) EvaluateTypology(typologyID string, ruleResults []domai
 		ruleScores[r.RuleID] = r.Score
 	}
 
-	// Evaluate while holding lock to prevent data race on typology pointer
+	// Evaluate while holding lock to prevent data race on typology pointer.
+	// Measure this single typology's cost so the singular and batch entry
+	// points report ProcessMs consistently.
+	tStart := time.Now()
 	result := e.evaluateTypology(typology, ruleScores)
+	result.ProcessMs = time.Since(tStart).Milliseconds()
 	e.mu.RUnlock()
 
 	return &result, true

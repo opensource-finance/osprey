@@ -50,6 +50,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   carry a nil subscription (reconnect-handshake read failures, transient
   server errors). The async error handler now guards the subscription before
   reading its subject, mirroring the library's own default handler.
+- Typology `processMs` in `GET /evaluations/{id}` now reports each typology's
+  own evaluation time instead of cumulative time since the batch started; the
+  singular `EvaluateTypology` path now reports it consistently with the batch
+  path.
 
 ## [0.1.0] - 2026-07-07
 
