@@ -2,10 +2,10 @@ openapi: 3.1.0
 info:
   title: Osprey Sandbox API
   version: 0.1.0
-  description: Customer-facing API contract for the Osprey sandbox environment.
+  description: The API contract that customers use with the Osprey sandbox environment.
 servers:
   - url: http://localhost:8080
-    description: Local sandbox; replace this URL with your deployed Osprey base URL
+    description: The local sandbox. Replace this URL with the base URL of your deployed Osprey.
 tags:
   - name: Health
   - name: Evaluation
@@ -17,11 +17,11 @@ paths:
   /health:
     get:
       tags: [Health]
-      summary: Health status.
+      summary: Get the health status.
       security: []
       responses:
         "200":
-          description: Service health.
+          description: The health of the service.
           content:
             application/json:
               schema:
@@ -29,17 +29,17 @@ paths:
   /ready:
     get:
       tags: [Health]
-      summary: Readiness gate for traffic.
+      summary: Get the readiness status for traffic.
       security: []
       responses:
         "200":
-          description: Ready for traffic.
+          description: The service is ready for traffic.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReadyResponse"
         "503":
-          description: Not ready, for example compliance mode without typologies.
+          description: The service is not ready. For example, compliance mode has no typologies.
           content:
             application/json:
               schema:
@@ -58,38 +58,38 @@ paths:
               $ref: "#/components/schemas/EvaluateRequest"
             examples:
               normal:
-                summary: Normal transaction.
+                summary: A normal transaction.
                 externalValue: ../examples/evaluate-normal.json
               alert:
-                summary: Same-party alert transaction.
+                summary: A transaction that causes a same-party alert.
                 externalValue: ../examples/evaluate-alert.json
       responses:
         "200":
-          description: Evaluation decision.
+          description: The evaluation decision. If a CEL rule causes an error, the status is `ALRT` and `reasons` shows the error.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/EvaluateResponse"
         "400":
-          description: Invalid request.
+          description: The request is not valid.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: Duplicate transaction ID for this tenant.
+          description: This tenant already has a transaction with this ID.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "413":
-          description: Request body too large.
+          description: The request body is too large.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Evaluation or persistence failure.
+          description: Osprey could not evaluate the transaction or save the result.
           content:
             application/json:
               schema:
@@ -103,26 +103,26 @@ paths:
   /evaluations/{id}:
     get:
       tags: [Evaluation]
-      summary: Retrieve a persisted evaluation.
+      summary: Get a saved evaluation.
       security:
         - TenantHeader: []
       parameters:
         - $ref: "#/components/parameters/PathID"
       responses:
         "200":
-          description: Persisted evaluation.
+          description: The saved evaluation.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Evaluation"
         "404":
-          description: Evaluation not found.
+          description: The evaluation does not exist.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Repository read failure.
+          description: Osprey could not read from the repository.
           content:
             application/json:
               schema:
@@ -130,26 +130,26 @@ paths:
   /transactions/{id}:
     get:
       tags: [Evaluation]
-      summary: Retrieve a persisted transaction.
+      summary: Get a saved transaction.
       security:
         - TenantHeader: []
       parameters:
         - $ref: "#/components/parameters/PathID"
       responses:
         "200":
-          description: Persisted transaction.
+          description: The saved transaction.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Transaction"
         "404":
-          description: Transaction not found.
+          description: The transaction does not exist.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Repository read failure.
+          description: Osprey could not read from the repository.
           content:
             application/json:
               schema:
@@ -157,19 +157,19 @@ paths:
   /rules:
     get:
       tags: [Rules]
-      summary: List rules loaded in the active engine.
+      summary: List the rules in the active engine.
       security:
         - TenantHeader: []
       responses:
         "200":
-          description: Active rules.
+          description: The active rules.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListRulesResponse"
     post:
       tags: [Rules]
-      summary: Create or update a rule and activate it immediately.
+      summary: Create or update a rule and make it active immediately.
       security:
         - TenantHeader: []
           AdminBearer: []
@@ -183,29 +183,29 @@ paths:
               $ref: "#/components/schemas/RuleConfig"
             examples:
               sameParty:
-                summary: Same-party verification rule.
+                summary: A rule that checks for the same party.
                 externalValue: ../examples/rule-same-party.json
       responses:
         "201":
-          description: Rule saved and loaded.
+          description: Osprey saved and loaded the rule.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RuleMutationResponse"
         "400":
-          description: Invalid rule.
+          description: The rule is not valid.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Repository unavailable.
+          description: The repository is not available.
           content:
             application/json:
               schema:
@@ -213,12 +213,12 @@ paths:
   /rules/variables:
     get:
       tags: [Rules]
-      summary: List the CEL variables available to rule expressions (the canonical engine catalog).
+      summary: List the CEL variables that rule expressions can use. This list is the canonical engine catalog.
       security:
         - TenantHeader: []
       responses:
         "200":
-          description: Available variables.
+          description: The available variables.
           content:
             application/json:
               schema:
@@ -240,27 +240,27 @@ paths:
   /rules/{id}:
     get:
       tags: [Rules]
-      summary: Retrieve an active rule.
+      summary: Get an active rule.
       security:
         - TenantHeader: []
       parameters:
         - $ref: "#/components/parameters/PathID"
       responses:
         "200":
-          description: Active rule.
+          description: The active rule.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RuleConfig"
         "404":
-          description: Rule not found in active engine.
+          description: The active engine does not have this rule.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
     put:
       tags: [Rules]
-      summary: Update a rule and activate changes immediately.
+      summary: Update a rule and make the changes active immediately.
       security:
         - TenantHeader: []
           AdminBearer: []
@@ -277,34 +277,34 @@ paths:
               $ref: "#/components/schemas/RuleConfig"
       responses:
         "200":
-          description: Rule updated and loaded.
+          description: Osprey updated and loaded the rule.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RuleMutationResponse"
         "400":
-          description: Invalid rule.
+          description: The rule is not valid. For example, the request body has no `enabled` field.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
           description: >-
-            Rule is referenced by a loaded typology and cannot be disabled;
-            remove the typology reference or retry with ?force=true.
+            A loaded typology uses this rule, so you cannot disable it.
+            Remove the typology reference, or send the request again with `?force=true`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
     delete:
       tags: [Rules]
-      summary: Delete a rule and unload it from the active engine.
+      summary: Delete a rule and remove it from the active engine.
       security:
         - TenantHeader: []
           AdminBearer: []
@@ -314,25 +314,25 @@ paths:
         - $ref: "#/components/parameters/PathID"
       responses:
         "200":
-          description: Rule deleted and engine reloaded.
+          description: Osprey deleted the rule and reloaded the engine.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
-          description: Rule not found.
+          description: The rule does not exist.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: Rule is referenced by a loaded typology.
+          description: A loaded typology uses this rule.
           content:
             application/json:
               schema:
@@ -348,19 +348,19 @@ paths:
           AdminHeader: []
       responses:
         "200":
-          description: Rules reloaded.
+          description: Osprey reloaded the rules.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReloadResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Repository unavailable.
+          description: The repository is not available.
           content:
             application/json:
               schema:
@@ -368,19 +368,19 @@ paths:
   /typologies:
     get:
       tags: [Typologies]
-      summary: List typologies loaded in the active engine.
+      summary: List the typologies in the active engine.
       security:
         - TenantHeader: []
       responses:
         "200":
-          description: Active typologies.
+          description: The active typologies.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListTypologiesResponse"
     post:
       tags: [Typologies]
-      summary: Create a typology and activate it immediately.
+      summary: Create a typology and make it active immediately.
       security:
         - TenantHeader: []
           AdminBearer: []
@@ -394,29 +394,29 @@ paths:
               $ref: "#/components/schemas/Typology"
             examples:
               sameParty:
-                summary: Verification typology.
+                summary: A verification typology.
                 externalValue: ../examples/typology-same-party.json
       responses:
         "201":
-          description: Typology saved and loaded.
+          description: Osprey saved and loaded the typology.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TypologyMutationResponse"
         "400":
-          description: Invalid typology.
+          description: The typology is not valid.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Repository unavailable.
+          description: The repository is not available.
           content:
             application/json:
               schema:
@@ -424,27 +424,27 @@ paths:
   /typologies/{id}:
     get:
       tags: [Typologies]
-      summary: Retrieve an active typology.
+      summary: Get an active typology.
       security:
         - TenantHeader: []
       parameters:
         - $ref: "#/components/parameters/PathID"
       responses:
         "200":
-          description: Active typology.
+          description: The active typology.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Typology"
         "404":
-          description: Typology not found in active engine.
+          description: The active engine does not have this typology.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
     put:
       tags: [Typologies]
-      summary: Update a typology and activate changes immediately.
+      summary: Update a typology and make the changes active immediately.
       security:
         - TenantHeader: []
           AdminBearer: []
@@ -460,26 +460,26 @@ paths:
               $ref: "#/components/schemas/Typology"
       responses:
         "200":
-          description: Typology updated and loaded.
+          description: Osprey updated and loaded the typology.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TypologyMutationResponse"
         "400":
-          description: Invalid typology.
+          description: The typology is not valid.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
     delete:
       tags: [Typologies]
-      summary: Delete a typology and unload it from the active engine.
+      summary: Delete a typology and remove it from the active engine.
       security:
         - TenantHeader: []
           AdminBearer: []
@@ -489,19 +489,19 @@ paths:
         - $ref: "#/components/parameters/PathID"
       responses:
         "200":
-          description: Typology deleted and engine reloaded.
+          description: Osprey deleted the typology and reloaded the engine.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
-          description: Typology not found.
+          description: The typology does not exist.
           content:
             application/json:
               schema:
@@ -517,19 +517,19 @@ paths:
           AdminHeader: []
       responses:
         "200":
-          description: Typologies reloaded.
+          description: Osprey reloaded the typologies.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReloadResponse"
         "401":
-          description: Admin token required.
+          description: The request needs an admin token.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Repository unavailable.
+          description: The repository is not available.
           content:
             application/json:
               schema:
@@ -562,10 +562,10 @@ components:
         type: boolean
         default: false
       description: >-
-        Bypass the typology referential-integrity guard when disabling a rule
-        referenced by a loaded typology. When true the response carries a
-        warnings array naming the referencing typologies. Defaults to false,
-        in which case disabling a referenced rule returns 409.
+        If true, Osprey skips the typology reference check when you disable a rule
+        that a loaded typology uses. The response then has a `warnings` array
+        that names these typologies. The default is false. With false, Osprey
+        returns 409 when you disable a rule that a loaded typology uses.
   schemas:
     ErrorResponse:
       type: object
@@ -616,10 +616,10 @@ components:
       properties:
         id:
           type: string
-          description: Optional client transaction ID. Generated when omitted.
+          description: An optional transaction ID from the client. If you do not send an ID, Osprey makes one.
         type:
           type: string
-          description: Transaction type. Osprey normalizes it to uppercase.
+          description: The transaction type. Osprey changes it to uppercase.
         debtor:
           $ref: "#/components/schemas/PartyInfo"
         creditor:
@@ -629,15 +629,15 @@ components:
         timestamp:
           type: string
           format: date-time
-          description: Optional RFC3339 transaction timestamp.
+          description: An optional RFC3339 timestamp for the transaction.
         metadata:
           type: object
           additionalProperties: true
-          description: Caller-supplied facts; exposed to rules as the `meta` map (guard optional keys with has()).
+          description: Facts that the caller supplies. Rules get these facts in the `meta` map. Use has() to check for optional keys.
         enrichment:
           type: object
           additionalProperties: true
-          description: Externally-computed scores/flags (ml_score, sanctions_hit, ring_risk, ...); exposed as the `enrichment` map. Caller-asserted; not verified by Osprey.
+          description: Scores and flags that an external system calculates, for example ml_score, sanctions_hit, and ring_risk. Rules get these values in the `enrichment` map. The caller asserts these values. Osprey does not verify them.
     PartyInfo:
       type: object
       additionalProperties: false
@@ -908,9 +908,9 @@ components:
           items:
             type: string
           description: >-
-            Present only when the mutation bypassed the typology
-            referential-integrity guard via ?force=true; lists the typologies
-            whose scoring will change while the rule is disabled.
+            Osprey includes this field only when the request used `?force=true`
+            to skip the typology reference check. The field lists the typologies
+            whose scores change while the rule is disabled.
     Typology:
       type: object
       additionalProperties: false

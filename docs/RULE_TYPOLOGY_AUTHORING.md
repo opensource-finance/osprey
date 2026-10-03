@@ -1,27 +1,29 @@
 # Rule and Typology Authoring
 
-Osprey rules should be small, explainable, and testable. A good rule detects one risk signal.
+Write each Osprey rule so that it is small, easy to explain, and easy to test.
+A good rule finds one risk signal.
 
 ## Authoring Flow
 
 1. Write the risk signal in plain language.
-2. Map it to fields Osprey receives in `/evaluate`.
+2. Find the fields in the `/evaluate` request that show the signal.
 3. Write one CEL expression.
 4. Add clear review reasons in `bands`.
-5. Test one expected `NALT` transaction and one expected `ALRT` transaction.
-6. Group rules into a typology only when a pattern needs multiple signals.
+5. Test one transaction that must give `NALT`.
+6. Test one transaction that must give `ALRT`.
+7. If a pattern needs more than one signal, put the rules into a typology.
 
 ## Rule Checklist
 
 | Question | Good Answer |
 |----------|-------------|
-| What risk does this detect? | One specific signal. |
+| What risk does this rule find? | One specific signal. |
 | Which fields does it use? | Fields from the transaction or `metadata`. |
-| What triggers review? | A precise CEL expression. |
+| What starts a review? | A precise CEL expression. |
 | How strong is it? | A `weight` from `0` to `1`. |
-| What should an operator see? | A concise reason. |
+| What does the operator see? | A short reason. |
 
-Prefer several simple rules over one opaque expression.
+Use many simple rules, not one expression that is difficult to understand.
 
 ## CEL Variables
 
@@ -34,20 +36,29 @@ Prefer several simple rules over one opaque expression.
 | `creditor_id` | string | `creditor.id` |
 | `old_balance` | double | `metadata.old_balance` |
 | `new_balance` | double | `metadata.new_balance` |
-| `velocity_count` | int | Recent transaction count for the debtor in the window |
-| `velocity_amount_sum` | double | Sum of recent transaction amounts for the debtor in the window |
-| `velocity_distinct_creditors` | int | Distinct counterparties the debtor transacted with in the window |
+| `velocity_count` | int | Count of recent transactions from the debtor in the window |
+| `velocity_amount_sum` | double | Sum of the recent transaction amounts from the debtor in the window |
+| `velocity_distinct_creditors` | int | Count of different counterparties of the debtor in the window |
 
-`old_balance` and `new_balance` default to `0.0` when the request omits them, so a rule referencing them never errors on missing data. Send them under `metadata` to use real values.
+If the request does not include `old_balance` or `new_balance`, the value is `0.0`.
+Thus, a rule that uses these variables does not cause an error if the request does not include them.
+To use real values, send them in `metadata`.
 
 ### Custom fields and enrichment (`meta` / `enrichment`)
 
-Beyond the fixed variables above, rules can read two open-ended maps with no engine change:
+Rules can also read two open maps.
+You do not have to change the engine to use them.
 
-- **`meta`** — arbitrary request `metadata` (e.g. `country`, `mcc`, `device`).
-- **`enrichment`** — externally-computed scores/flags supplied in the request `enrichment` object (e.g. `ml_score`, `sanctions_hit`, `ring_risk`). Osprey does not verify these; they are asserted by the caller's pipeline.
+- **`meta`**: any field in the request `metadata`. Examples are `country`, `mcc`, and `device`.
+- **`enrichment`**: scores and flags from an external system, in the request `enrichment` object. Examples are `ml_score`, `sanctions_hit`, and `ring_risk`. Osprey does not verify these values. The pipeline of the caller is responsible for them.
 
-Because referencing an absent key errors at evaluation, **guard optional fields with `has()`**:
+**WARNING:** Use `has()` before you read an optional field in `meta` or `enrichment`. If the map does not contain the key, the expression has an error at evaluation.
+
+A rule with an evaluation error gives a `.err` result.
+A `.err` result changes the decision to `ALRT` and puts the error in `reasons`.
+The other rules continue to give scores.
+
+Examples of guarded fields:
 
 ```cel
 has(meta.country) && meta.country == "US"
@@ -55,7 +66,9 @@ has(enrichment.ml_score) && enrichment.ml_score > 0.9
 has(enrichment.sanctions_hit) && enrichment.sanctions_hit
 ```
 
-JSON numbers arrive as doubles, so compare enrichment numbers as doubles (`enrichment.ring_risk >= 3.0`). The live, authoritative variable list is served by `GET /rules/variables`.
+Osprey reads JSON numbers as doubles.
+Thus, compare enrichment numbers as doubles, for example `enrichment.ring_risk >= 3.0`.
+`GET /rules/variables` gives the current, official list of variables.
 
 ## Rule Example
 
@@ -83,7 +96,7 @@ JSON numbers arrive as doubles, so compare enrichment numbers as doubles (`enric
 }
 ```
 
-Create it:
+To create the rule, run this command:
 
 ```bash
 curl -fsS -X POST "$OSPREY_URL/rules" \
@@ -93,7 +106,7 @@ curl -fsS -X POST "$OSPREY_URL/rules" \
   -d @docs/examples/rule-same-party.json
 ```
 
-Rules are active immediately after a successful write.
+A rule becomes active immediately after a successful write.
 
 ## Common Expressions
 
@@ -108,15 +121,15 @@ tx_type == "CASH_OUT" || tx_type == "TRANSFER"
 
 ## Typology Checklist
 
-Use a typology when several rules together describe a pattern.
+Use a typology when a set of rules together shows a pattern.
 
 | Question | Good Answer |
 |----------|-------------|
-| What pattern does it represent? | Structuring, mule activity, account takeover, rapid movement. |
-| Which rules contribute? | Existing active rule IDs. |
-| Are weights explainable? | Weights reflect relative signal strength. |
-| What threshold alerts? | `alertThreshold` from `0` exclusive to `1` inclusive. |
-| Is compliance mode enabled? | Typologies affect decisions only in compliance mode. |
+| Which pattern does it show? | Structuring, mule activity, account takeover, or rapid movement. |
+| Which rules add to it? | The IDs of rules that exist and are active. |
+| Can you explain the weights? | Each weight shows the relative strength of its signal. |
+| Which threshold gives an alert? | `alertThreshold`, more than `0` and not more than `1`. |
+| Is compliance mode on? | Typologies change decisions only in compliance mode. |
 
 ## Typology Example
 
@@ -136,7 +149,7 @@ Use a typology when several rules together describe a pattern.
 }
 ```
 
-Create it:
+To create the typology, run this command:
 
 ```bash
 curl -fsS -X POST "$OSPREY_URL/typologies" \
@@ -146,20 +159,20 @@ curl -fsS -X POST "$OSPREY_URL/typologies" \
   -d @docs/examples/typology-same-party.json
 ```
 
-The referenced `ruleId` must already be active.
+The rule in `ruleId` must be active before you create the typology.
 
 ## Test Before Promotion
 
-At minimum, test:
+Do a minimum of these tests:
 
 | Test | Expected |
 |------|----------|
 | Normal transaction | `NALT` |
-| Trigger transaction | `ALRT` or the expected score/reason change |
-| Missing required field | `400` |
+| Transaction that starts the rule | `ALRT`, or the expected change to the score or the reason |
+| Request without a required field | `400` |
 | Duplicate transaction ID | `409` |
 
-Baseline verifier:
+Run the baseline verifier:
 
 ```bash
 OSPREY_URL=https://your-osprey-host.example \
@@ -168,10 +181,10 @@ OSPREY_ADMIN_TOKEN=replace-with-admin-token \
 ./scripts/verify-sandbox.sh
 ```
 
-A rule or typology is ready to use when:
+A rule or a typology is ready for use when all of these conditions are true:
 
-- Its expression is explainable in one sentence.
-- It has at least one passing and one triggering test transaction.
-- The response reasons are understandable to an operator.
-- It depends only on fields your integration sends.
-- It appears in `GET /rules` or `GET /typologies` after creation.
+- You can explain its expression in one sentence.
+- It has a minimum of one test transaction that passes and one test transaction that starts the rule.
+- An operator can understand the reasons in the response.
+- It uses only the fields that your integration sends.
+- It shows in `GET /rules` or `GET /typologies` after you create it.

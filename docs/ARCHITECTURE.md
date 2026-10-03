@@ -2,12 +2,13 @@
 
 ## Overview
 
-Osprey is a real-time transaction monitoring engine with two evaluation modes:
+Osprey is a real-time transaction monitoring engine.
+It has two evaluation modes:
 
 | Mode | Description |
 |------|-------------|
-| **Detection** | Weighted rule scoring. |
-| **Compliance** | Rule and typology evaluation. |
+| **Detection** | Osprey calculates a weighted score from the rules. |
+| **Compliance** | Osprey evaluates the rules and the typologies. |
 
 ```
 Transaction -> API Ingest -> Rule Engine -> TADP Decision -> Alert/Pass
@@ -23,9 +24,9 @@ Transaction -> API Ingest -> Rule Engine -> TADP Decision -> Alert/Pass
 Transaction -> Rules -> Weighted Score -> Threshold -> ALRT/NALT
 ```
 
-- Default mode
-- Typologies are not required
-- Decision uses rule aggregate score and `.fail` outcomes
+- Detection is the default mode.
+- Detection mode does not require typologies.
+- The decision uses the aggregate score of the rules and the `.fail` outcomes.
 
 ### Compliance Mode
 
@@ -33,30 +34,38 @@ Transaction -> Rules -> Weighted Score -> Threshold -> ALRT/NALT
 Transaction -> Rules -> Typologies -> Threshold -> ALRT/NALT
 ```
 
-- Typologies are required for evaluation
-- Typology triggers + rule critical failures determine alerts
-- If typologies are not loaded:
+- Compliance mode requires typologies for each evaluation.
+- Typology triggers and critical rule failures cause alerts.
+- If Osprey did not load the typologies, the endpoints give these results:
   - `POST /evaluate` returns `503`
   - `GET /health` returns `status: "degraded"`
   - `GET /ready` returns `503`
 
 ## Mode Enforcement
 
-Mode is propagated from startup config through server, handler, worker, and TADP processor:
+Osprey sends the mode from the startup configuration to these components:
 
-1. `cmd/osprey/main.go` reads `OSPREY_MODE`
-2. mode is injected into API server + worker
-3. handler/worker enforce compliance typology readiness before evaluation
-4. TADP applies detection/compliance scoring strategy
+- The server
+- The handler
+- The worker
+- The TADP processor
+
+The sequence is:
+
+1. `cmd/osprey/main.go` reads `OSPREY_MODE`.
+2. Osprey gives the mode to the API server and to the worker.
+3. The handler and the worker make sure that compliance typologies are ready before each evaluation.
+4. TADP applies the scoring strategy for detection mode or compliance mode.
 
 ## Runtime Profiles
 
 | Profile | Enabled With | Defaults |
 |---------|---------------|----------|
-| **Community** | default / `OSPREY_TIER=community` | SQLite + memory cache + channel bus |
-| **Pro profile** | `OSPREY_TIER=pro` | PostgreSQL + Redis + NATS |
+| **Community** | Default, or `OSPREY_TIER=community` | SQLite, memory cache, and channel bus |
+| **Pro profile** | `OSPREY_TIER=pro` | PostgreSQL, Redis, and NATS |
 
-`OSPREY_TIER=enterprise` is not enabled in this open-source build and falls back to community defaults.
+This open-source build does not enable `OSPREY_TIER=enterprise`.
+If you set `OSPREY_TIER=enterprise`, Osprey uses the community defaults.
 
 ## Transaction Flow
 
@@ -90,26 +99,31 @@ sequenceDiagram
 
 ### Environment Variables
 
-Core:
+Core variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OSPREY_ADMIN_TOKEN` | _(required)_ | Required to start. Protects rule and typology writes. |
+| `OSPREY_ADMIN_TOKEN` | _(required)_ | Osprey does not start without it. It protects the rule and typology writes. |
 | `OSPREY_MODE` | `detection` | `detection` or `compliance` |
-| `OSPREY_TIER` | `community` | runtime profile: `community` or `pro` |
-| `OSPREY_DEBUG` | `false` | debug logging |
-| `OSPREY_HOST` | `0.0.0.0` | bind address |
+| `OSPREY_TIER` | `community` | Runtime profile: `community` or `pro` |
+| `OSPREY_DEBUG` | `false` | Debug logs |
+| `OSPREY_HOST` | `0.0.0.0` | Bind address |
 | `OSPREY_PORT` | `8080` | HTTP port |
 | `OSPREY_DB_DRIVER` | `sqlite` | `sqlite` or `postgres` |
 | `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite file path (sqlite driver) |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis` |
 | `OSPREY_BUS_TYPE` | `channel` | `channel` or `nats` |
-| `OSPREY_TENANTS` | _(unset)_ | comma-separated tenant IDs for async workers |
-| `OSPREY_ASYNC_WORKER` | `false` | `true` enables async workers (always on in Pro tier) |
-| `OSPREY_RATE_LIMIT_RPS` | `0` | per-tenant requests/second; `0` disables rate limiting |
-| `OSPREY_RATE_LIMIT_BURST` | `= RPS` | per-tenant burst size |
+| `OSPREY_TENANTS` | _(unset)_ | Comma-separated tenant IDs for the async workers |
+| `OSPREY_ASYNC_WORKER` | `false` | `true` enables the async workers. The Pro tier always enables them. |
+| `OSPREY_RATE_LIMIT_RPS` | `0` | Requests per second for each tenant. `0` disables the rate limit. |
+| `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant |
 
-Pro tier backends (used when `OSPREY_TIER=pro`, or when the matching driver/type is selected). Defaults shown are the in-process defaults; override per deployment:
+Pro tier backends:
+
+- Osprey uses these variables when `OSPREY_TIER=pro`.
+- Osprey also uses them when you select the related database driver, cache type, or bus type.
+- The table shows the in-process defaults.
+- Override the defaults for each deployment.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -118,7 +132,7 @@ Pro tier backends (used when `OSPREY_TIER=pro`, or when the matching driver/type
 | `OSPREY_POSTGRES_USER` | _(unset)_ | PostgreSQL user |
 | `OSPREY_POSTGRES_PASSWORD` | _(unset)_ | PostgreSQL password |
 | `OSPREY_POSTGRES_DB` | `osprey` | PostgreSQL database name |
-| `OSPREY_POSTGRES_SSLMODE` | _(unset)_ | `disable`, `require`, etc. |
+| `OSPREY_POSTGRES_SSLMODE` | _(unset)_ | SSL mode, for example `disable` or `require` |
 | `OSPREY_REDIS_ADDR` | `localhost:6379` | Redis address |
 | `OSPREY_REDIS_PASSWORD` | _(unset)_ | Redis password |
 | `OSPREY_REDIS_DB` | `0` | Redis logical database |
@@ -126,7 +140,19 @@ Pro tier backends (used when `OSPREY_TIER=pro`, or when the matching driver/type
 
 ## Database-Driven Config
 
-Rules and typologies are loaded from the database at startup. Writes through `POST /rules`, `POST /typologies`, `PUT`/`DELETE /typologies/{id}` persist to the database and apply to the running engine immediately. The reload endpoints re-read the database into the engine after out-of-band changes (for example, a direct database edit).
+At startup, Osprey loads the rules and the typologies from the database.
+
+These write endpoints save the change to the database:
+
+- `POST /rules`
+- `POST /typologies`
+- `PUT /typologies/{id}`
+- `DELETE /typologies/{id}`
+
+The engine also applies each of these changes immediately, while it runs.
+
+The reload endpoints read the database into the engine again.
+Use them after a change outside the API, for example a direct database edit.
 
 ### `rule_configs`
 
@@ -171,15 +197,15 @@ CREATE TABLE typologies (
 
 | Method | Endpoint | Notes |
 |--------|----------|-------|
-| POST | `/evaluate` | compliance requires loaded typologies |
-| GET | `/rules` | loaded rules |
-| GET | `/rules/{id}` | fetch a single rule |
-| POST | `/rules` | create or update a rule; applied immediately |
-| PUT | `/rules/{id}` | update a rule; applied immediately |
-| DELETE | `/rules/{id}` | disable a rule; `409` if referenced by a loaded typology |
-| POST | `/rules/reload` | re-read rules from storage (after out-of-band changes) |
-| GET | `/health` | readiness signal + mode |
-| GET | `/ready` | traffic readiness gate |
+| POST | `/evaluate` | Compliance mode requires loaded typologies. |
+| GET | `/rules` | Returns the loaded rules. |
+| GET | `/rules/{id}` | Returns one rule. |
+| POST | `/rules` | Creates or updates a rule. The engine applies it immediately. |
+| PUT | `/rules/{id}` | Updates a rule. The engine applies it immediately. |
+| DELETE | `/rules/{id}` | Disables a rule. Returns `409` if a loaded typology refers to the rule. |
+| POST | `/rules/reload` | Reads the rules from storage again, after a change outside the API. |
+| GET | `/health` | Returns the readiness signal and the mode. |
+| GET | `/ready` | Readiness gate for traffic. |
 
 ### Typology Endpoints
 
@@ -192,7 +218,8 @@ CREATE TABLE typologies (
 | DELETE | `/typologies/{id}` |
 | POST | `/typologies/reload` |
 
-Retrieval endpoints `GET /evaluations/{id}` and `GET /transactions/{id}` are documented in the [Sandbox and API guide](SANDBOX.md). The full contract is in [`api/openapi.yaml`](api/openapi.yaml).
+The [Sandbox and API guide](SANDBOX.md) describes the retrieval endpoints `GET /evaluations/{id}` and `GET /transactions/{id}`.
+The full contract is in [`api/openapi.yaml`](api/openapi.yaml).
 
 ## Scoring
 
@@ -212,4 +239,9 @@ alert if any typology is triggered OR any rule returns .fail
 
 ## Extensibility
 
-Common extension points are new CEL variables, new repository backends, richer rule lifecycle tooling, and additional typology packs.
+These are the common extension points:
+
+- New CEL variables
+- New repository backends
+- Better tools for the rule lifecycle
+- More typology packs

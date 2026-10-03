@@ -1,6 +1,6 @@
 # Sandbox Assurance
 
-Use these checks before publishing or updating a shared Osprey sandbox.
+Do these checks before you publish or update a shared Osprey sandbox.
 
 ## Required Tools
 
@@ -8,17 +8,18 @@ Use these checks before publishing or updating a shared Osprey sandbox.
 curl, Go 1.26+, jq, Ruby, Docker
 ```
 
-Run the commands below from the repository root. The local gate uses two host
-ports, and both must be unused:
+Run the commands in this document from the repository root.
+The local gate uses two host ports.
+Make sure that no other process uses these ports.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OSPREY_TEST_PORT` | `18080` | Local HTTP integration server. |
 | `DOCKER_PORT` | `18081` | Docker sandbox verification. |
 
-Override either value when it conflicts with another local service. The
-integration runner fails immediately if its target health endpoint already
-responds, preventing it from seeding or testing the wrong Osprey process.
+If a port conflicts with a different local service, set a different value.
+The integration runner stops immediately if its target health endpoint already gives a response.
+This check prevents tests and seed data on the wrong Osprey process.
 
 ## Local Gate
 
@@ -29,23 +30,26 @@ DOCKER_PORT=18081 \
 ./scripts/assure-sandbox.sh
 ```
 
-This validates:
+This script validates these items:
 
 - JSON examples
 - OpenAPI syntax, refs, examples, and route coverage
 - Markdown links and PNG assets
 - shell script syntax
-- sandbox-script input and occupied-port regression tests
+- regression tests for sandbox-script input and occupied ports
 - Go tests, `go vet`, and race tests
 - HTTP integration tests
 - Docker build metadata, healthcheck, and API smoke behavior
 
 ## Public URL Gate
 
-`verify-sandbox.sh` changes its target. It creates or replaces the global rules
-`sandbox-verification-same-party` and `sandbox-verification-typology`, submits
-transactions, and checks a second tenant. Run it only against a disposable
-sandbox or with the deployment operator's approval.
+**WARNING:** Run `verify-sandbox.sh` only against a disposable sandbox, or with the approval of the deployment operator. The script changes its target.
+
+The script does these changes and checks:
+
+- It creates or replaces the global rules `sandbox-verification-same-party` and `sandbox-verification-typology`.
+- It sends transactions.
+- It does checks on a second tenant.
 
 ```bash
 OSPREY_URL=https://your-osprey-host.example \
@@ -57,20 +61,20 @@ EXPECTED_VERSION=sandbox-YYYYMMDD \
 ./scripts/verify-sandbox.sh
 ```
 
-This verifies:
+This script verifies these items:
 
 - `/health` and `/ready`
-- expected status, mode, and version when provided
+- the expected status, mode, and version, if you supply them
 - admin-token protection
 - rule creation and immediate activation
 - typology creation and immediate activation
-- `NALT` response for a normal transaction
-- `ALRT` response for a same-party transaction
+- the `NALT` response for a normal transaction
+- the `ALRT` response for a same-party transaction
 - evaluation and transaction retrieval
-- duplicate transaction conflict handling
+- the conflict response for a duplicate transaction
 - tenant isolation
 
-`OSPREY_URL` and `OSPREY_ADMIN_TOKEN` are required. There is no implicit public
-sandbox target.
+You must set `OSPREY_URL` and `OSPREY_ADMIN_TOKEN`.
+The script has no default public sandbox target.
 
-Do not publish a sandbox URL until both gates pass.
+**WARNING:** Do not publish a sandbox URL before the two gates pass.
