@@ -522,10 +522,22 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateRuleRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required: an omitted bool would silently disable the rule.
+	var body struct {
+		CreateRuleRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateRuleRequest
+	req.Enabled = *body.Enabled
 	req.ID = ruleID
 	req.Name = strings.TrimSpace(req.Name)
 	req.Expression = strings.TrimSpace(req.Expression)
@@ -554,6 +566,21 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refuse to disable a rule a typology uses, unless ?force=true (then warn).
+	var warnings []string
+	if !req.Enabled {
+		if refs := h.typologiesReferencing(ruleID); len(refs) > 0 {
+			refsLabel := strings.Join(refs, ", ")
+			if !forceFlag(r) {
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error": fmt.Sprintf("rule %q is referenced by typology %q; remove it from the typology first or retry with ?force=true to disable anyway", ruleID, refsLabel),
+				})
+				return
+			}
+			warnings = append(warnings, fmt.Sprintf("rule %q is referenced by typology %q; typology scoring will change while this rule is disabled", ruleID, refsLabel))
+		}
+	}
+
 	if err := h.repo.SaveRuleConfig(ctx, domain.GlobalTenantID, ruleConfig); err != nil {
 		slog.Error("failed to update rule config", "id", ruleID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -572,10 +599,14 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	slog.Info("rule engine reloaded after rule update", "count", loadedCount)
 
 	slog.Info("rule updated", "id", ruleID)
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"rule":    ruleConfig,
 		"message": "rule updated and loaded",
-	})
+	}
+	if len(warnings) > 0 {
+		resp["warnings"] = warnings
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // DeleteRule disables a rule and reloads the engine. A rule referenced by a
@@ -595,17 +626,11 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Referential integrity: refuse to delete a rule a loaded typology depends on.
-	if h.typologyEngine != nil {
-		for _, t := range h.typologyEngine.GetLoadedTypologies() {
-			for _, tr := range t.Rules {
-				if tr.RuleID == ruleID {
-					writeJSON(w, http.StatusConflict, map[string]string{
-						"error": fmt.Sprintf("rule %q is referenced by typology %q; remove it from the typology first", ruleID, t.ID),
-					})
-					return
-				}
-			}
-		}
+	if refs := h.typologiesReferencing(ruleID); len(refs) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("rule %q is referenced by typology %q; remove it from the typology first", ruleID, strings.Join(refs, ", ")),
+		})
+		return
 	}
 
 	if err := h.repo.DeleteRuleConfig(ctx, domain.GlobalTenantID, ruleID); errors.Is(err, repository.ErrNotFound) {
@@ -733,6 +758,28 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+// typologiesReferencing returns the IDs of loaded typologies that use ruleID.
+func (h *Handler) typologiesReferencing(ruleID string) []string {
+	if h.typologyEngine == nil {
+		return nil
+	}
+	var refs []string
+	for _, t := range h.typologyEngine.GetLoadedTypologies() {
+		for _, tr := range t.Rules {
+			if tr.RuleID == ruleID {
+				refs = append(refs, t.ID)
+				break
+			}
+		}
+	}
+	return refs
+}
+
+// forceFlag reports whether the request has ?force=true.
+func forceFlag(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("force")), "true")
 }
 
 func (h *Handler) requireRepository(w http.ResponseWriter) bool {

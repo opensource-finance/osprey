@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/opensource-finance/osprey/internal/domain"
+	"github.com/opensource-finance/osprey/internal/rules"
 )
 
 func TestParseTenantIDs(t *testing.T) {
@@ -103,4 +106,123 @@ func TestApplyEnvOverrides(t *testing.T) {
 			t.Fatalf("redis password whitespace was not preserved")
 		}
 	})
+}
+
+// loaderRepo is a fake domain.Repository for the DB loader tests.
+type loaderRepo struct {
+	domain.Repository
+
+	rules      []*domain.RuleConfig
+	typologies []*domain.Typology
+
+	listRulesErr      error
+	listTypologiesErr error
+
+	listRulesCalls      int
+	listTypologiesCalls int
+}
+
+func (r *loaderRepo) ListRuleConfigs(_ context.Context, _ string) ([]*domain.RuleConfig, error) {
+	r.listRulesCalls++
+	if r.listRulesErr != nil {
+		return nil, r.listRulesErr
+	}
+	return r.rules, nil
+}
+
+func (r *loaderRepo) ListTypologies(_ context.Context, _ string) ([]*domain.Typology, error) {
+	r.listTypologiesCalls++
+	if r.listTypologiesErr != nil {
+		return nil, r.listTypologiesErr
+	}
+	return r.typologies, nil
+}
+
+func newTestEngine(t *testing.T) *rules.Engine {
+	t.Helper()
+	engine, err := rules.NewEngine(nil, 5)
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+	return engine
+}
+
+func TestLoadRulesFromDatabase_PropagatesListError(t *testing.T) {
+	// A ListRuleConfigs error must fail startup.
+	dbErr := errors.New("db connection refused")
+	repo := &loaderRepo{listRulesErr: dbErr}
+	engine := newTestEngine(t)
+
+	err := loadRulesFromDatabase(context.Background(), repo, engine)
+	if err == nil {
+		t.Fatal("expected loadRulesFromDatabase to return an error when ListRuleConfigs fails, got nil")
+	}
+	if !errors.Is(err, dbErr) {
+		t.Fatalf("expected returned error to wrap the underlying DB error; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "list rules from database") {
+		t.Fatalf("expected error message to mention the operation; got %v", err)
+	}
+	if repo.listRulesCalls != 1 {
+		t.Fatalf("expected ListRuleConfigs to be called once, got %d", repo.listRulesCalls)
+	}
+	if engine.RulesCount() != 0 {
+		t.Fatalf("expected zero rules loaded on error, got %d", engine.RulesCount())
+	}
+}
+
+func TestLoadRulesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
+	// An empty rules table still starts.
+	repo := &loaderRepo{rules: nil}
+	engine := newTestEngine(t)
+
+	if err := loadRulesFromDatabase(context.Background(), repo, engine); err != nil {
+		t.Fatalf("expected nil error for legitimately empty rules table, got %v", err)
+	}
+	if engine.RulesCount() != 0 {
+		t.Fatalf("expected zero rules for empty table, got %d", engine.RulesCount())
+	}
+	if repo.listRulesCalls != 1 {
+		t.Fatalf("expected ListRuleConfigs to be called once, got %d", repo.listRulesCalls)
+	}
+}
+
+func TestLoadTypologiesFromDatabase_PropagatesListError(t *testing.T) {
+	// A ListTypologies error must fail startup.
+	dbErr := errors.New("context deadline exceeded")
+	repo := &loaderRepo{listTypologiesErr: dbErr}
+	engine := rules.NewTypologyEngine()
+
+	err := loadTypologiesFromDatabase(context.Background(), repo, engine)
+	if err == nil {
+		t.Fatal("expected loadTypologiesFromDatabase to return an error when ListTypologies fails, got nil")
+	}
+	if !errors.Is(err, dbErr) {
+		t.Fatalf("expected returned error to wrap the underlying DB error; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "list typologies from database") {
+		t.Fatalf("expected error message to mention the operation; got %v", err)
+	}
+	if repo.listTypologiesCalls != 1 {
+		t.Fatalf("expected ListTypologies to be called once, got %d", repo.listTypologiesCalls)
+	}
+	if engine.TypologyCount() != 0 {
+		t.Fatalf("expected zero typologies loaded on error, got %d", engine.TypologyCount())
+	}
+}
+
+func TestLoadTypologiesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
+	// An empty typologies table still starts.
+	repo := &loaderRepo{typologies: nil}
+	engine := rules.NewTypologyEngine()
+
+	if err := loadTypologiesFromDatabase(context.Background(), repo, engine); err != nil {
+		t.Fatalf("expected nil error for legitimately empty typologies table, got %v", err)
+	}
+	if engine.TypologyCount() != 0 {
+		t.Fatalf("expected zero typologies for empty table, got %d", engine.TypologyCount())
+	}
+	if repo.listTypologiesCalls != 1 {
+		t.Fatalf("expected ListTypologies to be called once, got %d", repo.listTypologiesCalls)
+	}
 }

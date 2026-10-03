@@ -80,19 +80,9 @@ func TestWorker(t *testing.T) {
 			t.Fatalf("Start failed: %v", err)
 		}
 
-		stats := worker.GetStats()
-		if stats.SubscriptionCount != 1 {
-			t.Errorf("expected 1 subscription, got %d", stats.SubscriptionCount)
-		}
-
 		err = worker.Stop()
 		if err != nil {
 			t.Errorf("Stop failed: %v", err)
-		}
-
-		stats = worker.GetStats()
-		if stats.SubscriptionCount != 0 {
-			t.Errorf("expected 0 subscriptions after stop, got %d", stats.SubscriptionCount)
 		}
 	})
 
@@ -216,11 +206,6 @@ func TestWorker(t *testing.T) {
 		}
 		_ = w.Start(cfg)
 		defer func() { _ = w.Stop() }()
-
-		stats := w.GetStats()
-		if stats.SubscriptionCount != 2 {
-			t.Errorf("expected 2 subscriptions for 2 tenants, got %d", stats.SubscriptionCount)
-		}
 	})
 }
 
@@ -295,7 +280,7 @@ func TestProcessTransaction_ComplianceModeRequiresTypologies(t *testing.T) {
 		TenantID: "tenant-001",
 		Topic:    domain.TopicTransactionIngested,
 		Payload:  payload,
-	})
+	}, true)
 	if err == nil {
 		t.Fatal("expected error when compliance mode has no typologies")
 	}
@@ -345,7 +330,7 @@ func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
 			domain.ModeDetection,
 		)
 
-		err := w.processTransaction(context.Background(), "tenant-001", msg)
+		err := w.processTransaction(context.Background(), "tenant-001", msg, true)
 		if err == nil || !strings.Contains(err.Error(), "failed to save evaluation") {
 			t.Fatalf("expected save evaluation error, got %v", err)
 		}
@@ -361,7 +346,7 @@ func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
 			domain.ModeDetection,
 		)
 
-		err := w.processTransaction(context.Background(), "tenant-001", msg)
+		err := w.processTransaction(context.Background(), "tenant-001", msg, true)
 		if err == nil || !strings.Contains(err.Error(), "failed to publish decision") {
 			t.Fatalf("expected publish decision error, got %v", err)
 		}

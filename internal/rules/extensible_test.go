@@ -2,6 +2,7 @@ package rules
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/opensource-finance/osprey/internal/domain"
@@ -55,6 +56,7 @@ func TestExtensibleVariables(t *testing.T) {
 	})
 
 	// Unguarded reference to a missing key errors at eval — documents the foot-gun.
+	// An unguarded missing meta key yields .err with the CEL cause.
 	t.Run("UnguardedMissingFieldErrors", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
 		defer func() { _ = engine.Close() }()
@@ -67,6 +69,9 @@ func TestExtensibleVariables(t *testing.T) {
 		}
 		if res[0].SubRuleRef != domain.RuleOutcomeError {
 			t.Errorf("expected RuleOutcomeError for unguarded missing key, got %s", res[0].SubRuleRef)
+		}
+		if !strings.Contains(res[0].Reason, "no such key") {
+			t.Errorf("expected reason to surface CEL eval cause, got: %s", res[0].Reason)
 		}
 	})
 

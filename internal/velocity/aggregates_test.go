@@ -75,3 +75,55 @@ func TestGetAggregates(t *testing.T) {
 		}
 	})
 }
+
+// TestGetAggregatesBackdatedTimestamps checks backdated timestamps cannot zero out the aggregates.
+func TestGetAggregatesBackdatedTimestamps(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "velagg-bypass-*.db")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	defer func() { _ = os.Remove(tmpPath + "-shm") }()
+	defer func() { _ = os.Remove(tmpPath + "-wal") }()
+
+	repo, err := repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: tmpPath})
+	if err != nil {
+		t.Fatalf("repo: %v", err)
+	}
+	defer func() { _ = repo.Close() }()
+
+	svc := NewService(repo, cache.NewLRUCache(100))
+	ctx := context.Background()
+	tenantID := "t1-bypass"
+
+	// 5 backdated txs to 2 creditors: count 5, sum 500, 2 distinct creditors.
+	oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
+	creditors := []string{"c1-bd", "c1-bd", "c1-bd", "c2-bd", "c2-bd"}
+	for i, c := range creditors {
+		tx := &domain.Transaction{
+			ID: fmt.Sprintf("abd-%d", i), Type: "transfer",
+			DebtorID: "d1-bd", CreditorID: c, Amount: 100.0, Currency: "USD",
+			Timestamp: oldEventTime, CreatedAt: now,
+		}
+		if err := repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+	}
+
+	agg, err := svc.GetAggregates(ctx, tenantID, "d1-bd", 3600)
+	if err != nil {
+		t.Fatalf("GetAggregates: %v", err)
+	}
+	if agg.Count != 5 {
+		t.Errorf("count: want 5 (created_at in window), got %d (old code would read 0)", agg.Count)
+	}
+	if agg.AmountSum != 500.0 {
+		t.Errorf("amountSum: want 500.0, got %.2f", agg.AmountSum)
+	}
+	if agg.DistinctCreditors != 2 {
+		t.Errorf("distinctCreditors: want 2, got %d", agg.DistinctCreditors)
+	}
+}

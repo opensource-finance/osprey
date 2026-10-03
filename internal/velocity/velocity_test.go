@@ -150,3 +150,98 @@ func TestNoDataSource(t *testing.T) {
 		t.Error("expected error with no data source")
 	}
 }
+
+// TestVelocityCountWindowsOnIngestTime checks the velocity window uses created_at, not timestamp.
+func TestVelocityCountWindowsOnIngestTime(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "velocity-bypass-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	defer func() { _ = os.Remove(tmpPath + "-shm") }()
+	defer func() { _ = os.Remove(tmpPath + "-wal") }()
+
+	repo, err := repository.New(domain.RepositoryConfig{
+		Driver:     "sqlite",
+		SQLitePath: tmpPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create repository: %v", err)
+	}
+	defer func() { _ = repo.Close() }()
+
+	svc := NewService(repo, cache.NewLRUCache(100))
+	ctx := context.Background()
+	tenantID := "tenant-bypass"
+
+	saveTx := func(id, debtor string, ts, createdAt time.Time) {
+		t.Helper()
+		tx := &domain.Transaction{
+			ID:              id,
+			Type:            "transfer",
+			DebtorID:        debtor,
+			DebtorAccountID: "acc-d",
+			CreditorID:      "creditor-x",
+			CreditorAcctID:  "acc-c",
+			Amount:          100.0,
+			Currency:        "USD",
+			Timestamp:       ts.UTC(),
+			CreatedAt:       createdAt.UTC(),
+		}
+		if err := repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+			t.Fatalf("SaveTransaction(%s) failed: %v", id, err)
+		}
+	}
+
+	t.Run("BackdatedTimestampsStillCounted", func(t *testing.T) {
+		// Backdated event timestamps still count.
+		oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		now := time.Now().UTC()
+		for i := range 6 {
+			saveTx(fmt.Sprintf("bd-%d", i), "debtor-backdated", oldEventTime, now)
+		}
+
+		count, err := svc.GetTransactionCount(ctx, tenantID, "debtor-backdated", 3600)
+		if err != nil {
+			t.Fatalf("GetTransactionCount failed: %v", err)
+		}
+		if count != 6 {
+			t.Fatalf("expected 6 backdated transactions counted by created_at (old code would read 0), got %d", count)
+		}
+	})
+
+	t.Run("RecentTimestampButOldCreatedAtExcluded", func(t *testing.T) {
+		// A recent timestamp with a stale created_at is excluded.
+		now := time.Now().UTC()
+		staleIngest := now.Add(-2 * time.Hour)
+		for i := range 3 {
+			saveTx(fmt.Sprintf("stale-%d", i), "debtor-stale-ca", now, staleIngest)
+		}
+
+		count, err := svc.GetTransactionCount(ctx, tenantID, "debtor-stale-ca", 3600)
+		if err != nil {
+			t.Fatalf("GetTransactionCount failed: %v", err)
+		}
+		if count != 0 {
+			t.Fatalf("expected 0 transactions (created_at outside window), got %d (window keyed on wrong column)", count)
+		}
+	})
+
+	t.Run("WindowBoundaryOnCreatedAt", func(t *testing.T) {
+		// Only the transaction ingested inside the window counts.
+		oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		now := time.Now().UTC()
+		saveTx("boundary-in", "debtor-boundary", oldEventTime, now.Add(-30*time.Second))
+		saveTx("boundary-out", "debtor-boundary", oldEventTime, now.Add(-2*time.Hour))
+
+		count, err := svc.GetTransactionCount(ctx, tenantID, "debtor-boundary", 3600)
+		if err != nil {
+			t.Fatalf("GetTransactionCount failed: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("expected 1 transaction within the created_at window, got %d", count)
+		}
+	})
+}

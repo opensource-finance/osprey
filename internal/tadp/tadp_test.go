@@ -12,6 +12,21 @@ func TestProcessor(t *testing.T) {
 	proc := NewProcessor()
 	ctx := context.Background()
 
+	t.Run("EvalErrorForcesAlert", func(t *testing.T) {
+		eval := proc.Process(ctx, &DecisionInput{
+			TenantID:  "tenant-001",
+			TxID:      "tx-err",
+			StartTime: time.Now(),
+			RuleResults: []domain.RuleResult{
+				{RuleID: "broken", Score: 0, SubRuleRef: domain.RuleOutcomeError, Weight: 1.0},
+				{RuleID: "ok", Score: 0.1, SubRuleRef: domain.RuleOutcomePass, Weight: 1.0},
+			},
+		})
+		if eval.Status != domain.StatusAlert {
+			t.Errorf("a rule eval error must fail secure to ALRT, got %s", eval.Status)
+		}
+	})
+
 	t.Run("AllPass", func(t *testing.T) {
 		input := &DecisionInput{
 			TenantID:  "tenant-001",
@@ -197,14 +212,15 @@ func TestGetReasons(t *testing.T) {
 			{SubRuleRef: domain.RuleOutcomePass, Reason: "All good"},
 			{SubRuleRef: domain.RuleOutcomeFail, Reason: "Velocity exceeded"},
 			{SubRuleRef: domain.RuleOutcomeReview, Reason: "High value"},
+			{SubRuleRef: domain.RuleOutcomeError, Reason: "evaluation error: no such key: ml_score"},
 			{SubRuleRef: domain.RuleOutcomePass, Reason: "Normal"},
 		},
 	}
 
 	reasons := GetReasons(eval)
 
-	if len(reasons) != 2 {
-		t.Fatalf("expected 2 reasons, got %d", len(reasons))
+	if len(reasons) != 3 {
+		t.Fatalf("expected 3 reasons (fail + review + err), got %d: %v", len(reasons), reasons)
 	}
 
 	if reasons[0] != "Velocity exceeded" {
@@ -212,6 +228,27 @@ func TestGetReasons(t *testing.T) {
 	}
 	if reasons[1] != "High value" {
 		t.Errorf("expected 'High value', got '%s'", reasons[1])
+	}
+	if reasons[2] != "evaluation error: no such key: ml_score" {
+		t.Errorf("expected errored rule reason surfaced, got '%s'", reasons[2])
+	}
+}
+
+// TestGetReasonsSurfacesErrorOutcome checks a rule that errored at eval appears in the reasons.
+func TestGetReasonsSurfacesErrorOutcome(t *testing.T) {
+	eval := &domain.Evaluation{
+		RuleResults: []domain.RuleResult{
+			{SubRuleRef: domain.RuleOutcomeError, Reason: "evaluation error: division by zero"},
+		},
+	}
+
+	reasons := GetReasons(eval)
+
+	if len(reasons) != 1 {
+		t.Fatalf("expected errored rule reason to be surfaced, got %d: %v", len(reasons), reasons)
+	}
+	if reasons[0] != "evaluation error: division by zero" {
+		t.Errorf("expected evaluation error reason, got '%s'", reasons[0])
 	}
 }
 

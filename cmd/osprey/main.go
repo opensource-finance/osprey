@@ -285,38 +285,38 @@ func parseTenantIDs(value string) []string {
 
 // loadRulesFromDatabase loads rules from the database into the engine.
 // All rules must be configured via POST /rules API - no hardcoded defaults.
+// A list error fails startup instead of running with zero rules; an empty table is fine.
 func loadRulesFromDatabase(ctx context.Context, repo domain.Repository, engine *rules.Engine) error {
 	dbRules, err := repo.ListRuleConfigs(ctx, domain.GlobalTenantID)
 	if err != nil {
-		slog.Warn("failed to list rules from database", "error", err)
-		return nil // Start with empty rules - they can be added via API
+		return fmt.Errorf("list rules from database: %w", err)
 	}
 
-	if len(dbRules) > 0 {
-		slog.Info("loading rules from database", "count", len(dbRules))
-		return engine.LoadRules(dbRules)
+	if len(dbRules) == 0 {
+		slog.Info("no rules in database - configure via POST /rules API")
+		return nil
 	}
 
-	slog.Info("no rules in database - configure via POST /rules API")
-	return nil
+	slog.Info("loading rules from database", "count", len(dbRules))
+	return engine.LoadRules(dbRules)
 }
 
 // loadTypologiesFromDatabase loads typologies from the database into the engine.
 // All typologies must be configured via POST /typologies API - no hardcoded defaults.
+// A list error fails startup; an empty table is fine.
 func loadTypologiesFromDatabase(ctx context.Context, repo domain.Repository, engine *rules.TypologyEngine) error {
 	dbTypologies, err := repo.ListTypologies(ctx, domain.GlobalTenantID)
 	if err != nil {
-		slog.Warn("failed to list typologies from database", "error", err)
-		return nil // Start with empty typologies - they can be added via API
+		return fmt.Errorf("list typologies from database: %w", err)
 	}
 
-	if len(dbTypologies) > 0 {
-		slog.Info("loading typologies from database", "count", len(dbTypologies))
-		engine.LoadTypologies(dbTypologies)
+	if len(dbTypologies) == 0 {
+		slog.Info("no typologies in database - configure via POST /typologies API")
 		return nil
 	}
 
-	slog.Info("no typologies in database - configure via POST /typologies API")
+	slog.Info("loading typologies from database", "count", len(dbTypologies))
+	engine.LoadTypologies(dbTypologies)
 	return nil
 }
 

@@ -4,7 +4,6 @@ package rules
 import (
 	"context"
 	"fmt"
-	"maps"
 	"sync"
 	"time"
 
@@ -197,9 +196,12 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 		"new_balance": 0.0,
 	}
 
-	// Back-compat: merge metadata as top-level vars so declared names supplied via
-	// metadata (e.g. old_balance/new_balance) still override their defaults.
-	maps.Copy(activation, input.AdditionalData)
+	// Metadata may only set metadata-sourced vars, never amount, tx_type, velocity_*, etc.
+	for k, v := range input.AdditionalData {
+		if _, ok := metadataOverridable[k]; ok {
+			activation[k] = v
+		}
+	}
 
 	// Open-ended bags. Set AFTER the merge so metadata keys can't clobber them.
 	// Always present (possibly empty) so has(meta.x)/has(enrichment.x) never error.

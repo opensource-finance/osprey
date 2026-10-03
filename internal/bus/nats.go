@@ -29,6 +29,15 @@ type natsSubscription struct {
 	sub      *nats.Subscription
 }
 
+// natsErrorHandler logs async NATS errors. sub is nil on some library error paths.
+func natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
+	args := []any{"error", err}
+	if sub != nil {
+		args = append(args, "subject", sub.Subject)
+	}
+	slog.Error("NATS error", args...)
+}
+
 // NewNATSBus creates a new NATS-based event bus with resilience.
 func NewNATSBus(cfg domain.EventBusConfig) (*NATSBus, error) {
 	if cfg.NATSUrl == "" {
@@ -60,12 +69,7 @@ func NewNATSBus(cfg domain.EventBusConfig) (*NATSBus, error) {
 		nats.ClosedHandler(func(nc *nats.Conn) {
 			slog.Info("NATS connection closed")
 		}),
-		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
-			slog.Error("NATS error",
-				"error", err,
-				"subject", sub.Subject,
-			)
-		}),
+		nats.ErrorHandler(natsErrorHandler),
 	}
 
 	if cfg.NATSToken != "" {
@@ -173,53 +177,6 @@ func (b *NATSBus) Subscribe(ctx context.Context, tenantID string, topic string, 
 	b.mu.Unlock()
 
 	return sub, nil
-}
-
-// Request implements request-reply pattern using NATS.
-func (b *NATSBus) Request(ctx context.Context, tenantID string, topic string, payload []byte) ([]byte, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("tenantID is required")
-	}
-
-	// Create message envelope
-	msg := &domain.Message{
-		ID:        uuid.New().String(),
-		TenantID:  tenantID,
-		Topic:     topic,
-		Payload:   payload,
-		Metadata:  make(map[string]string),
-		Timestamp: time.Now().UnixNano(),
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal message: %w", err)
-	}
-
-	subject := b.makeSubject(tenantID, topic)
-
-	// Get timeout from context or use default
-	timeout := 30 * time.Second
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, ctx.Err()
-		}
-		timeout = remaining
-	}
-
-	reply, err := b.conn.Request(subject, data, timeout)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	// Unmarshal reply
-	var replyMsg domain.Message
-	if err := json.Unmarshal(reply.Data, &replyMsg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal reply: %w", err)
-	}
-
-	return replyMsg.Payload, nil
 }
 
 // Ping checks NATS connectivity.

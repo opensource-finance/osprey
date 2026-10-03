@@ -16,7 +16,8 @@ type VariableDoc struct {
 	Note        string `json:"note,omitempty"`
 	Description string `json:"description,omitempty"`
 
-	celType *cel.Type // not serialized; used to build the CEL environment
+	celType         *cel.Type // not serialized; used to build the CEL environment
+	metadataSourced bool      // not serialized; caller metadata may override it
 }
 
 // dynMap is the open-ended map type used for tx / meta / enrichment.
@@ -30,8 +31,8 @@ var Catalog = []VariableDoc{
 	{Name: "tx_type", Type: "string", Group: "core", Description: "Transaction type (uppercase)", celType: cel.StringType},
 	{Name: "debtor_id", Type: "string", Group: "core", Description: "Debtor (sender) entity ID", celType: cel.StringType},
 	{Name: "creditor_id", Type: "string", Group: "core", Description: "Creditor (receiver) entity ID", celType: cel.StringType},
-	{Name: "old_balance", Type: "double", Group: "core", Note: "from metadata.old_balance; defaults to 0.0", Description: "Debtor balance before the transaction", celType: cel.DoubleType},
-	{Name: "new_balance", Type: "double", Group: "core", Note: "from metadata.new_balance; defaults to 0.0", Description: "Debtor balance after the transaction", celType: cel.DoubleType},
+	{Name: "old_balance", Type: "double", Group: "core", Note: "from metadata.old_balance; defaults to 0.0", Description: "Debtor balance before the transaction", celType: cel.DoubleType, metadataSourced: true},
+	{Name: "new_balance", Type: "double", Group: "core", Note: "from metadata.new_balance; defaults to 0.0", Description: "Debtor balance after the transaction", celType: cel.DoubleType, metadataSourced: true},
 	{Name: "tx", Type: "map(string, dyn)", Group: "core", Access: "tx.<field>", Description: "Core transaction fields: id, type, debtor_id, creditor_id, amount, currency", celType: dynMap},
 
 	// Velocity aggregates (engine-computed over Osprey's own transaction store)
@@ -61,3 +62,14 @@ func EnvOptions() []cel.EnvOption {
 	}
 	return opts
 }
+
+// metadataOverridable lists Catalog vars that caller metadata may set (old_balance/new_balance).
+var metadataOverridable = func() map[string]struct{} {
+	allow := make(map[string]struct{}, 2)
+	for _, v := range Catalog {
+		if v.metadataSourced {
+			allow[v.Name] = struct{}{}
+		}
+	}
+	return allow
+}()

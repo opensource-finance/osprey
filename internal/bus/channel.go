@@ -127,45 +127,6 @@ func (b *ChannelBus) handleMessages(sub *channelSubscription) {
 	}
 }
 
-// Request implements request-reply pattern using channels.
-func (b *ChannelBus) Request(ctx context.Context, tenantID string, topic string, payload []byte) ([]byte, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("tenantID is required")
-	}
-
-	// Create reply channel
-	replyCh := make(chan []byte, 1)
-	replyTopic := topic + ".reply." + uuid.New().String()
-
-	// Subscribe to reply
-	sub, err := b.Subscribe(ctx, tenantID, replyTopic, func(ctx context.Context, msg *domain.Message) error {
-		select {
-		case replyCh <- msg.Payload:
-		default:
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = sub.Unsubscribe() }()
-
-	// Publish request
-	if err := b.Publish(ctx, tenantID, topic, payload); err != nil {
-		return nil, err
-	}
-
-	// Wait for reply with timeout
-	select {
-	case reply := <-replyCh:
-		return reply, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(30 * time.Second):
-		return nil, fmt.Errorf("request timeout")
-	}
-}
-
 // Ping checks bus health.
 func (b *ChannelBus) Ping(ctx context.Context) error {
 	b.mu.RLock()

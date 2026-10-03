@@ -12,8 +12,52 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- When a CEL rule errors at runtime, the evaluation now fails secure to `ALRT`
+  instead of silently degrading to NALT, the other rules still score, and the
+  evaluation error is surfaced in the response `reasons`.
+- Startup now fails loudly when the database rules/typologies loader errors
+  (e.g. connection loss, query timeout, or a corrupt row). Previously the
+  loaders swallowed the error and started with zero rules/typologies, silently
+  classifying every transaction as `no_alert`. A legitimately empty database
+  still starts cleanly for first-run onboarding.
 - Sandbox checks now stop on Docker name or port conflicts and keep assurance
   ports bound to the local machine.
+- `PUT /rules/{id}` disabling a rule referenced by a loaded typology now
+  returns 409 (matching `DELETE /rules/{id}`) instead of silently dropping it
+  from the engine and under-scoring the typology. Pass `?force=true` to opt in;
+  the 200 response then carries a `warnings` array naming the affected
+  typologies.
+
+### Security
+
+- `POST /evaluate` no longer lets caller `metadata` override engine-authoritative
+  CEL variables. `metadata` keys that collide with authoritative Catalog names
+  (`amount`, `currency`, `tx_type`, `debtor_id`, `creditor_id`, `tx`,
+  `velocity_count`, `velocity_amount_sum`, `velocity_distinct_creditors`) are now
+  dropped from the top-level activation merge instead of clobbering the real
+  transaction value. Only the intended metadata-sourced variables (`old_balance`,
+  `new_balance`) are honored. This closes a rule-bypass where, for example,
+  `metadata:{"amount":1.0}` sent with a real 500000 transaction would make
+  `amount > 200000.0` score 0 and silently pass a high-value fraud rule.
+- Velocity controls now window on the server-controlled ingest time
+  (`created_at`) instead of the client-supplied event timestamp, closing a
+  bypass where any `POST /evaluate` caller could backdate `timestamp` to
+  silence all velocity rules and the FATF typologies that weight them.
+- Postgres startup now quotes the lib/pq connection string, so empty or
+  whitespace-bearing credentials no longer fold neighbouring fields or fail
+  DSN parsing.
+- NATS event bus no longer crashes the process on NATS client errors that
+  carry a nil subscription (reconnect-handshake read failures, transient
+  server errors). The async error handler now guards the subscription before
+  reading its subject, mirroring the library's own default handler.
+- Typology `processMs` in `GET /evaluations/{id}` now reports each typology's
+  own evaluation time instead of cumulative time since the batch started; the
+  singular `EvaluateTypology` path now reports it consistently with the batch
+  path.
+- Per-tenant async worker now attributes evaluations and decision/alert events
+  to the subscription tenant, not the `tenantId` field of the untrusted message
+  payload; the global (testing/dev) path still recovers the tenant from the
+  payload.
 
 ## [0.1.0] - 2026-07-07
 

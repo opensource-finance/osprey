@@ -147,11 +147,13 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 			weight = 1.0
 		}
 
-		// Check for critical failures
+		// .fail and .err (rule failed to evaluate) force ALRT.
 		switch r.SubRuleRef {
 		case domain.RuleOutcomeFail:
 			agg.HasCriticalFailure = true
 			agg.RulesTriggered++
+		case domain.RuleOutcomeError:
+			agg.HasCriticalFailure = true
 		case domain.RuleOutcomeReview:
 			agg.RulesTriggered++
 		}
@@ -197,11 +199,13 @@ func ShouldAlert(eval *domain.Evaluation) bool {
 	return eval.Status == domain.StatusAlert
 }
 
-// GetReasons extracts human-readable reasons from an evaluation.
+// GetReasons extracts the fail, review and error reasons from an evaluation.
 func GetReasons(eval *domain.Evaluation) []string {
 	var reasons []string
 	for _, r := range eval.RuleResults {
-		if r.SubRuleRef == domain.RuleOutcomeFail || r.SubRuleRef == domain.RuleOutcomeReview {
+		if r.SubRuleRef == domain.RuleOutcomeFail ||
+			r.SubRuleRef == domain.RuleOutcomeReview ||
+			r.SubRuleRef == domain.RuleOutcomeError {
 			if r.Reason != "" {
 				reasons = append(reasons, r.Reason)
 			}

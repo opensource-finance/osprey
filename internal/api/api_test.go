@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,10 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opensource-finance/osprey/internal/cache"
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/repository"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
+	"github.com/opensource-finance/osprey/internal/velocity"
 )
 
 // createTestServer creates a server with engine and processor for testing.
@@ -174,6 +177,65 @@ func createPersistentTestServerWithEngineAndAdminToken(t *testing.T, engine *rul
 	processor := tadp.NewProcessor()
 	server := NewServer(
 		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: adminToken},
+		repo,
+		nil,
+		nil,
+		engine,
+		rules.NewTypologyEngine(),
+		processor,
+		"test-v1",
+		domain.ModeDetection,
+	)
+
+	return server, cleanup
+}
+
+// createPersistentTestServerWithVelocity is createPersistentTestServer plus the velocity service.
+func createPersistentTestServerWithVelocity(t *testing.T) (*Server, func()) {
+	t.Helper()
+	dbFile, err := os.CreateTemp("", "osprey-api-vel-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp database: %v", err)
+	}
+	dbPath := dbFile.Name()
+	if err := dbFile.Close(); err != nil {
+		t.Fatalf("failed to close temp database: %v", err)
+	}
+
+	repo, err := repository.New(domain.RepositoryConfig{
+		Driver:     "sqlite",
+		SQLitePath: dbPath,
+	})
+	if err != nil {
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create repository: %v", err)
+	}
+
+	velocitySvc := velocity.NewService(repo, cache.NewLRUCache(100))
+	engine, err := rules.NewEngine(velocitySvc.GetVelocityGetter(), 5)
+	if err != nil {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create engine: %v", err)
+	}
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int) (rules.VelocityAggregates, error) {
+		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+		if err != nil {
+			return rules.VelocityAggregates{}, err
+		}
+		return rules.VelocityAggregates{Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors}, nil
+	})
+
+	cleanup := func() {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+	}
+
+	processor := tadp.NewProcessor()
+	server := NewServer(
+		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: testAdminToken},
 		repo,
 		nil,
 		nil,
@@ -429,6 +491,49 @@ func TestEvaluateEndpoint(t *testing.T) {
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d", rr.Code)
+		}
+	})
+
+	t.Run("BrokenRuleFailsSecurely", func(t *testing.T) {
+		// A rule that errors at eval forces ALRT with the cause in reasons.
+		cfg := domain.ServerConfig{
+			Host:         "localhost",
+			Port:         8080,
+			ReadTimeout:  30,
+			WriteTimeout: 30,
+		}
+		engine, _ := rules.NewEngine(nil, 5)
+		if err := engine.LoadRule(&domain.RuleConfig{
+			ID:         "broken-meta-rule",
+			Name:       "Broken Meta Rule",
+			Expression: "meta.country == 'US'",
+			Weight:     1.0,
+			Enabled:    true,
+		}); err != nil {
+			t.Fatalf("expected broken rule to compile (errors only at eval), got: %v", err)
+		}
+		brokenServer := NewServer(cfg, nil, nil, nil, engine, rules.NewTypologyEngine(), tadp.NewProcessor(), "test-v1", domain.ModeDetection)
+
+		reqBody := TransactionRequest{
+			Type:     "transfer",
+			Debtor:   PartyInfo{ID: "d1", AccountID: "a1"},
+			Creditor: PartyInfo{ID: "c1", AccountID: "a2"},
+			Amount:   AmountInfo{Value: 100, Currency: "USD"},
+			// No metadata -> meta.country is absent -> unguarded access errors at eval.
+		}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+
+		rr := httptest.NewRecorder()
+		brokenServer.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), `"status":"ALRT"`) || !strings.Contains(rr.Body.String(), "no such key") {
+			t.Fatalf("expected ALRT with the eval error in reasons, got: %s", rr.Body.String())
 		}
 	})
 
@@ -1421,6 +1526,95 @@ func TestMiddleware(t *testing.T) {
 		}
 		if rr.Header().Get("Access-Control-Allow-Headers") == "" {
 			t.Fatalf("expected allowed CORS headers")
+		}
+	})
+}
+
+func TestVelocityNotBypassableByBackdatedTimestamp(t *testing.T) {
+	server, cleanup := createPersistentTestServerWithVelocity(t)
+	defer cleanup()
+
+	// velocity_count > 3 fails the rule, which forces ALRT.
+	rulePayload := map[string]any{
+		"id":          "velocity-bypass-rule",
+		"name":        "Velocity Bypass Rule",
+		"description": "Fires .fail when velocity_count > 3",
+		"expression":  "velocity_count > 3 ? 1.0 : 0.0",
+		"bands": []map[string]any{
+			{"lowerLimit": 1.0, "upperLimit": nil, "subRuleRef": ".fail", "reason": "High transaction velocity detected"},
+			{"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal velocity"},
+		},
+		"weight":  1.0,
+		"enabled": true,
+	}
+	ruleBody, _ := json.Marshal(rulePayload)
+	createReq := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(ruleBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-Tenant-ID", "tenant-001")
+	setAdminAuth(createReq)
+	createResp := httptest.NewRecorder()
+	server.Router().ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected rule create 201, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+
+	// submitBurst posts n transactions and returns their statuses. Use a fresh debtor per call.
+	submitBurst := func(t *testing.T, debtor, timestamp string, n int) []string {
+		t.Helper()
+		var statuses []string
+		for i := 1; i <= n; i++ {
+			reqBody := TransactionRequest{
+				ID:        fmt.Sprintf("%s-tx-%d", debtor, i),
+				Type:      "transfer",
+				Debtor:    PartyInfo{ID: debtor, AccountID: "acc-d"},
+				Creditor:  PartyInfo{ID: "creditor-1", AccountID: "acc-c"},
+				Amount:    AmountInfo{Value: 100, Currency: "USD"},
+				Timestamp: timestamp,
+			}
+			body, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Tenant-ID", "tenant-001")
+
+			rr := httptest.NewRecorder()
+			server.Router().ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("evaluate %s-tx-%d: expected 200, got %d: %s", debtor, i, rr.Code, rr.Body.String())
+			}
+			var resp EvaluateResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("evaluate %s-tx-%d: failed to parse response: %v", debtor, i, err)
+			}
+			statuses = append(statuses, resp.Status)
+		}
+		return statuses
+	}
+
+	t.Run("BackdatedBurstStillAlertsAtThreshold", func(t *testing.T) {
+		// Timestamps backdated to 2020 must still count toward velocity.
+		statuses := submitBurst(t, "debtor-backdated", "2020-01-01T00:00:00Z", 4)
+		if statuses[3] != domain.StatusAlert {
+			t.Fatalf("expected 4th backdated transaction to ALRT (velocity_count=4 > 3), got statuses=%v", statuses)
+		}
+		// The first three stay below the threshold.
+		for i, s := range statuses[:3] {
+			if s != domain.StatusNoAlert {
+				t.Errorf("backdated tx %d: expected NALT (velocity_count=%d <= 3), got %s", i+1, i+1, s)
+			}
+		}
+	})
+
+	t.Run("BackdatedVerdictMatchesHonestVerdict", func(t *testing.T) {
+		// Backdated and honest submitters must get the same verdicts.
+		backdated := submitBurst(t, "debtor-par-backdated", "2020-01-01T00:00:00Z", 4)
+		honest := submitBurst(t, "debtor-par-honest", "", 4)
+		for i := range backdated {
+			if backdated[i] != honest[i] {
+				t.Fatalf("verdict divergence at tx %d: backdated=%s honest=%s (backdating still bypasses velocity)", i+1, backdated[i], honest[i])
+			}
+		}
+		if honest[3] != domain.StatusAlert {
+			t.Fatalf("expected honest 4th transaction to ALRT (sanity), got %v", honest)
 		}
 	})
 }
