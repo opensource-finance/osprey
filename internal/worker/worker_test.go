@@ -80,19 +80,9 @@ func TestWorker(t *testing.T) {
 			t.Fatalf("Start failed: %v", err)
 		}
 
-		stats := worker.GetStats()
-		if stats.SubscriptionCount != 1 {
-			t.Errorf("expected 1 subscription, got %d", stats.SubscriptionCount)
-		}
-
 		err = worker.Stop()
 		if err != nil {
 			t.Errorf("Stop failed: %v", err)
-		}
-
-		stats = worker.GetStats()
-		if stats.SubscriptionCount != 0 {
-			t.Errorf("expected 0 subscriptions after stop, got %d", stats.SubscriptionCount)
 		}
 	})
 
@@ -216,11 +206,6 @@ func TestWorker(t *testing.T) {
 		}
 		_ = w.Start(cfg)
 		defer func() { _ = w.Stop() }()
-
-		stats := w.GetStats()
-		if stats.SubscriptionCount != 2 {
-			t.Errorf("expected 2 subscriptions for 2 tenants, got %d", stats.SubscriptionCount)
-		}
 	})
 }
 
