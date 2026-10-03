@@ -38,6 +38,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`created_at`) instead of the client-supplied event timestamp, closing a
   bypass where any `POST /evaluate` caller could backdate `timestamp` to
   silence all velocity rules and the FATF typologies that weight them.
+- Postgres startup now quotes the lib/pq connection string, so empty or
+  whitespace-bearing credentials no longer fold neighbouring fields or fail
+  DSN parsing.
 
 ## [0.1.0] - 2026-07-07
 
