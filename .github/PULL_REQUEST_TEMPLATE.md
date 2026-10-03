@@ -1,10 +1,10 @@
 ## Summary
 
-<!-- What does this change, and why? Link any related issue. -->
+<!-- What does this PR change? Why? Link the related issues. -->
 
 ## Checklist
 
-- [ ] `make ci` passes locally
-- [ ] Tests added or updated for new behavior
-- [ ] `CHANGELOG.md` updated under `## [Unreleased]` (for user-facing changes)
-- [ ] Docs updated if behavior, config, or the API changed
+- [ ] `make ci` passes locally.
+- [ ] I added or updated tests for new behavior.
+- [ ] I updated `CHANGELOG.md` under `## [Unreleased]` (for changes that have an effect on users).
+- [ ] If the behavior, the config, or the API changed, I updated the docs.

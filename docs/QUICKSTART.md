@@ -1,6 +1,6 @@
 # Quickstart
 
-This path proves the core Osprey loop:
+This procedure shows the core Osprey loop:
 
 1. Start Osprey.
 2. Evaluate a normal transaction.
@@ -9,12 +9,14 @@ This path proves the core Osprey loop:
 
 ## 1. Start Osprey
 
+Set the admin token and start the server:
+
 ```bash
 export OSPREY_ADMIN_TOKEN=local-admin-token
 go run ./cmd/osprey
 ```
 
-The API listens on:
+The API listens on this address:
 
 ```text
 http://localhost:8080
@@ -22,12 +24,14 @@ http://localhost:8080
 
 ## 2. Check Health
 
+Send a request to the health and the ready endpoints:
+
 ```bash
 curl -fsS http://localhost:8080/health
 curl -fsS http://localhost:8080/ready
 ```
 
-Healthy detection-mode response:
+In detection mode, a healthy server gives this response:
 
 ```json
 {
@@ -37,6 +41,8 @@ Healthy detection-mode response:
 ```
 
 ## 3. Evaluate a Normal Transaction
+
+Send the normal sample transaction:
 
 ```bash
 curl -fsS -X POST http://localhost:8080/evaluate \
@@ -49,14 +55,18 @@ Important response fields:
 
 | Field | Meaning |
 |-------|---------|
-| `evaluationId` | Stored decision ID. |
+| `evaluationId` | The ID of the stored decision. |
 | `txId` | Transaction ID. |
 | `status` | `NALT` or `ALRT`. |
 | `score` | Risk score from `0` to `1`. |
-| `reasons` | Rule reasons shown to reviewers. |
+| `reasons` | Rule reasons that reviewers see. |
 | `metadata.traceId` | Request trace ID. |
 
 ## 4. Add a Rule
+
+**WARNING:** Do not share `OSPREY_ADMIN_TOKEN`. The token gives write access to all rules.
+
+Send the sample rule with the admin token:
 
 ```bash
 curl -fsS -X POST http://localhost:8080/rules \
@@ -66,15 +76,17 @@ curl -fsS -X POST http://localhost:8080/rules \
   -d @docs/examples/rule-same-party.json
 ```
 
-The sample rule alerts when sender and receiver are the same entity:
+The sample rule gives an alert if the sender and the receiver are the same entity:
 
 ```cel
 debtor_id == creditor_id
 ```
 
-Rules are active immediately after a successful write.
+A rule becomes active immediately after a successful write.
 
 ## 5. Trigger the Rule
+
+Send the sample transaction that triggers the rule:
 
 ```bash
 curl -fsS -X POST http://localhost:8080/evaluate \
@@ -83,7 +95,7 @@ curl -fsS -X POST http://localhost:8080/evaluate \
   -d @docs/examples/evaluate-alert.json
 ```
 
-Expected decision:
+Osprey returns this decision:
 
 ```json
 {

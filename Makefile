@@ -110,6 +110,10 @@ tools:
 assure:
 	./scripts/assure-sandbox.sh
 
+## docs-lint: check docs against the STE rules in docs/STYLE.md
+docs-lint:
+	ruby scripts/docs-lint.rb $(shell git ls-files "*.md") docs/api/openapi.yaml
+
 ## seed: load the FATF starter kit (needs a running server + OSPREY_ADMIN_TOKEN)
 seed:
 	./scripts/seed-starter-kit.sh
@@ -124,7 +128,7 @@ clean:
 	rm -f $(BINARY)
 	$(GO) clean
 
-.PHONY: help build run test race cover vet fmt fix fix-check lint check check-vuln coverage-check dead tidy tools assure seed ci clean hooks
+.PHONY: help build run test race cover vet fmt fix fix-check lint check check-vuln coverage-check dead tidy tools assure docs-lint seed ci clean hooks
 
 hooks: ## Point git at .githooks (commit-msg shares scripts/lint-message.sh with CI)
 	@chmod +x .githooks/* scripts/lint-message.sh 2>/dev/null || true

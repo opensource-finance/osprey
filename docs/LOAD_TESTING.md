@@ -1,42 +1,46 @@
 # Load Testing
 
-Use this guide to measure Osprey throughput with traffic that looks like your deployment.
+Use this guide to measure the Osprey throughput with traffic that is similar to the traffic of your deployment.
 
-Local SQLite tests are useful for smoke checks. They do not predict remote production latency because PostgreSQL, Redis, NATS, container limits, and network hops add overhead.
+Use local SQLite tests only as smoke checks.
+They do not predict the latency of a remote production deployment.
+In production, PostgreSQL, Redis, NATS, container limits, and network hops add overhead.
 
 ## Quick Test
 
-Start the Docker stack:
+1. Start the Docker stack:
 
-```bash
-OSPREY_ADMIN_TOKEN=local-admin-token docker-compose up -d
-```
+   ```bash
+   OSPREY_ADMIN_TOKEN=local-admin-token docker-compose up -d
+   ```
 
-Seed rules:
+2. Seed the rules:
 
-```bash
-OSPREY_ADMIN_TOKEN=local-admin-token ./scripts/seed-rules.sh
-```
+   ```bash
+   OSPREY_ADMIN_TOKEN=local-admin-token ./scripts/seed-rules.sh
+   ```
 
-Run k6:
+3. Run k6:
 
-```bash
-k6 run k6/production-load-test.js
-```
+   ```bash
+   k6 run k6/production-load-test.js
+   ```
 
-Stop the stack:
+4. Stop the stack:
 
-```bash
-docker-compose down
-```
+   ```bash
+   docker-compose down
+   ```
 
-One-command wrapper:
+To do all of these steps with one command, use the wrapper script:
 
 ```bash
 OSPREY_ADMIN_TOKEN=local-admin-token ./scripts/load-test.sh docker
 ```
 
 ## Remote Target
+
+To test a remote deployment, give k6 the base URL and the tenant ID:
 
 ```bash
 k6 run \
@@ -54,9 +58,16 @@ k6 run \
 | p99 latency | Stable during sustained load |
 | Throughput | Stable during the sustained phase |
 
-The default k6 script ramps up, holds sustained load, spikes, then cools down.
+The default k6 script has four phases:
+
+1. It increases the load.
+2. It holds a sustained load.
+3. It sends a spike.
+4. It decreases the load.
 
 ## Useful Checks During a Run
+
+Use these commands while the test runs:
 
 ```bash
 docker stats
@@ -70,11 +81,11 @@ curl -fsS http://localhost:8222/varz | jq '.connections, .slow_consumers'
 
 | Symptom | Likely Cause |
 |---------|--------------|
-| p99 much higher than p95 | Connection-pool pressure or slow storage. |
-| Latency increases over time | Memory pressure, GC pressure, or growing queues. |
-| Errors during spike | Too little headroom. |
+| p99 is much higher than p95 | Pressure on the connection pool, or slow storage. |
+| Latency increases over time | Memory pressure, GC pressure, or queues that grow. |
+| Errors during a spike | Too little headroom. |
 | PostgreSQL timeouts | Slow queries, locks, or too few connections. |
-| Redis latency | Cache pressure or network issues. |
+| Redis latency | Cache pressure or network problems. |
 
 ## Capacity Formula
 
@@ -92,11 +103,13 @@ measured TPS per instance = 1500
 instances = (5000 * 1.5) / 1500 = 5
 ```
 
-## Before Relying on Results
+## Before You Use the Results
 
-- Run against production-like data.
-- Run from a separate machine or region when testing a remote deployment.
-- Verify p99 latency under sustained load.
-- Test a short spike above expected peak.
-- Watch database connections and container memory.
+Do these checks before you use the results:
+
+- Use data that is similar to production data.
+- If you test a remote deployment, run k6 from a different machine or region.
+- Examine the p99 latency under sustained load.
+- Send a short spike above the expected peak.
+- Monitor the database connections and the container memory.
 - Record the baseline command, commit, ruleset, and environment.

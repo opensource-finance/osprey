@@ -8,16 +8,18 @@
 
 Open-source transaction monitoring in one deployable service.
 
-Osprey evaluates transactions against CEL rules and returns a decision:
+Osprey evaluates transactions against CEL rules. It returns one of these decisions:
 
 - `ALRT`: alert
 - `NALT`: no alert
 
-Use it when you need a simple fraud or compliance rules engine without a large platform footprint.
+Use Osprey if you need a simple rules engine for fraud or compliance. Osprey does not need a large platform.
 
 ## Start Locally
 
-Requirements: Go 1.26+.
+Osprey needs Go 1.26+.
+
+1. Get the code and start the server:
 
 ```bash
 git clone https://github.com/opensource-finance/osprey.git
@@ -27,7 +29,7 @@ export OSPREY_ADMIN_TOKEN=local-admin-token
 go run ./cmd/osprey
 ```
 
-In another terminal:
+2. In a different terminal, evaluate a normal transaction:
 
 ```bash
 curl -fsS -X POST http://localhost:8080/evaluate \
@@ -36,7 +38,7 @@ curl -fsS -X POST http://localhost:8080/evaluate \
   -d @docs/examples/evaluate-normal.json
 ```
 
-Add the sample rule:
+3. Add the sample rule:
 
 ```bash
 curl -fsS -X POST http://localhost:8080/rules \
@@ -46,7 +48,7 @@ curl -fsS -X POST http://localhost:8080/rules \
   -d @docs/examples/rule-same-party.json
 ```
 
-Then trigger an alert:
+4. Send a transaction that causes an alert:
 
 ```bash
 curl -fsS -X POST http://localhost:8080/evaluate \
@@ -65,6 +67,7 @@ Start here:
 - [Starter kit rules](docs/STARTER_KIT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [OpenAPI contract](docs/api/openapi.yaml)
+- [Documentation style](docs/STYLE.md): run `make docs-lint` before a pull request that changes docs.
 
 Operator references:
 
@@ -75,10 +78,10 @@ Operator references:
 
 | Mode | Use When | Behavior |
 |------|----------|----------|
-| `detection` | You want weighted fraud rules. | Rules produce a score and decision. |
-| `compliance` | You want rules grouped into typologies. | Typologies must be loaded before evaluation is ready. |
+| `detection` | You want weighted fraud rules. | Rules give a score and a decision. |
+| `compliance` | You want rules in groups (typologies). | Load the typologies before you evaluate transactions. |
 
-Detection mode is the default:
+Detection mode is the default. To start Osprey in detection mode, run this command:
 
 ```bash
 OSPREY_ADMIN_TOKEN=local-admin-token \
@@ -86,7 +89,7 @@ OSPREY_MODE=detection \
 go run ./cmd/osprey
 ```
 
-Compliance mode:
+To start Osprey in compliance mode, run this command:
 
 ```bash
 OSPREY_ADMIN_TOKEN=local-admin-token \
@@ -94,7 +97,7 @@ OSPREY_MODE=compliance \
 go run ./cmd/osprey
 ```
 
-If compliance mode starts without typologies:
+If Osprey starts in compliance mode without typologies, these results occur:
 
 - `POST /evaluate` returns `503`
 - `GET /health` reports `status: "degraded"`
@@ -107,13 +110,15 @@ If compliance mode starts without typologies:
 | `community` | SQLite, in-memory cache, channel bus |
 | `pro` | PostgreSQL, Redis, NATS |
 
-Community is the default and is the easiest way to run Osprey locally.
+The `community` profile is the default. It is the easiest profile for a local Osprey server.
 
 ## Configuration
 
+**WARNING:** Do not share `OSPREY_ADMIN_TOKEN`. The token gives write access to all rules and typologies.
+
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `OSPREY_ADMIN_TOKEN` | required | Required to start. Protects rule and typology writes. |
+| `OSPREY_ADMIN_TOKEN` | required | Osprey does not start without it. It protects rule and typology writes. |
 | `OSPREY_MODE` | `detection` | `detection` or `compliance`. |
 | `OSPREY_TIER` | `community` | `community` or `pro`. |
 | `OSPREY_PORT` | `8080` | HTTP port. |
@@ -121,25 +126,25 @@ Community is the default and is the easiest way to run Osprey locally.
 | `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite path. |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis`. |
 | `OSPREY_BUS_TYPE` | `channel` | `channel` or `nats`. |
-| `OSPREY_TENANTS` | unset | Optional comma-separated tenants for async workers. |
-| `OSPREY_RATE_LIMIT_RPS` | `0` (off) | Per-tenant requests/second. `0` disables rate limiting. Leave off for load testing. |
-| `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Per-tenant burst size. |
+| `OSPREY_TENANTS` | unset | Optional. A comma-separated list of tenants for async workers. |
+| `OSPREY_RATE_LIMIT_RPS` | `0` (off) | Requests per second for each tenant. `0` disables the rate limit. Set `0` for load tests. |
+| `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant. |
 
 ## API
 
-Every tenant-scoped request needs:
+Each tenant request must have this header:
 
 ```http
 X-Tenant-ID: <tenant-id>
 ```
 
-Mutation endpoints also need one admin-token header:
+Each endpoint that changes data must also have one admin token header:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-or:
+Or use this header:
 
 ```http
 X-Osprey-Admin-Token: <token>
@@ -150,14 +155,14 @@ Core endpoints:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/evaluate` | Evaluate a transaction. |
-| `GET` | `/rules` | List active rules. |
-| `GET` | `/rules/{id}` | Fetch one active rule. |
+| `GET` | `/rules` | List the active rules. |
+| `GET` | `/rules/{id}` | Get one active rule. |
 | `POST` | `/rules` | Create or update a rule. |
 | `PUT` | `/rules/{id}` | Update a rule. |
-| `DELETE` | `/rules/{id}` | Delete a rule (`409` if referenced by a typology). |
-| `POST` | `/rules/reload` | Reload rules from storage. |
+| `DELETE` | `/rules/{id}` | Delete a rule. Returns `409` if a typology uses the rule. |
+| `POST` | `/rules/reload` | Load the rules again from storage. |
 | `GET` | `/health` | Health status. |
-| `GET` | `/ready` | Traffic readiness. |
+| `GET` | `/ready` | Shows if Osprey is ready for traffic. |
 
 Typology endpoints:
 
@@ -171,14 +176,14 @@ Typology endpoints:
 
 ## Starter Kit
 
-Load public FATF-inspired starter rules:
+To load the public starter rules (based on FATF guidance), run these commands:
 
 ```bash
 export OSPREY_ADMIN_TOKEN=local-admin-token
 ./scripts/seed-starter-kit.sh
 ```
 
-Load rules and typologies for compliance mode:
+To load the rules and the typologies for compliance mode, run these commands:
 
 ```bash
 export OSPREY_ADMIN_TOKEN=local-admin-token
@@ -186,9 +191,11 @@ OSPREY_MODE=compliance go run ./cmd/osprey &
 ./scripts/seed-starter-kit.sh --compliance
 ```
 
-Review the rules before using them in a live workflow. They are examples and starting points, not a substitute for your own risk policy.
+**CAUTION:** Examine the starter rules before you use them in a live workflow. The rules are examples and a start point. They do not replace your own risk policy.
 
 ## Development
+
+To run the unit tests, the vet checks, and the integration tests, run these commands:
 
 ```bash
 go test ./...
@@ -196,7 +203,7 @@ go vet ./...
 ./scripts/test-integration.sh
 ```
 
-Full sandbox gate:
+To run the full sandbox gate, run this command:
 
 ```bash
 ./scripts/assure-sandbox.sh

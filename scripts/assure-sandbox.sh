@@ -273,6 +273,7 @@ end
 abort(errors.join("\n")) unless errors.empty?
 puts "   Markdown links OK"
 '
+make -s docs-lint
 
 echo "5. Checking shell script syntax..."
 bash -n scripts/assure-sandbox.sh scripts/check-docker-resource-names.sh scripts/verify-sandbox.sh scripts/seed-rules.sh scripts/seed-starter-kit.sh scripts/seed-paysim.sh scripts/test-integration.sh scripts/test-integration-port-guard.sh scripts/test-docker-port-guard.sh scripts/test-docker-resource-guard.sh scripts/test-verify-sandbox-inputs.sh scripts/load-test.sh

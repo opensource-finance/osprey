@@ -1,10 +1,10 @@
 # Osprey Integration Tests
 
-These are end-to-end tests that require a running Osprey server with seeded rules.
+These tests are end-to-end tests. They need an Osprey server that runs and has seeded rules.
 
 ## Default Behavior
 
-Integration tests are gated behind the `integration` build tag, so they are **not** run by default:
+The `integration` build tag controls the integration tests. This command does **not** run them:
 
 ```bash
 go test ./...
@@ -12,7 +12,11 @@ go test ./...
 
 ## Recommended Run
 
-Use the dedicated runner, which starts Osprey from `/tmp`, seeds minimal test rules, and executes the suite:
+Use the dedicated runner script. The script does these steps:
+
+1. It starts Osprey from `/tmp`.
+2. It seeds minimal test rules.
+3. It runs the test suite.
 
 ```bash
 ./scripts/test-integration.sh
@@ -20,7 +24,7 @@ Use the dedicated runner, which starts Osprey from `/tmp`, seeds minimal test ru
 
 ## Manual Run
 
-If you want to run manually:
+To run the tests manually, do these steps:
 
 ```bash
 # 1) Start server
@@ -36,13 +40,15 @@ go test -tags=integration -v ./tests/integration/...
 
 ## Seeded Rule Set
 
-`./scripts/seed-rules.sh` creates the minimal rules expected by this suite:
+`./scripts/seed-rules.sh` creates the minimal rules that this suite expects:
 
 - `high-value-001`
 - `same-account-001`
 - `amount-check-001`
 
-These tests assume this minimal rule set. Loading additional rule packs into the same SQLite database can change scores and outcomes.
+These tests use only this minimal rule set.
+
+**NOTE:** More rule packs in the same SQLite database can change the scores and the outcomes.
 
 ## Environment Variables
 
@@ -51,7 +57,9 @@ These tests assume this minimal rule set. Loading additional rule packs into the
 ## Troubleshooting
 
 ### `connection refused`
-Server is not running or not healthy.
+
+The server does not run, or the server is not healthy.
 
 ### Unexpected scores/outcomes
-You are likely using a database with extra seeded rules/typologies. Use `./scripts/test-integration.sh` for clean, reproducible state.
+
+Your database possibly has extra seeded rules or typologies. To get a clean state that you can reproduce, use `./scripts/test-integration.sh`.

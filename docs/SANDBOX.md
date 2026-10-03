@@ -1,15 +1,15 @@
 # Sandbox and API Guide
 
-Use this guide to:
+Use this guide for one of these tasks:
 
-1. deploy a local Osprey sandbox with Docker, or
-2. call an existing sandbox URL supplied by its owner.
+1. Deploy a local Osprey sandbox with Docker.
+2. Call a sandbox URL that its owner gives you.
 
-Osprey does not currently provide a maintained public sandbox URL. To use a
-remote sandbox, ask its owner for the base URL. You also need the admin token to
-change rules or typologies.
+At this time, Osprey does not supply a maintained public sandbox URL.
+To use a remote sandbox, ask its owner for the base URL.
+To change rules or typologies, you also need the admin token.
 
-## Set Up with an AI Agent
+## Deploy with an AI Agent
 
 Copy this prompt into an AI coding agent that can run shell commands:
 
@@ -44,21 +44,23 @@ Rules:
     Do not include the admin token.
 ```
 
-The prompt points to this guide instead of copying its commands. This keeps one
-setup path and prevents the prompt from becoming outdated.
+The prompt points to this guide. It does not copy the commands from the guide.
+Thus, there is only one installation procedure, and the prompt does not become out of date.
 
 ## Prerequisites
 
-For a local Docker sandbox, install:
+For a local Docker sandbox, install these items:
 
 - Git
-- Docker with a running Docker daemon
+- Docker, with the Docker daemon on
 - `curl`
-- OpenSSL, used below to generate an admin token
+- OpenSSL, to make an admin token in step 2
 
-The API examples are self-contained and work from any directory. The automated
-verification scripts require a repository clone and additional tools described
-in [Sandbox Assurance](ASSURANCE.md).
+The API examples contain all the data that they need.
+You can run them from any directory.
+The automatic verification scripts need a clone of the repository.
+They also need more tools.
+[Sandbox Assurance](ASSURANCE.md) gives the list of these tools.
 
 ## Deploy a Local Docker Sandbox
 
@@ -69,8 +71,7 @@ git clone https://github.com/opensource-finance/osprey.git
 cd osprey
 ```
 
-Run the remaining deployment and verification commands from the repository
-root.
+Run all the other deployment and verification commands from the repository root.
 
 ### 2. Configure the sandbox
 
@@ -97,15 +98,19 @@ set -a
 set +a
 ```
 
-`OSPREY_HOST_PORT` must be unused. If port `8080` is already occupied, choose
-another host port, such as `18080`. Osprey still listens on port `8080` inside
-the container.
+**CAUTION:** Use an unused port for `OSPREY_HOST_PORT`.
+If a different service uses port `8080`, select a different host port, for example `18080`.
+Inside the container, Osprey continues to listen on port `8080`.
 
-Keep `OSPREY_ADMIN_TOKEN` private. Anyone who has it can replace the active rule
-and typology configuration for every tenant.
+**WARNING:** Do not share `OSPREY_ADMIN_TOKEN`.
+A person with this token can replace the active rule and typology configuration for all tenants.
 
-`.env.sandbox.local` is the source of truth for this local sandbox. Git ignores
-the file. Do not commit or share it. In a new terminal, load it again with:
+The file `.env.sandbox.local` is the source of truth for this local sandbox.
+Git ignores the file.
+
+**WARNING:** Do not commit or share `.env.sandbox.local`. The file contains the admin token.
+
+If you open a new terminal, load the file again with these commands:
 
 ```bash
 set -a
@@ -129,15 +134,22 @@ docker run -d \
   osprey-sandbox:local
 ```
 
-The first command stops if the host port or any Docker resource name is already
-in use. It does not delete or replace anything. Choose a new port or new names,
-or manage the existing resources yourself before continuing.
+The first command stops if a different item already uses the host port or a Docker resource name.
+The command does not delete or replace items.
+If the command stops, do one of these steps before you continue:
 
-The named Docker volume persists rules, typologies, transactions, and
-evaluations across container restarts.
+- Select a new port or new names.
+- Manage the resources that are already there yourself.
 
-Remove `OSPREY_RATE_LIMIT_RPS` from the settings file for load testing. Before
-sharing a sandbox, choose a request limit that fits your use case.
+The named Docker volume keeps these items when the container restarts:
+
+- Rules
+- Typologies
+- Transactions
+- Evaluations
+
+For a load test, remove `OSPREY_RATE_LIMIT_RPS` from the settings file.
+Before you share a sandbox, select a request limit that is correct for your use.
 
 ### 4. Check the deployment
 
@@ -146,10 +158,10 @@ curl --fail-with-body --silent --show-error "$OSPREY_URL/health"
 curl --fail-with-body --silent --show-error "$OSPREY_URL/ready"
 ```
 
-In detection mode, both endpoints should return HTTP `200`. In compliance mode,
-`/ready` returns `503` until typologies are loaded.
+In detection mode, the two endpoints must return HTTP `200`.
+In compliance mode, `/ready` returns `503` until Osprey loads the typologies.
 
-Useful lifecycle commands:
+Use these commands to examine, stop, and start the container:
 
 ```bash
 docker logs osprey-sandbox
@@ -157,47 +169,48 @@ docker stop osprey-sandbox
 docker start osprey-sandbox
 ```
 
-To remove the container while preserving its data:
+To remove the container and keep its data, use this command:
 
 ```bash
 docker rm -f osprey-sandbox
 ```
 
-`docker volume rm osprey-sandbox-data` permanently deletes the sandbox data.
+**WARNING:** Do not run `docker volume rm osprey-sandbox-data` unless you want to delete the sandbox data.
+This command deletes the data permanently.
 
-## Connect to an Existing Sandbox
+## Connect to a Remote Sandbox
 
-Set the URL and a tenant identifier supplied or approved by the operator:
+Set the URL and a tenant identifier. The operator must supply or approve these values.
 
 ```bash
 export OSPREY_URL=https://your-osprey-host.example
 export TENANT_ID=demo
 ```
 
-To create, update, delete, or reload rules and typologies, also set the admin
-token supplied by the sandbox owner:
+To create, update, delete, or reload rules and typologies, also set the admin token.
+The sandbox owner gives you this token.
 
 ```bash
 export OSPREY_ADMIN_TOKEN=replace-with-operator-provided-token
 ```
 
-Evaluation and read requests do not require the admin token.
+Evaluation requests and read requests do not need the admin token.
 
 ## Request Rules
 
-Every request for one tenant needs:
+Each request for one tenant needs this header:
 
 ```http
 X-Tenant-ID: <tenant-id>
 ```
 
-JSON requests also need:
+JSON requests also need this header:
 
 ```http
 Content-Type: application/json
 ```
 
-Changes to rules and typologies accept either admin-token header:
+Requests that change rules and typologies accept one of these two admin-token headers:
 
 ```http
 Authorization: Bearer <admin-token>
@@ -207,18 +220,20 @@ Authorization: Bearer <admin-token>
 X-Osprey-Admin-Token: <admin-token>
 ```
 
-Transactions and evaluations are separate for each tenant. Rules and typologies
-apply to every tenant. The server returns `tenantId: "*"` for them. Changing a
-rule or typology changes results for all tenants. These requests still need the
-tenant header so Osprey can identify, limit, and log the request.
+Each tenant has its own transactions and evaluations.
+Rules and typologies apply to all tenants.
+For rules and typologies, the server returns `tenantId: "*"`.
+A change to a rule or a typology changes the results for all tenants.
+These requests also need the tenant header.
+Osprey uses the header to identify, limit, and log the request.
 
 ## API Flow
 
 1. Check `/health` and `/ready`.
 2. Send a transaction to `POST /evaluate`.
-3. Add rules with `POST /rules` if you have the admin token.
-4. In compliance mode, add typologies with `POST /typologies`.
-5. Use `evaluationId` and `txId` to fetch stored records.
+3. If you have the admin token, add rules with `POST /rules`.
+4. If Osprey is in compliance mode, add typologies with `POST /typologies`.
+5. Use `evaluationId` and `txId` to get the stored records.
 
 ![Osprey sandbox flow](assets/osprey-sandbox-flow.png)
 
@@ -231,7 +246,7 @@ curl --fail-with-body --silent --show-error "$OSPREY_URL/ready"
 
 ## Evaluate a Transaction
 
-The generated transaction ID makes this example safe to repeat:
+This example makes a new transaction ID each time. Thus, you can safely run the example again.
 
 ```bash
 export NORMAL_TX_ID="sandbox-normal-$(date +%s)-$(openssl rand -hex 6)"
@@ -252,19 +267,25 @@ curl --fail-with-body --silent --show-error \
 JSON
 ```
 
-Decision values:
+The decision values are:
 
 | Status | Meaning |
 |--------|---------|
 | `NALT` | No alert. |
 | `ALRT` | Alert. |
 
-Important response fields include `evaluationId`, `txId`, `status`, `score`,
-`reasons`, and `metadata.traceId`.
+These are the important response fields:
+
+- `evaluationId`
+- `txId`
+- `status`
+- `score`
+- `reasons`
+- `metadata.traceId`
 
 ## Fetch Stored Records
 
-Copy the IDs from the evaluation response:
+Copy the IDs from the evaluation response into these commands:
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -276,13 +297,15 @@ curl --fail-with-body --silent --show-error \
   -H "X-Tenant-ID: $TENANT_ID"
 ```
 
-Transaction IDs are unique per tenant. Reusing an ID in the same tenant returns
-`409 Conflict`; the same ID may be used by a different tenant.
+A transaction ID is unique in each tenant.
+If you use an ID again in the same tenant, Osprey returns `409 Conflict`.
+A different tenant can use the same ID.
 
 ## Create a Rule
 
-This operation requires `OSPREY_ADMIN_TOKEN` and changes the global active
-configuration.
+This operation needs `OSPREY_ADMIN_TOKEN`.
+
+**CAUTION:** This operation changes the global active configuration. The change applies to all tenants.
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -324,13 +347,13 @@ Rule request fields:
 | `description` | No | Purpose of the rule. |
 | `expression` | Yes | CEL expression. |
 | `weight` | Yes | Number from `0` to `1`. |
-| `enabled` | Yes | Disabled rules are stored but not active. |
+| `enabled` | Yes | Osprey keeps a disabled rule, but the rule is not active. |
 | `bands` | No | Reasons for score ranges. |
 
-The response also contains server-assigned `tenantId: "*"` and `version`
-fields. Do not send either field in the request.
+The response also contains the `tenantId: "*"` and `version` fields. The server sets these fields.
+Do not send these fields in the request.
 
-Common CEL variables:
+These are the common CEL variables:
 
 | Variable | Source |
 |----------|--------|
@@ -343,8 +366,7 @@ Common CEL variables:
 | `new_balance` | `metadata.new_balance` |
 | `velocity_count` | Recent transaction count for the entity |
 
-See [Rule and Typology Authoring](RULE_TYPOLOGY_AUTHORING.md) for the complete
-variable list and authoring guidance.
+For the full list of variables and for authoring instructions, see [Rule and Typology Authoring](RULE_TYPOLOGY_AUTHORING.md).
 
 ## Trigger the Rule
 
@@ -367,12 +389,12 @@ curl --fail-with-body --silent --show-error \
 JSON
 ```
 
-The expected decision is `ALRT` with reason `Same party transfer detected`.
+The correct decision is `ALRT`, with the reason `Same party transfer detected`.
 
 ## Update a Rule
 
-For an update, the ID in the URL wins. The request body does not need an `id`
-field:
+For an update, Osprey uses the ID in the URL.
+The request body does not need an `id` field.
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -404,13 +426,13 @@ curl --fail-with-body --silent --show-error \
 JSON
 ```
 
-Writes apply to the active engine immediately.
+Changes apply to the active engine immediately.
 
 ## Create a Typology
 
-Typologies affect decisions only in compliance mode. Creating one changes every
-tenant, so it requires the admin token. Every `ruleId` must already appear in
-`GET /rules`.
+Typologies change decisions only in compliance mode.
+A new typology changes all tenants. Thus, the operation needs the admin token.
+Each `ruleId` must already show in `GET /rules`.
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -448,7 +470,7 @@ These endpoints return the current rules and typologies for all tenants.
 
 ## Remove the Sample Configuration
 
-Delete the typology before its referenced rule:
+Delete the typology before you delete the rule that it refers to.
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -462,12 +484,18 @@ curl --fail-with-body --silent --show-error \
   -H "Authorization: Bearer $OSPREY_ADMIN_TOKEN"
 ```
 
-Deleting a rule still referenced by a loaded typology returns `409 Conflict`.
+If a loaded typology refers to a rule, a request to delete that rule returns `409 Conflict`.
 
-## Verify Before Sharing a URL
+## Verify the Sandbox Before You Share a URL
 
-Run the automated commands from a repository clone. The full assurance gate
-requires `curl`, Go 1.26 or later, `jq`, Ruby, and Docker:
+Run the automatic commands from a clone of the repository.
+The full assurance gate needs these tools:
+
+- `curl`
+- Go 1.26 or later
+- `jq`
+- Ruby
+- Docker
 
 ```bash
 OSPREY_TEST_PORT=18080 \
@@ -475,14 +503,17 @@ DOCKER_PORT=18081 \
 ./scripts/assure-sandbox.sh
 ```
 
-Both ports must be unused. The integration runner now refuses an occupied health
-port instead of testing whichever service already owns it.
+Use two unused ports.
+If a different service uses the health port, the integration runner stops.
+The runner does not test that different service.
 
-The public URL verifier changes the sandbox. It creates or replaces the global
-rules `sandbox-verification-same-party` and
-`sandbox-verification-typology`, submits transactions, and checks a second
-tenant. Run it only against a temporary sandbox or one whose owner has approved
-those changes.
+The public URL verifier changes the sandbox. It does these steps:
+
+1. It creates or replaces the global rules `sandbox-verification-same-party` and `sandbox-verification-typology`.
+2. It sends transactions.
+3. It examines a second tenant.
+
+**CAUTION:** Run the verifier only on a temporary sandbox, or on a sandbox whose owner approved these changes.
 
 ```bash
 OSPREY_URL=https://your-osprey-host.example \
@@ -493,17 +524,17 @@ EXPECTED_MODE=detection \
 ./scripts/verify-sandbox.sh
 ```
 
-`OSPREY_URL` is required. The verifier has no default URL.
+You must set `OSPREY_URL`. The verifier has no default URL.
 
 ## Errors
 
 | Status | Common Cause |
 |--------|--------------|
-| `400` | Missing tenant header, invalid JSON, invalid rule or typology. |
-| `401` | Missing or invalid admin token on a write endpoint. |
+| `400` | No tenant header, JSON that is not valid, or a rule or typology that is not valid. |
+| `401` | No admin token, or an admin token that is not valid, on a write endpoint. |
 | `404` | Record not found. |
-| `409` | Duplicate transaction ID, or deleting a referenced rule. |
+| `409` | A duplicate transaction ID, or a request to delete a rule that a typology refers to. |
 | `413` | JSON body is too large. |
-| `429` | Per-tenant rate limit exceeded when rate limiting is enabled. |
-| `500` | Persistence or evaluation error. |
-| `503` | Repository unavailable, or compliance mode is missing typologies. |
+| `429` | The tenant went above its rate limit. This occurs only when the rate limit is on. |
+| `500` | A storage error or an evaluation error. |
+| `503` | The repository is not available, or compliance mode has no typologies. |
