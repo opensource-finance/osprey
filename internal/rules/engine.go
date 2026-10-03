@@ -4,7 +4,6 @@ package rules
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -239,40 +238,9 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 
 	wg.Wait()
 
-	// Fail-secure: a rule whose CEL expression errors at evaluation time (e.g.
-	// unguarded meta/enrichment map access on a missing key, division by zero,
-	// or a bad timestamp/duration conversion) must NOT be silently treated as a
-	// clean no-signal outcome. evaluateRule labels such results with
-	// RuleOutcomeError and a zero Score, which downstream TADP aggregation
-	// ignores — degrading the decision to a silent NALT and hiding the broken
-	// rule from every shipped operator surface (decision path, /health,
-	// reasons). That wholesale-disables the signal the rule was supposed to
-	// provide for every transaction in the affected input class.
-	//
-	// Propagate the error to the caller (who logs it and returns 5xx), mirroring
-	// the velocity-lookup fail-secure posture above. Results are returned
-	// alongside the error so callers can inspect which rules failed.
-	if err := evalErrorFromResults(results); err != nil {
-		return results, err
-	}
-
+	// A rule that errors at eval keeps its RuleOutcomeError result; TADP treats it
+	// as a critical failure (ALRT) so the other rules still score.
 	return results, nil
-}
-
-// evalErrorFromResults returns a non-nil error describing every rule that
-// errored at evaluation time (SubRuleRef == RuleOutcomeError), so EvaluateAll
-// can propagate the failure fail-securely. Returns nil when no rule errored.
-func evalErrorFromResults(results []domain.RuleResult) error {
-	var evalErrs []string
-	for _, r := range results {
-		if r.SubRuleRef == domain.RuleOutcomeError {
-			evalErrs = append(evalErrs, fmt.Sprintf("rule %q: %s", r.RuleID, r.Reason))
-		}
-	}
-	if len(evalErrs) == 0 {
-		return nil
-	}
-	return fmt.Errorf("rule evaluation failed for %d rule(s): %s", len(evalErrs), strings.Join(evalErrs, "; "))
 }
 
 // evaluateRule evaluates a single rule and returns the result.

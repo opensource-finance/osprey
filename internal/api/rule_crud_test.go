@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,21 @@ func TestUpdateRule(t *testing.T) {
 		server.Router().ServeHTTP(resp, req)
 		if resp.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for invalid CEL, got %d: %s", resp.Code, resp.Body.String())
+		}
+	})
+
+	t.Run("RequiresEnabled", func(t *testing.T) {
+		// Omitting enabled must not silently disable the rule.
+		payload := map[string]any{"name": "x", "expression": "amount > 1.0", "weight": 1.0}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPut, "/rules/crud-rule", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-crud")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+		if resp.Code != http.StatusBadRequest || !strings.Contains(resp.Body.String(), "enabled is required") {
+			t.Fatalf("expected 400 'enabled is required', got %d: %s", resp.Code, resp.Body.String())
 		}
 	})
 

@@ -12,6 +12,21 @@ func TestProcessor(t *testing.T) {
 	proc := NewProcessor()
 	ctx := context.Background()
 
+	t.Run("EvalErrorForcesAlert", func(t *testing.T) {
+		eval := proc.Process(ctx, &DecisionInput{
+			TenantID:  "tenant-001",
+			TxID:      "tx-err",
+			StartTime: time.Now(),
+			RuleResults: []domain.RuleResult{
+				{RuleID: "broken", Score: 0, SubRuleRef: domain.RuleOutcomeError, Weight: 1.0},
+				{RuleID: "ok", Score: 0.1, SubRuleRef: domain.RuleOutcomePass, Weight: 1.0},
+			},
+		})
+		if eval.Status != domain.StatusAlert {
+			t.Errorf("a rule eval error must fail secure to ALRT, got %s", eval.Status)
+		}
+	})
+
 	t.Run("AllPass", func(t *testing.T) {
 		input := &DecisionInput{
 			TenantID:  "tenant-001",

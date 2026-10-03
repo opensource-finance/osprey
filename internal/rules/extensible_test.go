@@ -67,23 +67,14 @@ func TestExtensibleVariables(t *testing.T) {
 			ID: "meta-unguarded", Name: "m", Expression: "meta.country == 'US'", Weight: 1.0, Enabled: true,
 		})
 		res, err := engine.EvaluateAll(ctx, &EvaluateInput{TenantID: "t", TxID: "x3"})
-		if err == nil {
-			t.Fatal("expected evaluation error for unguarded missing key, got nil")
-		}
-		if !strings.Contains(err.Error(), "meta-unguarded") {
-			t.Errorf("expected error to identify failing rule %q, got: %v", "meta-unguarded", err)
-		}
-		if !strings.Contains(err.Error(), "no such key") {
-			t.Errorf("expected error to surface CEL eval cause, got: %v", err)
-		}
-		if len(res) != 1 {
-			t.Fatalf("expected 1 result returned alongside the error, got %d", len(res))
+		if err != nil {
+			t.Fatalf("eval: %v", err)
 		}
 		if res[0].SubRuleRef != domain.RuleOutcomeError {
 			t.Errorf("expected RuleOutcomeError for unguarded missing key, got %s", res[0].SubRuleRef)
 		}
-		if res[0].Reason == "" {
-			t.Error("expected non-empty reason on the errored rule result")
+		if !strings.Contains(res[0].Reason, "no such key") {
+			t.Errorf("expected reason to surface CEL eval cause, got: %s", res[0].Reason)
 		}
 	})
 

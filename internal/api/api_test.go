@@ -536,11 +536,12 @@ func TestEvaluateEndpoint(t *testing.T) {
 		rr := httptest.NewRecorder()
 		brokenServer.Router().ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusInternalServerError {
-			t.Fatalf("expected 500 for a rule that errors at eval (fail-secure), got %d: %s", rr.Code, rr.Body.String())
+		// Fail-secure per rule: the errored rule forces ALRT and is named in reasons.
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 		}
-		if !strings.Contains(rr.Body.String(), "rule evaluation failed") {
-			t.Fatalf("expected error body to mention rule evaluation failure, got: %s", rr.Body.String())
+		if !strings.Contains(rr.Body.String(), `"status":"ALRT"`) || !strings.Contains(rr.Body.String(), "no such key") {
+			t.Fatalf("expected ALRT with the eval error in reasons, got: %s", rr.Body.String())
 		}
 	})
 

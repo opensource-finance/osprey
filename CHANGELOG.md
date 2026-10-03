@@ -12,9 +12,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- When a CEL rule errors at runtime, `POST /evaluate` now returns 500 instead of
-  silently degrading to NALT, and the evaluation error is surfaced in the
-  response `reasons`.
+- When a CEL rule errors at runtime, the evaluation now fails secure to `ALRT`
+  instead of silently degrading to NALT, the other rules still score, and the
+  evaluation error is surfaced in the response `reasons`.
 - Startup now fails loudly when the database rules/typologies loader errors
   (e.g. connection loss, query timeout, or a corrupt row). Previously the
   loaders swallowed the error and started with zero rules/typologies, silently

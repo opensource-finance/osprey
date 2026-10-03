@@ -522,10 +522,23 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateRuleRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required on PUT (see openapi RuleConfig): a plain bool would
+	// read an omitted field as false and silently disable the rule.
+	var body struct {
+		CreateRuleRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateRuleRequest
+	req.Enabled = *body.Enabled
 	req.ID = ruleID
 	req.Name = strings.TrimSpace(req.Name)
 	req.Expression = strings.TrimSpace(req.Expression)
@@ -563,16 +576,8 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	// referenced rule (e.g. for debugging) while surfacing the dependency as
 	// a warning so the scoring change is never silent.
 	var warnings []string
-	if !req.Enabled && h.typologyEngine != nil {
-		var refs []string
-		for _, t := range h.typologyEngine.GetLoadedTypologies() {
-			for _, tr := range t.Rules {
-				if tr.RuleID == ruleID {
-					refs = append(refs, t.ID)
-				}
-			}
-		}
-		if len(refs) > 0 {
+	if !req.Enabled {
+		if refs := h.typologiesReferencing(ruleID); len(refs) > 0 {
 			refsLabel := strings.Join(refs, ", ")
 			if !forceFlag(r) {
 				writeJSON(w, http.StatusConflict, map[string]string{
@@ -629,17 +634,11 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Referential integrity: refuse to delete a rule a loaded typology depends on.
-	if h.typologyEngine != nil {
-		for _, t := range h.typologyEngine.GetLoadedTypologies() {
-			for _, tr := range t.Rules {
-				if tr.RuleID == ruleID {
-					writeJSON(w, http.StatusConflict, map[string]string{
-						"error": fmt.Sprintf("rule %q is referenced by typology %q; remove it from the typology first", ruleID, t.ID),
-					})
-					return
-				}
-			}
-		}
+	if refs := h.typologiesReferencing(ruleID); len(refs) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("rule %q is referenced by typology %q; remove it from the typology first", ruleID, strings.Join(refs, ", ")),
+		})
+		return
 	}
 
 	if err := h.repo.DeleteRuleConfig(ctx, domain.GlobalTenantID, ruleID); errors.Is(err, repository.ErrNotFound) {
@@ -767,6 +766,24 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+// typologiesReferencing returns the IDs of loaded typologies that reference
+// ruleID, each listed once.
+func (h *Handler) typologiesReferencing(ruleID string) []string {
+	if h.typologyEngine == nil {
+		return nil
+	}
+	var refs []string
+	for _, t := range h.typologyEngine.GetLoadedTypologies() {
+		for _, tr := range t.Rules {
+			if tr.RuleID == ruleID {
+				refs = append(refs, t.ID)
+				break
+			}
+		}
+	}
+	return refs
 }
 
 // forceFlag reports whether the request opted into a force override via the

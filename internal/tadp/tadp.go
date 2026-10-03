@@ -147,17 +147,15 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 			weight = 1.0
 		}
 
-		// Check for critical failures. RuleOutcomeError (.err) is intentionally
-		// NOT a case here: a rule that errored at evaluation time is propagated
-		// as a Go error from rules.EvaluateAll, so the live decision path fails
-		// loudly (5xx) before reaching aggregation. Treating .err as an alert or
-		// review here would double-handle the failure and, in the alert case,
-		// train operators to ignore alerts. GetReasons still surfaces .err
-		// reasons for operator visibility.
+		// Check for critical failures. A rule that errored at evaluation time
+		// (.err) fails secure: it forces ALRT instead of silently passing, while
+		// the remaining rules still score. GetReasons names the broken rule.
 		switch r.SubRuleRef {
 		case domain.RuleOutcomeFail:
 			agg.HasCriticalFailure = true
 			agg.RulesTriggered++
+		case domain.RuleOutcomeError:
+			agg.HasCriticalFailure = true
 		case domain.RuleOutcomeReview:
 			agg.RulesTriggered++
 		}
