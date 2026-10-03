@@ -478,3 +478,169 @@ func TestRebind(t *testing.T) {
 		}
 	}
 }
+
+// saveWindowTx stores a transaction with explicit, distinct Timestamp and
+// CreatedAt so the velocity windowing column can be asserted independently of
+// the event-time column. Helper for TestGetTransactionsByEntityWindowsOnCreatedAt.
+func saveWindowTx(t *testing.T, repo domain.Repository, ctx context.Context, tenantID, id, debtor, creditor string, ts, createdAt time.Time) {
+	t.Helper()
+	tx := &domain.Transaction{
+		ID:              id,
+		Type:            "transfer",
+		DebtorID:        debtor,
+		DebtorAccountID: "acc-d",
+		CreditorID:      creditor,
+		CreditorAcctID:  "acc-c",
+		Amount:          100.0,
+		Currency:        "USD",
+		Timestamp:       ts.UTC(),
+		CreatedAt:       createdAt.UTC(),
+	}
+	if err := repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+		t.Fatalf("SaveTransaction(%s) failed: %v", id, err)
+	}
+}
+
+// windowSuite holds the shared state for the velocity-windowing subtests.
+type windowSuite struct {
+	repo     domain.Repository
+	ctx      context.Context
+	tenantID string
+}
+
+// TestGetTransactionsByEntityWindowsOnCreatedAt locks in the fix for the
+// velocity-timestamp bypass: the velocity window must be keyed on the
+// server-controlled created_at (ingest time) column, not the client-controllable
+// timestamp (event time) column. Every subtest constructs rows where
+// Timestamp != CreatedAt so the previous `AND timestamp >= ?` predicate and
+// the new `AND created_at >= ?` predicate would disagree, and asserts the
+// created_at-keyed behavior. This guards against a regression back to the
+// attacker-controllable timestamp column.
+func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
+	s := newWindowSuite(t)
+	defer func() { _ = s.repo.Close() }()
+
+	t.Run("BackdatedTimestampsStillCountedInWindow", func(t *testing.T) {
+		// A caller backdates every transaction's event timestamp far outside the
+		// 1-hour velocity window. With the fix, the velocity window keys on
+		// created_at (= now), so all rows are still returned. With the previous
+		// `timestamp >= ?` predicate these would be excluded and velocity would
+		// silently read 0 — the bypass being fixed.
+		oldEventTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		now := time.Now().UTC()
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "bd-1", "debtor-backdated", "creditor-1", oldEventTime, now)
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "bd-2", "debtor-backdated", "creditor-2", oldEventTime, now)
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "bd-3", "debtor-backdated", "creditor-3", oldEventTime, now)
+
+		txs := s.fetch(t, "debtor-backdated", -1*time.Hour)
+		if len(txs) != 3 {
+			t.Fatalf("expected 3 backdated transactions counted by created_at, got %d (velocity bypass regression)", len(txs))
+		}
+		for _, tx := range txs {
+			if !tx.Timestamp.Equal(oldEventTime) {
+				t.Errorf("expected client timestamp preserved as %s, got %s", oldEventTime, tx.Timestamp)
+			}
+		}
+	})
+
+	t.Run("RecentTimestampButOldCreatedAtExcluded", func(t *testing.T) {
+		// The inverse guard: a row whose event timestamp is recent but whose
+		// ingest time is outside the window must be excluded. With the previous
+		// `timestamp >= ?` predicate this row would be returned even though its
+		// created_at is stale, which is the wrong basis for a rate-limiting
+		// control. This subtest fails if the predicate is reverted to timestamp.
+		now := time.Now().UTC()
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "future-ts-old-ca", "debtor-stale-ca", "creditor-x", now, now.Add(-2*time.Hour))
+
+		txs := s.fetch(t, "debtor-stale-ca", -1*time.Hour)
+		if len(txs) != 0 {
+			t.Fatalf("expected 0 transactions (created_at outside window), got %d (window keyed on wrong column)", len(txs))
+		}
+	})
+
+	t.Run("LateReportedEventIncludedInWindow", func(t *testing.T) {
+		// Legitimate late reporting: an event that really occurred hours ago is
+		// ingested now. The velocity window (a processing-time / rate control)
+		// must count it now, because the system is processing it now. With the
+		// old `timestamp >= ?` predicate this event was dropped from velocity.
+		now := time.Now().UTC()
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "late-1", "debtor-late", "creditor-1", now.Add(-2*time.Hour), now)
+
+		txs := s.fetch(t, "debtor-late", -1*time.Hour)
+		if len(txs) != 1 {
+			t.Fatalf("expected late-reported event to be counted by created_at, got %d", len(txs))
+		}
+	})
+
+	t.Run("OrderedByCreatedAtDesc", func(t *testing.T) {
+		// The ORDER BY must also track created_at, not timestamp: an older
+		// ingest with a newer client timestamp must not sort ahead of a newer
+		// ingest with an older client timestamp.
+		now := time.Now().UTC()
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "ord-new-ca-old-ts", "debtor-order", "creditor-1", now.Add(-3*time.Hour), now)
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "ord-mid", "debtor-order", "creditor-2", now.Add(-2*time.Hour), now.Add(-30*time.Second))
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "ord-old-ca-new-ts", "debtor-order", "creditor-3", now, now.Add(-60*time.Second))
+
+		txs := s.fetch(t, "debtor-order", -1*time.Hour)
+		if len(txs) != 3 {
+			t.Fatalf("expected 3 transactions, got %d", len(txs))
+		}
+		wantOrder := []string{"ord-new-ca-old-ts", "ord-mid", "ord-old-ca-new-ts"}
+		for i, want := range wantOrder {
+			if txs[i].ID != want {
+				t.Errorf("position %d: want %s (newest created_at first), got %s", i, want, txs[i].ID)
+			}
+		}
+	})
+
+	t.Run("MatchesDebtorAndCreditorRoles", func(t *testing.T) {
+		// Regression guard: the entity match (debtor OR creditor) is unchanged
+		// by moving the time predicate onto created_at.
+		now := time.Now().UTC()
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "role-d", "debtor-role", "creditor-unrelated", now, now)
+		saveWindowTx(t, s.repo, s.ctx, s.tenantID, "role-c", "debtor-unrelated", "creditor-role", now, now)
+
+		debtorTxs := s.fetch(t, "debtor-role", -1*time.Hour)
+		if len(debtorTxs) != 1 || debtorTxs[0].ID != "role-d" {
+			t.Fatalf("expected debtor match to return role-d, got %#v", debtorTxs)
+		}
+		creditorTxs := s.fetch(t, "creditor-role", -1*time.Hour)
+		if len(creditorTxs) != 1 || creditorTxs[0].ID != "role-c" {
+			t.Fatalf("expected creditor match to return role-c, got %#v", creditorTxs)
+		}
+	})
+}
+
+// newWindowSuite builds a fresh file-backed SQLite repo for the windowing tests.
+func newWindowSuite(t *testing.T) *windowSuite {
+	t.Helper()
+	tmpFile, err := os.CreateTemp("", "osprey-window-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	t.Cleanup(func() {
+		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath + "-shm")
+		_ = os.Remove(tmpPath + "-wal")
+	})
+
+	repo, err := New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: tmpPath})
+	if err != nil {
+		t.Fatalf("failed to create repository: %v", err)
+	}
+	return &windowSuite{repo: repo, ctx: context.Background(), tenantID: "tenant-window"}
+}
+
+// fetch wraps GetTransactionsByEntity with an offset-from-now window, failing
+// the test on repo errors so subtests stay concise.
+func (s *windowSuite) fetch(t *testing.T, entityID string, offset time.Duration) []*domain.Transaction {
+	t.Helper()
+	since := time.Now().UTC().Add(offset)
+	txs, err := s.repo.GetTransactionsByEntity(s.ctx, s.tenantID, entityID, since)
+	if err != nil {
+		t.Fatalf("GetTransactionsByEntity(%s) failed: %v", entityID, err)
+	}
+	return txs
+}

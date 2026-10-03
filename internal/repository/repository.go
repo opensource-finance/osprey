@@ -263,6 +263,14 @@ func (r *SQLRepository) GetTransaction(ctx context.Context, tenantID string, txI
 }
 
 // GetTransactionsByEntity retrieves transactions for an entity with tenant isolation.
+//
+// The velocity window is keyed on the server-controlled created_at (ingest time)
+// column, not the client-supplied timestamp (event time) column. Velocity is a
+// rate-limiting control over activity the system is being asked to authorize,
+// which is a processing-time quantity: windowing on timestamp would let any
+// caller neutralize every velocity rule by backdating the timestamp field
+// that POST /evaluate accepts verbatim. created_at is written by the handler
+// from the server clock and is not client-controllable.
 func (r *SQLRepository) GetTransactionsByEntity(ctx context.Context, tenantID string, entityID string, since time.Time) ([]*domain.Transaction, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
@@ -276,8 +284,8 @@ func (r *SQLRepository) GetTransactionsByEntity(ctx context.Context, tenantID st
 		FROM transactions
 		WHERE tenant_id = ?
 		  AND (debtor_id = ? OR creditor_id = ?)
-		  AND timestamp >= ?
-		ORDER BY timestamp DESC
+		  AND created_at >= ?
+		ORDER BY created_at DESC
 	`
 
 	rows, err := r.db.QueryContext(ctx, r.rebind(query), tenantID, entityID, entityID, since)

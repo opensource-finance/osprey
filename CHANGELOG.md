@@ -29,6 +29,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `new_balance`) are honored. This closes a rule-bypass where, for example,
   `metadata:{"amount":1.0}` sent with a real 500000 transaction would make
   `amount > 200000.0` score 0 and silently pass a high-value fraud rule.
+- Velocity controls now window on the server-controlled ingest time
+  (`created_at`) instead of the client-supplied event timestamp, closing a
+  bypass where any `POST /evaluate` caller could backdate `timestamp` to
+  silence all velocity rules and the FATF typologies that weight them.
 
 ## [0.1.0] - 2026-07-07
 
