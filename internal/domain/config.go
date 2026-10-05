@@ -17,10 +17,6 @@ type Config struct {
 	Repository RepositoryConfig `json:"repository"`
 	Cache      CacheConfig      `json:"cache"`
 	EventBus   EventBusConfig   `json:"eventBus"`
-
-	// Observability
-	Logging LoggingConfig `json:"logging"`
-	Tracing TracingConfig `json:"tracing"`
 }
 
 // EvaluationMode determines the transaction evaluation strategy.
@@ -55,20 +51,6 @@ type ServerConfig struct {
 	RateLimitBurst int `json:"rateLimitBurst"`
 }
 
-// LoggingConfig holds logging settings.
-type LoggingConfig struct {
-	Level  string `json:"level"`  // debug, info, warn, error
-	Format string `json:"format"` // json, text
-}
-
-// TracingConfig holds OpenTelemetry settings.
-type TracingConfig struct {
-	Enabled      bool   `json:"enabled"`
-	ServiceName  string `json:"serviceName"`
-	ExporterType string `json:"exporterType"` // stdout, otlp, jaeger
-	Endpoint     string `json:"endpoint"`
-}
-
 // Tier represents the product tier.
 type Tier string
 
@@ -81,9 +63,6 @@ const (
 
 	// TierPro is the paid tier with PostgreSQL + NATS + Redis
 	TierPro Tier = "pro"
-
-	// TierEnterprise includes multi-node, SSO, etc.
-	TierEnterprise Tier = "enterprise"
 )
 
 // DefaultConfig returns a default configuration for Community tier.
@@ -110,14 +89,6 @@ func DefaultConfig() *Config {
 		EventBus: EventBusConfig{
 			Type:              "channel",
 			ChannelBufferSize: 1000,
-		},
-		Logging: LoggingConfig{
-			Level:  "info",
-			Format: "json",
-		},
-		Tracing: TracingConfig{
-			Enabled:     false,
-			ServiceName: "osprey",
 		},
 	}
 }
@@ -148,6 +119,5 @@ func ProConfig() *Config {
 		NATSMaxReconnects: 10,
 		NATSReconnectWait: 5,
 	}
-	cfg.Tracing.Enabled = true
 	return cfg
 }
