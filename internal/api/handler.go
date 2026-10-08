@@ -977,10 +977,22 @@ func (h *Handler) UpdateTypology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateTypologyRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required: an omitted bool would silently disable the typology.
+	var body struct {
+		CreateTypologyRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateTypologyRequest
+	req.Enabled = *body.Enabled
 	req.Name = strings.TrimSpace(req.Name)
 
 	if !h.validateTypologyRequest(w, &req, false) {
