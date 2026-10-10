@@ -71,7 +71,11 @@ func New(cfg domain.RepositoryConfig) (domain.Repository, error) {
 
 func (r *SQLRepository) migrate() error {
 	for _, schema := range AllSchemas() {
-		if _, err := r.db.Exec(schema); err != nil {
+		stmt := schema
+		if r.driver == "postgres" {
+			stmt = transformForPostgres(stmt)
+		}
+		if _, err := r.db.Exec(stmt); err != nil {
 			return err
 		}
 	}
@@ -81,6 +85,18 @@ func (r *SQLRepository) migrate() error {
 		}
 	}
 	return nil
+}
+
+// transformForPostgres rewrites SQLite-specific column types to their PostgreSQL
+// equivalents so the shared schema DDL in schema.go can run on both drivers.
+// The schemas are authored in SQLite dialect; PostgreSQL has no BLOB type
+// (its binary type is BYTEA), so the column-type declaration pattern
+// " BLOB," is rewritten to " BYTEA,". The bounding (leading space, trailing
+// comma) prevents matching a column named blob_* or a comment mentioning BLOB.
+// The sqlite-gated branch in migrateSQLiteTransactionsPrimaryKey must retain
+// BLOB and is therefore not routed through this function.
+func transformForPostgres(stmt string) string {
+	return strings.ReplaceAll(stmt, " BLOB,", " BYTEA,")
 }
 
 func (r *SQLRepository) migrateSQLiteTransactionsPrimaryKey() error {

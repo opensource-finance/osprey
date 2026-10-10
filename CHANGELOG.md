@@ -6,6 +6,14 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- PostgreSQL deployments now start on a fresh database. Before this change, the
+  `transactions` migration used the SQLite `BLOB` column type, which PostgreSQL
+  does not have. The `CREATE TABLE` statement failed with `type "blob" does not
+  exist` and the process exited. The migration now rewrites `BLOB` to `BYTEA`
+  for PostgreSQL while SQLite keeps the original `BLOB` type.
+
 ## [0.1.1] - 2026-10-03
 
 ### Added
