@@ -6,6 +6,13 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The async worker now defaults a non-positive `velocityWindow` in a transaction message to `3600` (one hour).
+  Before this change, the worker defaulted only a `0` value and let a negative value pass to the rule engine.
+  The engine skips velocity lookups when `VelocityWindow <= 0`, so a negative value disabled all velocity rules for that transaction.
+  A high-velocity transaction got `NALT` instead of `ALRT` with no error or warning.
+
 ## [0.1.1] - 2026-10-03
 
 ### Added
