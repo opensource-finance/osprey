@@ -6,6 +6,17 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A rule whose score equals the `UpperLimit` of the last band now matches that
+  band instead of falling through to the default `.pass`.
+  Before this change, `matchBand` always continued to a next band that may not
+  exist, so a closed last band returned `no matching band` and the outcome
+  became `.pass`.
+  When the last band's outcome was `.fail`, the TADP aggregator never set
+  `HasCriticalFailure`, and a transaction below `AlertThreshold` got `NALT`
+  instead of `ALRT`. A fraudulent transaction went undetected.
+
 ## [0.1.1] - 2026-10-03
 
 ### Added
