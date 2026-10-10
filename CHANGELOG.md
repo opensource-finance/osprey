@@ -6,6 +6,14 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Compliance mode no longer falls back to detection scoring when typologies are empty.
+  A concurrent admin operation (DELETE or PUT on the last enabled typology) could clear the typology set while a transaction was in flight.
+  The processor then gave a detection-mode decision with HTTP 200 and no warning.
+  The handler and worker now capture the typology-set generation at entry and reject with 503 if the set changes mid-request, and the processor fails closed to `ALRT` with a warning if it receives no typology results in compliance mode.
+  The persisted record no longer carries a synthetic `detection-summary` typology marker in this case.
+
 ## [0.1.1] - 2026-10-03
 
 ### Added

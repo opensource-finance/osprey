@@ -4,6 +4,7 @@ package tadp
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,6 +95,30 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 
 		// Use highest typology score as the evaluation score
 		eval.Score = maxTypologyScore
+	} else if p.Mode == "compliance" {
+		// Compliance mode without typology results: the typology set was empty
+		// or changed mid-request. This must NOT silently degrade to detection-
+		// mode scoring (detection aggregate score vs typology thresholds have
+		// different alert semantics and would yield both false and missed
+		// alerts for regulated workloads). Fail secure: surface a warning and
+		// alert so the transaction is reviewed, not silently decided.
+		//
+		// The handler/worker entry guards intend to 503/skip compliance
+		// evaluations when typologies are absent; this is the defense-in-depth
+		// that catches the case when that guard is bypassed (e.g. a direct
+		// caller, or a race the atomic generation check did not close).
+		slog.Warn("compliance mode evaluation received no typology results; failing closed to alert",
+			"tx_id", input.TxID,
+			"tenant_id", input.TenantID,
+			"trace_id", input.TraceID,
+			"aggregate_score", aggResult.AggregateScore,
+		)
+		eval.Status = domain.StatusAlert
+		eval.Score = aggResult.AggregateScore
+		// Do not stamp a synthetic "detection-summary" typology: that would
+		// mislabel the audit trail as a detection-mode decision. Leave
+		// TypologyResults empty so the audit honestly shows no typologies were
+		// evaluated (Metadata.TypologiesEvaluated == 0).
 	} else {
 		// Detection Mode: Fast, weighted rule aggregation (default)
 		// No typologies required - direct score-to-alert decision

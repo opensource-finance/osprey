@@ -95,7 +95,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Compliance mode is not ready because typologies are missing.
+          description: Compliance mode is not ready because typologies are missing, or the typology set changed during evaluation. Retry the request.
           content:
             application/json:
               schema:
