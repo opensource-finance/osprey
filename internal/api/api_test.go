@@ -1184,6 +1184,98 @@ func TestTypologyMutationValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("UpdateRequiresEnabled", func(t *testing.T) {
+		// Omitting enabled must not silently disable the typology.
+		payload := map[string]any{
+			"name":           "Test Typology",
+			"alertThreshold": 0.5,
+			"rules": []map[string]any{
+				{"ruleId": "loaded-rule", "weight": 1.0},
+			},
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPut, "/typologies/typology-001", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusBadRequest || !strings.Contains(resp.Body.String(), "enabled is required") {
+			t.Fatalf("expected 400 'enabled is required', got %d: %s", resp.Code, resp.Body.String())
+		}
+
+		// The rejected request must not have changed the active engine count.
+		listReq := httptest.NewRequest(http.MethodGet, "/typologies", nil)
+		listReq.Header.Set("X-Tenant-ID", "tenant-001")
+		listResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(listResp, listReq)
+		if listResp.Code != http.StatusOK {
+			t.Fatalf("expected typology list 200, got %d: %s", listResp.Code, listResp.Body.String())
+		}
+		var listed struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("failed to decode typology list: %v", err)
+		}
+		if listed.Count != 1 {
+			t.Fatalf("rejected update must not change active count, got %d", listed.Count)
+		}
+	})
+
+	t.Run("UpdateAllowsExplicitDisabledFalse", func(t *testing.T) {
+		// An explicit enabled:false is an intentional disable and is accepted.
+		payload := map[string]any{
+			"name":           "Disabled Typology",
+			"alertThreshold": 0.5,
+			"enabled":        false,
+			"rules": []map[string]any{
+				{"ruleId": "loaded-rule", "weight": 1.0},
+			},
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPut, "/typologies/typology-001", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected explicit enabled:false to return 200, got %d: %s", resp.Code, resp.Body.String())
+		}
+		var updated struct {
+			Typology struct {
+				Enabled bool `json:"enabled"`
+			} `json:"typology"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &updated); err != nil {
+			t.Fatalf("failed to decode update response: %v", err)
+		}
+		if updated.Typology.Enabled {
+			t.Fatalf("expected typology enabled=false, got true")
+		}
+
+		// A disabled typology is dropped from the active engine.
+		listReq := httptest.NewRequest(http.MethodGet, "/typologies", nil)
+		listReq.Header.Set("X-Tenant-ID", "tenant-001")
+		listResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(listResp, listReq)
+		if listResp.Code != http.StatusOK {
+			t.Fatalf("expected typology list 200, got %d: %s", listResp.Code, listResp.Body.String())
+		}
+		var listed struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("failed to decode typology list: %v", err)
+		}
+		if listed.Count != 0 {
+			t.Fatalf("expected disabled typology to drop active count to 0, got %d", listed.Count)
+		}
+	})
+
 	t.Run("TypologyMutationRequiresRepository", func(t *testing.T) {
 		noRepoServer := createTestServerWithRepository(nil)
 
