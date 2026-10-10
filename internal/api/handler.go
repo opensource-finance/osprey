@@ -95,11 +95,29 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	tenantID := GetTenantID(ctx)
 	traceID := GetTraceID(ctx)
 
-	if h.mode == domain.ModeCompliance && !h.hasLoadedTypologies() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "compliance mode requires typologies to be loaded",
-		})
-		return
+	// Compliance-mode entry guard. Capture the typology-set generation atomically
+	// with the presence check so a concurrent admin operation (DELETE/PUT on the
+	// last enabled typology, or POST /typologies/reload to an empty set) that
+	// empties the set between this guard and the typology evaluation is detected.
+	// entryTypologyGen is compared again under a single lock by
+	// EvaluateTypologiesIfStable before the decision; a mismatch rejects the
+	// request with 503 instead of silently producing a detection-mode decision.
+	var entryTypologyGen uint64
+	if h.mode == domain.ModeCompliance {
+		if h.typologyEngine == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": "compliance mode requires typologies to be loaded",
+			})
+			return
+		}
+		gen, count := h.typologyEngine.Snapshot()
+		if count == 0 {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": "compliance mode requires typologies to be loaded",
+			})
+			return
+		}
+		entryTypologyGen = gen
 	}
 
 	// Parse request
@@ -217,10 +235,28 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Evaluate typologies ONLY in Compliance mode
+	// 3. Evaluate typologies ONLY in Compliance mode. The generation check and
+	// the evaluation happen under a single lock on the typology engine, so a
+	// concurrent reload that empties the set between the entry guard (which
+	// captured entryTypologyGen) and here is detected. On a mismatch the
+	// request is rejected with 503 (matching the entry-guard intent: reject
+	// compliance evaluations without typologies) rather than proceeding with
+	// nil TypologyResults, which would silently degrade to detection scoring.
 	var typologyResults []domain.TypologyResult
-	if h.mode == domain.ModeCompliance && h.typologyEngine != nil && h.typologyEngine.TypologyCount() > 0 {
-		typologyResults = h.typologyEngine.EvaluateTypologies(ruleResults)
+	if h.mode == domain.ModeCompliance && h.typologyEngine != nil {
+		results, ok := h.typologyEngine.EvaluateTypologiesIfStable(ruleResults, entryTypologyGen)
+		if !ok {
+			slog.Warn("typology set changed during compliance evaluation; rejecting request",
+				"tx_id", txID,
+				"tenant_id", tenantID,
+				"trace_id", traceID,
+			)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": "typology configuration changed during evaluation; retry the request",
+			})
+			return
+		}
+		typologyResults = results
 	}
 
 	// 4. Process decision

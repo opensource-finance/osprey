@@ -151,14 +151,35 @@ type TransactionMessage struct {
 func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *domain.Message, trustPayloadTenant bool) error {
 	start := time.Now()
 
-	if w.mode == domain.ModeCompliance && (w.typologyEngine == nil || w.typologyEngine.TypologyCount() == 0) {
-		err := fmt.Errorf("compliance mode requires typologies to be loaded")
-		slog.Error("skipping transaction in compliance mode",
-			"message_id", msg.ID,
-			"tenant_id", tenantID,
-			"error", err,
-		)
-		return err
+	// Compliance-mode entry guard. Capture the typology-set generation atomically
+	// with the presence check so a concurrent admin operation that empties the
+	// typology set between this guard and the typology evaluation is detected.
+	// entryTypologyGen is compared again under a single lock by
+	// EvaluateTypologiesIfStable before the decision; a mismatch skips the
+	// transaction (returns an error) instead of silently producing a
+	// detection-mode decision.
+	var entryTypologyGen uint64
+	if w.mode == domain.ModeCompliance {
+		if w.typologyEngine == nil {
+			err := fmt.Errorf("compliance mode requires typologies to be loaded")
+			slog.Error("skipping transaction in compliance mode",
+				"message_id", msg.ID,
+				"tenant_id", tenantID,
+				"error", err,
+			)
+			return err
+		}
+		gen, count := w.typologyEngine.Snapshot()
+		if count == 0 {
+			err := fmt.Errorf("compliance mode requires typologies to be loaded")
+			slog.Error("skipping transaction in compliance mode",
+				"message_id", msg.ID,
+				"tenant_id", tenantID,
+				"error", err,
+			)
+			return err
+		}
+		entryTypologyGen = gen
 	}
 
 	// Parse message
@@ -220,10 +241,24 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		return err
 	}
 
-	// 2. Evaluate typologies ONLY in Compliance mode
+	// 2. Evaluate typologies ONLY in Compliance mode. The generation check and
+	// the evaluation happen under a single lock on the typology engine, so a
+	// concurrent reload that empties the set between the entry guard (which
+	// captured entryTypologyGen) and here is detected. On a mismatch the
+	// transaction is skipped (returns an error) rather than proceeding with
+	// nil TypologyResults, which would silently degrade to detection scoring.
 	var typologyResults []domain.TypologyResult
-	if w.mode == domain.ModeCompliance && w.typologyEngine != nil && w.typologyEngine.TypologyCount() > 0 {
-		typologyResults = w.typologyEngine.EvaluateTypologies(ruleResults)
+	if w.mode == domain.ModeCompliance && w.typologyEngine != nil {
+		results, ok := w.typologyEngine.EvaluateTypologiesIfStable(ruleResults, entryTypologyGen)
+		if !ok {
+			slog.Warn("typology set changed during compliance evaluation; skipping transaction",
+				"tx_id", txMsg.TxID,
+				"tenant_id", tenantID,
+				"trace_id", traceID,
+			)
+			return fmt.Errorf("typology configuration changed during evaluation; tx %s skipped", txMsg.TxID)
+		}
+		typologyResults = results
 	}
 
 	// 3. Process decision

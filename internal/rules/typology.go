@@ -12,6 +12,13 @@ import (
 type TypologyEngine struct {
 	mu         sync.RWMutex
 	typologies map[string]*domain.Typology // key: typologyID
+	// generation is bumped on every wholesale typology replacement
+	// (LoadTypologies/ReloadTypologies). Compliance-mode callers capture it
+	// at request entry and re-check it before deciding, so a concurrent admin
+	// operation that empties or replaces the typology set mid-request is
+	// detected and rejected rather than silently producing a detection-mode
+	// decision. See internal/api/handler.go and internal/worker/worker.go.
+	generation uint64
 }
 
 // NewTypologyEngine creates a new typology evaluation engine.
@@ -22,6 +29,8 @@ func NewTypologyEngine() *TypologyEngine {
 }
 
 // LoadTypologies loads typology configurations into the engine.
+// Each call is an atomic wholesale replacement and bumps the generation
+// counter so in-flight compliance-mode evaluations can detect the change.
 func (e *TypologyEngine) LoadTypologies(typologies []*domain.Typology) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -32,11 +41,33 @@ func (e *TypologyEngine) LoadTypologies(typologies []*domain.Typology) {
 			e.typologies[t.ID] = t
 		}
 	}
+	e.generation++
 }
 
 // ReloadTypologies clears and reloads typologies (hot reload).
 func (e *TypologyEngine) ReloadTypologies(typologies []*domain.Typology) {
 	e.LoadTypologies(typologies)
+}
+
+// Generation returns the current typology-set generation. It is bumped on
+// every LoadTypologies/ReloadTypologies call. Callers capture it atomically
+// with the typology count via Snapshot to close the TOCTOU window between a
+// compliance-mode entry guard and the later typology evaluation.
+func (e *TypologyEngine) Generation() uint64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.generation
+}
+
+// Snapshot returns the current generation and typology count atomically
+// (under a single lock). Compliance-mode callers capture a Snapshot at
+// request entry: count == 0 means "reject now" (the entry guard), and
+// generation is later compared by EvaluateTypologiesIfStable to detect a
+// concurrent reload that emptied or replaced the set mid-request.
+func (e *TypologyEngine) Snapshot() (generation uint64, count int) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.generation, len(e.typologies)
 }
 
 // GetLoadedTypologies returns currently loaded typologies.
@@ -71,6 +102,41 @@ func (e *TypologyEngine) EvaluateTypologies(ruleResults []domain.RuleResult) []d
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	if len(e.typologies) == 0 {
+		return nil
+	}
+
+	return e.evaluateTypologiesLocked(ruleResults)
+}
+
+// EvaluateTypologiesIfStable evaluates typologies only when the typology set
+// is unchanged since expectedGen and non-empty. The generation check and the
+// evaluation happen under a single lock, so a concurrent LoadTypologies call
+// (which needs the write lock) cannot empty or replace the set between the
+// check and the evaluation.
+//
+// Returns (results, true) when the set is stable and non-empty: results is the
+// typology evaluation against the same set the caller observed at entry, so the
+// decision is consistent with the configuration that admitted the request.
+//
+// Returns (nil, false) when the set changed since expectedGen or is now empty.
+// Compliance-mode callers MUST fail closed (reject the request / skip the
+// transaction) when ok is false; proceeding with nil results would silently
+// degrade to detection-mode scoring. See internal/tadp/tadp.go.
+func (e *TypologyEngine) EvaluateTypologiesIfStable(ruleResults []domain.RuleResult, expectedGen uint64) ([]domain.TypologyResult, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.generation != expectedGen || len(e.typologies) == 0 {
+		return nil, false
+	}
+
+	return e.evaluateTypologiesLocked(ruleResults), true
+}
+
+// evaluateTypologiesLocked computes typology scores while holding the read
+// lock. Callers must hold e.mu (RLock or Lock).
+func (e *TypologyEngine) evaluateTypologiesLocked(ruleResults []domain.RuleResult) []domain.TypologyResult {
 	if len(e.typologies) == 0 {
 		return nil
 	}
