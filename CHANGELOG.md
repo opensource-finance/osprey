@@ -8,6 +8,11 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- PostgreSQL deployments now start on a fresh database. Before this change, the
+  `transactions` migration used the SQLite `BLOB` column type, which PostgreSQL
+  does not have. The `CREATE TABLE` statement failed with `type "blob" does not
+  exist` and the process exited. The migration now rewrites `BLOB` to `BYTEA`
+  for PostgreSQL while SQLite keeps the original `BLOB` type.
 - A rule whose score equals the `UpperLimit` of the last band now matches that
   band instead of falling through to the default `.pass`.
   Before this change, `matchBand` always continued to a next band that may not
@@ -16,6 +21,13 @@ This file records all notable changes to this project. The format follows
   When the last band's outcome was `.fail`, the TADP aggregator never set
   `HasCriticalFailure`, and a transaction below `AlertThreshold` got `NALT`
   instead of `ALRT`. A fraudulent transaction went undetected.
+
+### Security
+
+- The async worker now defaults a non-positive `velocityWindow` in a transaction message to `3600` (one hour).
+  Before this change, the worker defaulted only a `0` value and let a negative value pass to the rule engine.
+  The engine skips velocity lookups when `VelocityWindow <= 0`, so a negative value disabled all velocity rules for that transaction.
+  A high-velocity transaction got `NALT` instead of `ALRT` with no error or warning.
 
 ## [0.1.1] - 2026-10-03
 

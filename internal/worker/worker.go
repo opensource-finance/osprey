@@ -207,7 +207,7 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		Enrichment:     txMsg.Enrichment,
 	}
 
-	if evalInput.VelocityWindow == 0 {
+	if evalInput.VelocityWindow <= 0 {
 		evalInput.VelocityWindow = 3600 // Default 1 hour
 	}
 
