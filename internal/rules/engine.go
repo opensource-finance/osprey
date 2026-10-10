@@ -285,9 +285,12 @@ func toScore(val ref.Val) float64 {
 
 // matchBand finds the matching band for a score.
 // Bands are evaluated in order. Use lower inclusive, upper exclusive,
-// except when upper is nil (meaning infinity).
+// except when upper is nil (meaning infinity), or when the score equals
+// the upper limit of the last band (closed last band), which matches
+// inclusively so scores at the boundary do not fall through to the
+// default .pass outcome.
 func matchBand(score float64, bands []domain.RuleBand) (string, string) {
-	for _, band := range bands {
+	for i, band := range bands {
 		lower := 0.0
 		hasUpper := band.UpperLimit != nil
 		upper := float64(1e9) // effectively infinity
@@ -304,9 +307,14 @@ func matchBand(score float64, bands []domain.RuleBand) (string, string) {
 			if !hasUpper || score < upper {
 				return band.SubRuleRef, band.Reason
 			}
-			// Special case: if score equals upper and this is the last band, match it
-			if score == upper && band.UpperLimit != nil {
-				// Continue to next band which should have this as its lower
+			// Score equals the upper boundary. A non-last band defers to the
+			// next band (which should have this value as its lower). The last
+			// band has no successor, so match it inclusively to avoid
+			// falling through to the default .pass "no matching band".
+			if score == upper {
+				if i == len(bands)-1 {
+					return band.SubRuleRef, band.Reason
+				}
 				continue
 			}
 		}
