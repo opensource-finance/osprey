@@ -2,11 +2,9 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -74,29 +72,6 @@ func (c *RedisCache) Delete(ctx context.Context, tenantID string, key string) er
 
 	fullKey := c.makeKey(tenantID, key)
 	return c.client.Del(ctx, fullKey).Err()
-}
-
-// GetTransaction retrieves cached transaction data.
-func (c *RedisCache) GetTransaction(ctx context.Context, tenantID string, txID string) (*domain.DataCache, error) {
-	data, err := c.Get(ctx, tenantID, "tx:"+txID)
-	if err != nil || data == nil {
-		return nil, err
-	}
-
-	var dc domain.DataCache
-	if err := json.Unmarshal(data, &dc); err != nil {
-		return nil, err
-	}
-	return &dc, nil
-}
-
-// SetTransaction caches transaction data.
-func (c *RedisCache) SetTransaction(ctx context.Context, tenantID string, txID string, data *domain.DataCache, ttl time.Duration) error {
-	bytes, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	return c.Set(ctx, tenantID, "tx:"+txID, bytes, ttl)
 }
 
 // IncrementCounter atomically increments a counter using Redis INCR with EXPIRE.
