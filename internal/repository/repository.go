@@ -89,14 +89,28 @@ func (r *SQLRepository) migrate() error {
 
 // transformForPostgres rewrites SQLite-specific column types to their PostgreSQL
 // equivalents so the shared schema DDL in schema.go can run on both drivers.
-// The schemas are authored in SQLite dialect; PostgreSQL has no BLOB type
-// (its binary type is BYTEA), so the column-type declaration pattern
-// " BLOB," is rewritten to " BYTEA,". The bounding (leading space, trailing
-// comma) prevents matching a column named blob_* or a comment mentioning BLOB.
+// The schemas are authored in SQLite dialect. Two rewrites are applied:
+//
+//   - " BLOB," -> " BYTEA," : PostgreSQL has no BLOB type; its binary type is
+//     BYTEA. The bounding (leading space, trailing comma) targets the
+//     column-type declaration and avoids matching a column named blob_* or a
+//     bare "BLOB" in prose.
+//   - " REAL " -> " DOUBLE PRECISION " : SQLite's REAL is an 8-byte IEEE double,
+//     but PostgreSQL's REAL is float4 (single precision, ~7 significant digits).
+//     Monetary and score columns (amount, weight, score, alert_threshold) must
+//     keep double precision so values such as 1234567.89 round-trip exactly
+//     instead of being silently truncated to the nearest float4. PostgreSQL's
+//     DOUBLE PRECISION is float8 and matches SQLite's REAL semantics. The
+//     bounding (leading and trailing spaces) targets the column-type token and
+//     avoids matching a column name containing "real".
+//
 // The sqlite-gated branch in migrateSQLiteTransactionsPrimaryKey must retain
-// BLOB and is therefore not routed through this function.
+// SQLite-native types (BLOB/REAL) and is therefore not routed through this
+// function.
 func transformForPostgres(stmt string) string {
-	return strings.ReplaceAll(stmt, " BLOB,", " BYTEA,")
+	stmt = strings.ReplaceAll(stmt, " BLOB,", " BYTEA,")
+	stmt = strings.ReplaceAll(stmt, " REAL ", " DOUBLE PRECISION ")
+	return stmt
 }
 
 func (r *SQLRepository) migrateSQLiteTransactionsPrimaryKey() error {

@@ -8,6 +8,12 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- PostgreSQL deployments now preserve monetary and score values with full double precision.
+  Before this change, the migration rewrite that made the shared SQLite-dialect schema runnable on PostgreSQL converted `BLOB` to `BYTEA` but left `REAL` columns untouched.
+  PostgreSQL `REAL` is single precision (float4, about 7 significant digits), so any stored `amount`, `weight`, `score`, or `alert_threshold` with more than about 7 significant digits was silently rounded on write.
+  For example `1234567.89` was stored and returned as `1234567.9`, and `999999.99` as `1000000`, with no error.
+  The corrupted `amount` also fed velocity rule decisions through `velocity_amount_sum`.
+  The migration now rewrites `REAL` to `DOUBLE PRECISION` (float8) for PostgreSQL, matching SQLite's `REAL` semantics, so the two supported backends agree on persisted data.
 - PostgreSQL deployments now start on a fresh database. Before this change, the
   `transactions` migration used the SQLite `BLOB` column type, which PostgreSQL
   does not have. The `CREATE TABLE` statement failed with `type "blob" does not
