@@ -34,8 +34,10 @@ This file records all notable changes to this project. The format follows
   Before this change, the rule engine copied `old_balance` and `new_balance` from `metadata` with no type check.
   A `null` or a string replaced the `0.0` default, and the CEL `==` operator returned `false` for the different types.
   For example, `{"old_balance": 15000, "new_balance": null}` made `old_balance > 0.0 && new_balance == 0.0` false, and the drain got `.pass`.
+
   Now a `null` balance gives `0.0`, the same as a missing balance.
-  A balance that is not a number or `null` makes `POST /evaluate` return `400`. The async worker logs an error and publishes no decision.
+  A balance that is not a number or `null` makes `POST /evaluate` return `400`.
+  The async worker logs an error and publishes no decision.
 - The async worker now defaults a non-positive `velocityWindow` in a transaction message to `3600` (one hour).
   Before this change, the worker defaulted only a `0` value and let a negative value pass to the rule engine.
   The engine skips velocity lookups when `VelocityWindow <= 0`, so a negative value disabled all velocity rules for that transaction.
