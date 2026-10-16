@@ -219,7 +219,10 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Evaluate typologies ONLY in Compliance mode
 	var typologyResults []domain.TypologyResult
-	if h.mode == domain.ModeCompliance && h.typologyEngine != nil && h.typologyEngine.TypologyCount() > 0 {
+	// EvaluateTypologies checks for an empty set under the same lock as the
+	// evaluation. If the set was emptied after the entry check, it returns no
+	// results and the processor fails closed.
+	if h.mode == domain.ModeCompliance && h.typologyEngine != nil {
 		typologyResults = h.typologyEngine.EvaluateTypologies(ruleResults)
 	}
 
