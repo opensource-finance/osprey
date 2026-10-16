@@ -30,6 +30,11 @@ This file records all notable changes to this project. The format follows
 
 ### Security
 
+- A very large `velocityWindow` no longer disables velocity rules.
+  Before this change, the async worker passed any positive `velocityWindow` to the velocity service.
+  A value above about `9223372036` seconds overflowed the window duration and put the window start in the future.
+  All velocity metrics read `0`, and a high-velocity transaction got `NALT` instead of `ALRT` with no error.
+  The velocity service now clamps the window to 30 days (`2592000` seconds), and the worker clamps the value and logs a warning.
 - The async worker now defaults a non-positive `velocityWindow` in a transaction message to `3600` (one hour).
   Before this change, the worker defaulted only a `0` value and let a negative value pass to the rule engine.
   The engine skips velocity lookups when `VelocityWindow <= 0`, so a negative value disabled all velocity rules for that transaction.
