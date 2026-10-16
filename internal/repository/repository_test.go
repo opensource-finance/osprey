@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -618,4 +619,46 @@ func (s *windowSuite) fetch(t *testing.T, entityID string, offset time.Duration)
 		t.Fatalf("GetTransactionsByEntity(%s) failed: %v", entityID, err)
 	}
 	return txs
+}
+
+// TestSQLitePathWithURICharacters covers issue #33. A '?' in the path used to
+// start the DSN query, so SQLite opened a file at the truncated path and
+// dropped the pragmas, including journal_mode(WAL).
+func TestSQLitePathWithURICharacters(t *testing.T) {
+	for _, name := range []string{"osprey?prod.db", "osprey%3F.db", "osprey#1.db", "osprey 100%.db"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, name)
+
+			db, err := openSQLite(domain.RepositoryConfig{SQLitePath: path})
+			if err != nil {
+				t.Fatalf("openSQLite(%q): %v", path, err)
+			}
+			defer func() { _ = db.Close() }()
+
+			var mode string
+			if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+				t.Fatalf("PRAGMA journal_mode: %v", err)
+			}
+			if mode != "wal" {
+				t.Errorf("journal_mode = %q, want wal", mode)
+			}
+			var fk int
+			if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+				t.Fatalf("PRAGMA foreign_keys: %v", err)
+			}
+			if fk != 1 {
+				t.Errorf("foreign_keys = %d, want 1", fk)
+			}
+
+			if _, err := os.Stat(path); err != nil {
+				entries, _ := os.ReadDir(dir)
+				var names []string
+				for _, e := range entries {
+					names = append(names, e.Name())
+				}
+				t.Errorf("database file not at %q: %v (directory has %v)", path, err, names)
+			}
+		})
+	}
 }

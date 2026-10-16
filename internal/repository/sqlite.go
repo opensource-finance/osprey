@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/opensource-finance/osprey/internal/domain"
 	_ "modernc.org/sqlite"
@@ -27,7 +28,7 @@ func openSQLite(cfg domain.RepositoryConfig) (*sql.DB, error) {
 	}
 
 	// Build connection string with pragmas for performance
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", path)
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", sqliteURIPath(path))
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -41,4 +42,15 @@ func openSQLite(cfg domain.RepositoryConfig) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// sqliteURIPathEscaper percent-encodes the characters that end the path part of
+// a SQLite file: URI. Without it, a '?' in the path started the query, so
+// SQLite opened a file at the truncated path and dropped the pragmas,
+// including journal_mode(WAL). SQLite decodes the escapes once, so '%' is
+// encoded too.
+var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
+func sqliteURIPath(path string) string {
+	return sqliteURIPathEscaper.Replace(path)
 }

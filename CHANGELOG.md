@@ -8,6 +8,11 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- SQLite now opens the correct file and uses WAL mode when `OSPREY_SQLITE_PATH` contains `?`, `#`, or `%`.
+  Before this change, Osprey put the path into the SQLite connection URI with no encoding.
+  A `?` started the query part of the URI, so SQLite opened a file at the part of the path before the `?`.
+  The first pragma was also lost, so `journal_mode` was `delete` instead of `wal`.
+  Now Osprey encodes these characters, and the database file has the full path.
 - PostgreSQL deployments now start on a fresh database. Before this change, the
   `transactions` migration used the SQLite `BLOB` column type, which PostgreSQL
   does not have. The `CREATE TABLE` statement failed with `type "blob" does not
