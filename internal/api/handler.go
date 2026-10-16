@@ -136,6 +136,13 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := rules.ValidateMetadata(req.Metadata); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": err.Error(),
+		})
+		return
+	}
+
 	txID := strings.TrimSpace(req.ID)
 	if txID == "" {
 		txID = uuid.New().String()
