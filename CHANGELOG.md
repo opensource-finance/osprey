@@ -70,6 +70,19 @@ This file records all notable changes to this project. The format follows
 
   Now the processor fails closed. The evaluation gets `ALRT` and one typology result with the ID `compliance-no-typologies`.
   Osprey logs a warning. The transaction and the evaluation are both stored, so a retry is not necessary.
+- An evaluation no longer returns `NALT` when the rule engine has zero rules loaded.
+  Before this change, `EvaluateAll` returned no results and no error when the rule set was empty.
+  The processor scored the empty result set to zero, and both detection mode and compliance mode returned `NALT` with score 0.
+  A deployment with an empty rule set silently stopped generating alerts.
+
+  An operator with rule-management access could disable or delete the last rule.
+  The operator could also reload from an empty rules table.
+  Every later transaction got `200 OK` with a clean pass.
+  The health and readiness checks stayed green, so the blinded state looked like normal operation.
+
+  Now the processor fails closed. The evaluation gets `ALRT` and one typology result with the ID `no-rules`.
+  Osprey logs a warning. The transaction and the evaluation are both stored, so nothing is orphaned and no retry is necessary.
+  An empty database still starts correctly for the first run, and `POST /rules` still works to seed the first rule set.
 - PostgreSQL deployments now keep the full value of transaction amounts and scores.
   Before this change, the migration kept the SQLite `REAL` column type on PostgreSQL.
   PostgreSQL `REAL` is single precision (`float4`, about 7 significant digits).
