@@ -6,7 +6,7 @@ The script checks each decision, so the output in each walkthrough is the real o
 
 | Example | Mode | What it shows |
 |---------|------|---------------|
-| [Money-mule detection for payments](app-fraud-mule-detection/README.md) | `detection` | Weighted rules, `velocity_count`, balance fields, `.review` and `.fail` outcomes, and a release, warn, or hold action. |
+| [Money-mule detection for payments](app-fraud-mule-detection/README.md) | `detection` | Rule weights, `velocity_count`, balance fields, `.review` and `.fail` outcomes, and a release, warn, or hold action. |
 | [Structuring detection for a money transfer service](remittance-structuring/README.md) | `compliance` | Typologies, `velocity_amount_sum`, enrichment from a sanctions system, and a case file from `GET /evaluations/{id}`. |
 
 ## Run All Examples

@@ -60,7 +60,7 @@ The `bands` of the rule convert the score to an outcome and a reason.
 {
   "id": "mule-pass-through",
   "expression": "velocity_count >= 3",
-  "weight": 1,
+  "weight": 0.2,
   "bands": [
     {"lowerLimit": 1, "subRuleRef": ".review", "reason": "3 or more payments in or out of this account in the last hour"},
     {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Normal activity"}
@@ -75,7 +75,7 @@ Without `has()`, a payment without the field causes a rule error and an alert.
 
 The two outcomes have different effects in detection mode:
 
-- **`.review`**: The rule adds its score to the weighted average. One weak signal alone does not cause an alert.
+- **`.review`**: The rule adds its score, multiplied by its weight, to the total. One weak signal alone does not cause an alert.
 - **`.fail`**: The rule causes an alert, whatever the other rules return.
 
 The 4 mule signals use `.review`, because each signal alone is normal for many honest customers.
@@ -83,10 +83,11 @@ The CoP "no match" rule uses `.fail`, because the bank does not want to send mon
 
 ### 4. Know how Osprey calculates the score
 
-In detection mode, the score is the weighted average of all active rule scores.
+In detection mode, the score is the sum of score x weight for each rule, with a maximum of `1.0`.
 Osprey gives `ALRT` when the score is `0.7` or more, or when a rule gives `.fail`.
-This example has 5 rules with weight `1`, so each signal adds `0.2`.
+Each rule in this example has the weight `0.2`, so each signal adds `0.2`.
 Thus, 4 of the 5 signals must be present for an alert from `.review` rules alone.
+Rules that do not match add nothing, so a new rule does not lower the score of the other rules.
 
 ### 5. Map the decision to an action
 
@@ -161,9 +162,9 @@ For example, give the new account rule a higher weight, or use `.fail` for a new
 ## Things to Know
 
 - `velocity_count` counts the transactions in the last hour where the account is the debtor or the creditor. The count includes the current transaction. Thus, in `pay-005`, the count is 3: one payment in and two payments out.
-- The velocity window uses the time when Osprey received the transaction, not the `timestamp` field.
+- The velocity window uses the time when Osprey received the transaction, not the `timestamp` field. To replay historical payments, start Osprey with `OSPREY_VELOCITY_CLOCK=event`.
 - Rules apply to all tenants on the Osprey server.
-- Each new rule changes the weighted average. If you add a rule, examine the score of each scenario again.
+- The weight of a rule is the amount that it adds to the score when it matches. If you change a weight, examine the score of each scenario again.
 - Osprey does not verify `metadata` or `enrichment`. Your service is responsible for these values.
 - The order of the `reasons` in the response can change. The example sorts them before it prints them.
 

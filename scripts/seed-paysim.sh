@@ -5,8 +5,11 @@
 #   ./scripts/seed-paysim.sh
 #   ./scripts/seed-paysim.sh --tenant mycompany
 #
-# These rules are specifically tuned for the PaySim fraud detection
-# benchmark and achieve ~96% recall with 100% precision.
+# These rules are tuned for the PaySim simulator. On all 6,362,620 PaySim rows
+# they catch 97.6% of fraud with no false alerts, because PaySim makes each
+# fraud send the whole account balance and paysim-whole-balance matches exactly
+# that. This result says nothing about quality on real traffic.
+# See docs/STARTER_KIT.md.
 
 set -e
 

@@ -159,9 +159,9 @@ The reasons come from all rules that gave `.review`, `.fail`, or `.err`.
 
 - Compliance mode needs a minimum of one typology. Without typologies, `POST /evaluate` returns `503`.
 - `velocity_count` and `velocity_amount_sum` include the current transaction. They also include transactions where the customer is the creditor.
-- The velocity window is one hour. It uses the time when Osprey received the transaction, not the `timestamp` field.
+- The velocity window is one hour. It uses the time when Osprey received the transaction, not the `timestamp` field. To replay historical transfers, start Osprey with `OSPREY_VELOCITY_CLOCK=event`.
 - Rules and typologies apply to all tenants on the Osprey server.
-- The weights in this example are `0.5` and `0.25`. These values are exact in binary floating point, so a sum of `0.75` is exactly `0.75`.
+- Osprey rounds each typology score to 9 decimal places before it compares the score with the threshold. Thus, weights such as `0.1` and `0.2` give a sum that is exactly the threshold.
 - Osprey does not verify `enrichment`. Your sanctions screening system is responsible for `sanctions_hit`.
 
 ## Adapt It
