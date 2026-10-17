@@ -42,13 +42,19 @@ type PaySimTransaction struct {
 	IsFlaggedFraud bool
 }
 
+// paysimEpoch is the time of PaySim step 0. PaySim steps are hours.
+var paysimEpoch = time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+
 // EvaluateRequest is the Osprey API request format
 type EvaluateRequest struct {
-	Type     string         `json:"type"`
-	Debtor   Party          `json:"debtor"`
-	Creditor Party          `json:"creditor"`
-	Amount   Amount         `json:"amount"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Type     string `json:"type"`
+	Debtor   Party  `json:"debtor"`
+	Creditor Party  `json:"creditor"`
+	Amount   Amount `json:"amount"`
+	// Timestamp is 2017-01-01 plus step hours. With OSPREY_VELOCITY_CLOCK=event,
+	// velocity windows follow PaySim time instead of the time of the replay.
+	Timestamp string         `json:"timestamp"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 type Party struct {
@@ -352,6 +358,7 @@ func evaluateTransaction(client *http.Client, baseURL, tenantID string, tx PaySi
 			Value:    tx.Amount,
 			Currency: "USD",
 		},
+		Timestamp: paysimEpoch.Add(time.Duration(tx.Step) * time.Hour).Format(time.RFC3339),
 		// Pass balance data for AccountDrainRule
 		Metadata: map[string]any{
 			"old_balance": tx.OldBalanceOrg,
