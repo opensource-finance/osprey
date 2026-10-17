@@ -353,6 +353,9 @@ func printBanner(cfg *domain.Config, version string) {
 		fmt.Println("    POST /typologies/reload - Reload typologies from database")
 	}
 	fmt.Println("    GET  /health            - Health check")
+	if cfg.Server.Studio {
+		fmt.Println("    GET  /studio/           - Osprey Studio (web UI)")
+	}
 	fmt.Println()
 }
 
@@ -456,6 +459,13 @@ func applyEnvOverrides(cfg *domain.Config) error {
 		return err
 	} else if ok {
 		cfg.Server.RateLimitBurst = b
+	}
+	if v := strings.TrimSpace(os.Getenv("OSPREY_STUDIO")); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("OSPREY_STUDIO must be true or false")
+		}
+		cfg.Server.Studio = enabled
 	}
 	return applyDetectionOverrides(cfg)
 }

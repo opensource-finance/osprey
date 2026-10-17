@@ -57,11 +57,16 @@ curl -fsS -X POST http://localhost:8080/evaluate \
   -d @docs/examples/evaluate-alert.json
 ```
 
+5. To do the same steps in a browser, open Osprey Studio at `http://localhost:8080/studio/`.
+   Studio lets you write rules, send test transactions, and read each decision.
+   Refer to [Osprey Studio](docs/STUDIO.md).
+
 ## Docs
 
 Start here:
 
 - [Quickstart](docs/QUICKSTART.md)
+- [Osprey Studio](docs/STUDIO.md)
 - [Sandbox and API guide](docs/SANDBOX.md)
 - [Rule and typology authoring](docs/RULE_TYPOLOGY_AUTHORING.md)
 - [Starter kit rules](docs/STARTER_KIT.md)
@@ -133,6 +138,7 @@ The `community` profile is the default. It is the easiest profile for a local Os
 | `OSPREY_ALERT_THRESHOLD` | `0.7` | Detection mode: the score at or above which Osprey gives `ALRT`. A value more than `0` and not more than `1`. |
 | `OSPREY_SCORING` | `sum` | Detection mode: `sum` adds score x weight of each rule, with a maximum of `1`. `average` divides by the total weight of all rules (the behavior before v0.2). |
 | `OSPREY_VELOCITY_CLOCK` | `received` | `received` uses the time when Osprey received each transaction for velocity windows. `event` uses the `timestamp` field. Use `event` only to replay historical data, because the caller controls `timestamp`. |
+| `OSPREY_STUDIO` | `true` | Serves Osprey Studio at `/studio/`. Set `false` to turn it off. |
 
 ## API
 

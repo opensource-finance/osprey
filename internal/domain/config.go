@@ -52,6 +52,9 @@ type ServerConfig struct {
 	RateLimitRPS float64 `json:"rateLimitRps"`
 	// RateLimitBurst is the per-tenant burst size. Defaults to RateLimitRPS when unset.
 	RateLimitBurst int `json:"rateLimitBurst"`
+
+	// Studio serves the Osprey Studio web UI at /studio/. On by default.
+	Studio bool `json:"studio"`
 }
 
 // DetectionConfig holds the settings that turn rule scores into a decision.
@@ -94,6 +97,7 @@ func DefaultConfig() *Config {
 			Port:         8080,
 			ReadTimeout:  30,
 			WriteTimeout: 30,
+			Studio:       true,
 		},
 		Tier:           TierCommunity,
 		EvaluationMode: ModeDetection, // Default: fast fraud detection

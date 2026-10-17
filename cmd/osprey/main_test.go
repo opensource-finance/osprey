@@ -90,6 +90,29 @@ func TestApplyEnvOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("StudioOnByDefaultAndCanBeTurnedOff", func(t *testing.T) {
+		cfg := domain.DefaultConfig()
+		if err := applyEnvOverrides(cfg); err != nil {
+			t.Fatalf("expected env overrides to apply: %v", err)
+		}
+		if !cfg.Server.Studio {
+			t.Fatal("expected the studio to be on by default")
+		}
+
+		t.Setenv("OSPREY_STUDIO", " false ")
+		if err := applyEnvOverrides(cfg); err != nil {
+			t.Fatalf("expected env overrides to apply: %v", err)
+		}
+		if cfg.Server.Studio {
+			t.Fatal("expected OSPREY_STUDIO=false to turn the studio off")
+		}
+
+		t.Setenv("OSPREY_STUDIO", "maybe")
+		if err := applyEnvOverrides(cfg); err == nil || !strings.Contains(err.Error(), "OSPREY_STUDIO") {
+			t.Fatalf("expected OSPREY_STUDIO error, got %v", err)
+		}
+	})
+
 	t.Run("PreservesSecretWhitespace", func(t *testing.T) {
 		t.Setenv("OSPREY_POSTGRES_PASSWORD", " secret with spaces ")
 		t.Setenv("OSPREY_REDIS_PASSWORD", " redis secret ")
