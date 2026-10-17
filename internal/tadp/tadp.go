@@ -181,10 +181,13 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 	agg := &AggregateResult{}
 
 	for _, r := range results {
+		// Honor the configured weight verbatim. A weight of 0 means the rule
+		// contributes nothing to the weighted aggregate score (it is still
+		// evaluated, and .fail/.err still force ALRT). This matches the
+		// typology scoring path, where contribution = score * weight with no
+		// clamp, so the rule and typology paths agree on what weight 0 means.
+		// The create/update API validates that weight is in [0, 1].
 		weight := r.Weight
-		if weight <= 0 {
-			weight = 1.0
-		}
 
 		// .fail and .err (rule failed to evaluate) force ALRT.
 		switch r.SubRuleRef {

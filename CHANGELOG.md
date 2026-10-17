@@ -100,6 +100,13 @@ This file records all notable changes to this project. The format follows
   In compliance mode this changed the final decision, or returned `503` on every later `POST /evaluate` when it was the last enabled typology.
   The handler now returns `400 enabled is required`, the same guard `PUT /rules/{id}` already has.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- A rule saved with `weight: 0` now adds nothing to the detection aggregate score.
+  Before this change, the create and update APIs accepted `weight: 0` and stored it, but the TADP aggregator clamped any weight at or below `0` up to `1.0`.
+  A rule the author treated as out of the score then contributed at full strength, and it could push a transaction over `AlertThreshold` for a false `ALRT`.
+  The weight also inflated `TotalWeight`, which lowered the score when the rule's own score was low.
+  The typology scoring path already treated `0` as no contribution, so the two paths disagreed.
+  Now the aggregator honors the configured weight as-is, and `.fail` or `.err` on a zero-weight rule still forces `ALRT`.
+  The create and update APIs treat an omitted or `null` weight as the default `1.0`, so an omitted field keeps its old behavior.
 
 ### Security
 

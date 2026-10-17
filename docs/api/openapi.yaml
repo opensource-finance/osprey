@@ -901,6 +901,8 @@ components:
           type: number
           minimum: 0
           maximum: 1
+          default: 1
+          description: Rule weight from 0 to 1. A weight of 0 means the rule is evaluated but adds nothing to the score. If you omit the field, the weight is 1.
         enabled:
           type: boolean
     RuleBand:
@@ -984,6 +986,7 @@ components:
           type: number
           minimum: 0
           maximum: 1
+          description: Rule weight from 0 to 1. A weight of 0 adds nothing to the typology score.
     ListTypologiesResponse:
       type: object
       required: [typologies, count, source]

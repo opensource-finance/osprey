@@ -7,7 +7,230 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/opensource-finance/osprey/internal/domain"
 )
+
+// postRuleJSON sends a raw JSON rule body to POST /rules and returns the
+// response recorder. It does not assume any field defaults so callers can
+// probe boundary behavior such as weight 0 or omitted weight.
+func postRuleJSON(t *testing.T, server *Server, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-weight")
+	setAdminAuth(req)
+	resp := httptest.NewRecorder()
+	server.Router().ServeHTTP(resp, req)
+	return resp
+}
+
+// getRuleJSON fetches a rule from the active engine and returns its decoded
+// body. Fails the test if the rule is not found or the body is not an object.
+func getRuleJSON(t *testing.T, server *Server, id string) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/rules/"+id, nil)
+	req.Header.Set("X-Tenant-ID", "tenant-weight")
+	resp := httptest.NewRecorder()
+	server.Router().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("get rule %s: expected 200, got %d: %s", id, resp.Code, resp.Body.String())
+	}
+	var rule map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &rule); err != nil {
+		t.Fatalf("decode rule %s: %v", id, err)
+	}
+	return rule
+}
+
+// TestRuleWeightZeroSemantics covers the zero-weight bug fix at the API boundary:
+// an explicit weight of 0 is accepted and persisted verbatim, while an omitted
+// (or null) weight defaults to 1.0 so callers that rely on the implicit default
+// do not silently change behavior.
+func TestRuleWeightZeroSemantics(t *testing.T) {
+	server, cleanup := createPersistentTestServer(t)
+	defer cleanup()
+
+	t.Run("ExplicitZeroAcceptedAndPersistedAsZero", func(t *testing.T) {
+		body := `{"id":"zero-rule","name":"Zero","expression":"amount > 1.0","weight":0,"enabled":true}`
+		resp := postRuleJSON(t, server, body)
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("expected 201 for explicit weight 0, got %d: %s", resp.Code, resp.Body.String())
+		}
+		var created struct {
+			Rule struct {
+				Weight float64 `json:"weight"`
+			} `json:"rule"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
+			t.Fatalf("decode create response: %v", err)
+		}
+		if created.Rule.Weight != 0 {
+			t.Errorf("create response: expected weight 0, got %v", created.Rule.Weight)
+		}
+		if got := getRuleJSON(t, server, "zero-rule")["weight"]; got != 0.0 {
+			t.Errorf("active engine: expected weight 0, got %v", got)
+		}
+	})
+
+	t.Run("OmittedWeightDefaultsToOne", func(t *testing.T) {
+		// No "weight" field at all. The JSON zero-value would be 0, but the
+		// pointer field lets the handler default it to 1.0.
+		body := `{"id":"default-rule","name":"Default","expression":"amount > 1.0","enabled":true}`
+		resp := postRuleJSON(t, server, body)
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("expected 201 for omitted weight, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if got := getRuleJSON(t, server, "default-rule")["weight"]; got != 1.0 {
+			t.Errorf("expected omitted weight to default to 1.0, got %v", got)
+		}
+	})
+
+	t.Run("NullWeightDefaultsToOne", func(t *testing.T) {
+		body := `{"id":"null-rule","name":"Null","expression":"amount > 1.0","weight":null,"enabled":true}`
+		resp := postRuleJSON(t, server, body)
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("expected 201 for null weight, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if got := getRuleJSON(t, server, "null-rule")["weight"]; got != 1.0 {
+			t.Errorf("expected null weight to default to 1.0, got %v", got)
+		}
+	})
+
+	t.Run("NegativeWeightRejected", func(t *testing.T) {
+		body := `{"id":"neg-rule","name":"Neg","expression":"amount > 1.0","weight":-0.1,"enabled":true}`
+		resp := postRuleJSON(t, server, body)
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for negative weight, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if !strings.Contains(resp.Body.String(), "weight must be between 0 and 1") {
+			t.Fatalf("expected weight validation message, got %s", resp.Body.String())
+		}
+	})
+
+	t.Run("UpdateToExplicitZeroPersisted", func(t *testing.T) {
+		createRuleForTest(t, server, "update-zero", "amount > 1.0")
+
+		body := `{"name":"Updated","expression":"amount > 2.0","weight":0,"enabled":true}`
+		req := httptest.NewRequest(http.MethodPut, "/rules/update-zero", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-weight")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected 200 for update to weight 0, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if got := getRuleJSON(t, server, "update-zero")["weight"]; got != 0.0 {
+			t.Errorf("expected updated weight 0, got %v", got)
+		}
+	})
+
+	t.Run("UpdateOmittedWeightDefaultsToOne", func(t *testing.T) {
+		createRuleForTest(t, server, "update-default", "amount > 1.0")
+
+		// Omit weight on update; the handler defaults it to 1.0 rather than
+		// silently zeroing the rule's contribution.
+		body := `{"name":"Updated","expression":"amount > 2.0","enabled":true}`
+		req := httptest.NewRequest(http.MethodPut, "/rules/update-default", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-weight")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected 200 for update with omitted weight, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if got := getRuleJSON(t, server, "update-default")["weight"]; got != 1.0 {
+			t.Errorf("expected omitted update weight to default to 1.0, got %v", got)
+		}
+	})
+}
+
+// TestRuleZeroWeightDoesNotInflateDetectionScore is an end-to-end check in
+// detection mode. A high-scoring rule saved with weight 0 must not pull the
+// aggregate score up or push the transaction over the alert threshold. With
+// the old clamp (weight 0 -> 1.0) this scenario produced a false ALRT.
+func TestRuleZeroWeightDoesNotInflateDetectionScore(t *testing.T) {
+	server, cleanup := createPersistentTestServer(t)
+	defer cleanup()
+
+	// Contributing rule: weighted 1.0, score 0.6 on amount > 50.
+	contrib := `{"id":"contrib-rule","name":"Contrib","expression":"amount > 50.0 ? 0.6 : 0.0","weight":1.0,"enabled":true}`
+	if resp := postRuleJSON(t, server, contrib); resp.Code != http.StatusCreated {
+		t.Fatalf("create contrib rule: expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	// Monitor-only rule: weighted 0, score 1.0 on amount > 50. It must count
+	// toward nothing even though its own score is the maximum.
+	monitor := `{"id":"monitor-rule","name":"Monitor","expression":"amount > 50.0 ? 1.0 : 0.0","weight":0.0,"enabled":true}`
+	if resp := postRuleJSON(t, server, monitor); resp.Code != http.StatusCreated {
+		t.Fatalf("create monitor rule: expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// Evaluate at amount 100 (both rules fire).
+	txBody, _ := json.Marshal(TransactionRequest{
+		Type:     "transfer",
+		Debtor:   PartyInfo{ID: "d-w", AccountID: "a1"},
+		Creditor: PartyInfo{ID: "c-w", AccountID: "a2"},
+		Amount:   AmountInfo{Value: 100.0, Currency: "USD"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(txBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-weight")
+	resp := httptest.NewRecorder()
+	server.Router().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("evaluate: expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var er EvaluateResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &er); err != nil {
+		t.Fatalf("decode evaluation: %v", err)
+	}
+
+	// With the fix: (0.6*1.0 + 1.0*0.0) / 1.0 = 0.6 < 0.7 -> NALT.
+	// With the bug: (0.6 + 1.0) / 2.0 = 0.8 >= 0.7 -> ALRT.
+	if er.Status != "NALT" {
+		t.Errorf("expected NALT (zero-weight rule must not contribute), got %s (score %.3f)", er.Status, er.Score)
+	}
+	if er.Score < 0.599 || er.Score > 0.601 {
+		t.Errorf("expected score ~0.6, got %.3f", er.Score)
+	}
+
+	// Fetch the saved evaluation to prove the zero-weight rule was still
+	// evaluated and persisted with its true score and weight.
+	getReq := httptest.NewRequest(http.MethodGet, "/evaluations/"+er.EvaluationID, nil)
+	getReq.Header.Set("X-Tenant-ID", "tenant-weight")
+	getResp := httptest.NewRecorder()
+	server.Router().ServeHTTP(getResp, getReq)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("get evaluation: expected 200, got %d: %s", getResp.Code, getResp.Body.String())
+	}
+	var eval domain.Evaluation
+	if err := json.Unmarshal(getResp.Body.Bytes(), &eval); err != nil {
+		t.Fatalf("decode saved evaluation: %v", err)
+	}
+	var sawContrib, sawMonitor bool
+	for _, r := range eval.RuleResults {
+		switch r.RuleID {
+		case "contrib-rule":
+			sawContrib = true
+			if r.Weight != 1.0 || r.Score < 0.599 || r.Score > 0.601 {
+				t.Errorf("contrib-rule: expected weight 1.0 score 0.6, got weight %v score %v", r.Weight, r.Score)
+			}
+		case "monitor-rule":
+			sawMonitor = true
+			if r.Weight != 0.0 {
+				t.Errorf("monitor-rule: expected weight 0.0, got %v", r.Weight)
+			}
+			if r.Score < 0.999 || r.Score > 1.001 {
+				t.Errorf("monitor-rule: expected score 1.0, got %v", r.Score)
+			}
+		}
+	}
+	if !sawContrib || !sawMonitor {
+		t.Errorf("expected both rules in saved evaluation, got contrib=%v monitor=%v", sawContrib, sawMonitor)
+	}
+}
 
 // createRule is a small helper that POSTs a rule and asserts it was created.
 func createRuleForTest(t *testing.T, server *Server, id, expression string) {
