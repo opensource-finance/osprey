@@ -8,6 +8,17 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- PostgreSQL deployments now keep the full value of transaction amounts and scores.
+  Before this change, the migration kept the SQLite `REAL` column type on PostgreSQL.
+  PostgreSQL `REAL` is single precision (`float4`, about 7 significant digits).
+  The `amount`, `weight`, `score`, and `alert_threshold` columns rounded large values with no error.
+  For example, an amount of `1234567.89` was stored and returned as `1234567.9`.
+  The rounded amount also went into `velocity_amount_sum` for velocity rules.
+
+  The migration now uses `DOUBLE PRECISION` (`float8`) on PostgreSQL, the same precision as SQLite.
+  At startup, the migration also changes existing `real` columns to `double precision`.
+  This step keeps the value that the client saw before, so `0.1` stays `0.1`.
+  The upgrade cannot restore digits that `float4` already removed.
 - PostgreSQL deployments now start on a fresh database. Before this change, the
   `transactions` migration used the SQLite `BLOB` column type, which PostgreSQL
   does not have. The `CREATE TABLE` statement failed with `type "blob" does not
@@ -38,6 +49,11 @@ This file records all notable changes to this project. The format follows
   Now a `null` balance gives `0.0`, the same as a missing balance.
   A balance that is not a number or `null` makes `POST /evaluate` return `400`.
   The async worker logs an error and publishes no decision.
+- A very large `velocityWindow` no longer disables velocity rules.
+  Before this change, the async worker passed any positive `velocityWindow` to the velocity service.
+  A value above about `9223372036` seconds overflowed the window duration and put the window start in the future.
+  All velocity metrics read `0`, and a high-velocity transaction got `NALT` instead of `ALRT` with no error.
+  The velocity service now clamps the window to 30 days (`2592000` seconds), and the worker clamps the value and logs a warning.
 - The async worker now defaults a non-positive `velocityWindow` in a transaction message to `3600` (one hour).
   Before this change, the worker defaulted only a `0` value and let a negative value pass to the rule engine.
   The engine skips velocity lookups when `VelocityWindow <= 0`, so a negative value disabled all velocity rules for that transaction.
