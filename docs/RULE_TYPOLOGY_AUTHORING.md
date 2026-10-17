@@ -41,8 +41,10 @@ Use many simple rules, not one expression that is difficult to understand.
 | `velocity_distinct_creditors` | int | Count of different counterparties of the debtor in the window |
 
 If the request does not include `old_balance` or `new_balance`, the value is `0.0`.
+A `null` value also gives `0.0`.
 Thus, a rule that uses these variables does not cause an error if the request does not include them.
-To use real values, send them in `metadata`.
+To use real values, send them in `metadata` as numbers.
+If one of these values is not a number or `null`, `POST /evaluate` returns `400`.
 
 ### Custom fields and enrichment (`meta` / `enrichment`)
 

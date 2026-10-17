@@ -12,6 +12,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
+	"github.com/opensource-finance/osprey/internal/velocity"
 )
 
 // Worker processes transactions asynchronously from the EventBus.
@@ -209,6 +210,13 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 
 	if evalInput.VelocityWindow <= 0 {
 		evalInput.VelocityWindow = 3600 // Default 1 hour
+	} else if evalInput.VelocityWindow > velocity.MaxWindowSecs {
+		slog.Warn("velocityWindow above maximum, clamped",
+			"tx_id", txMsg.TxID,
+			"velocity_window", evalInput.VelocityWindow,
+			"max", velocity.MaxWindowSecs,
+		)
+		evalInput.VelocityWindow = velocity.MaxWindowSecs
 	}
 
 	ruleResults, err := w.engine.EvaluateAll(ctx, evalInput)
@@ -222,7 +230,10 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 
 	// 2. Evaluate typologies ONLY in Compliance mode
 	var typologyResults []domain.TypologyResult
-	if w.mode == domain.ModeCompliance && w.typologyEngine != nil && w.typologyEngine.TypologyCount() > 0 {
+	// EvaluateTypologies checks for an empty set under the same lock as the
+	// evaluation. If the set was emptied after the entry check, it returns no
+	// results and the processor fails closed.
+	if w.mode == domain.ModeCompliance && w.typologyEngine != nil {
 		typologyResults = w.typologyEngine.EvaluateTypologies(ruleResults)
 	}
 

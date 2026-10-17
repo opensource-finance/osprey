@@ -1,6 +1,12 @@
 package rules
 
-import "github.com/google/cel-go/cel"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/google/cel-go/cel"
+)
 
 // VariableDoc describes one variable available to CEL rule expressions.
 //
@@ -73,3 +79,53 @@ var metadataOverridable = func() map[string]struct{} {
 	}
 	return allow
 }()
+
+// ErrInvalidMetadata reports a metadata-sourced variable with a value that is
+// not a number.
+var ErrInvalidMetadata = errors.New("invalid metadata")
+
+// metadataNumber converts a metadata value for a double variable such as
+// old_balance. A JSON null means "not provided", the same as an absent key, so
+// ok is false and the caller keeps the 0.0 default. Any other value that is not
+// a number is an error. Without this check a string or null replaced the
+// float64 default, and CEL's cross-type == returned false, so
+// `new_balance == 0.0` did not match and a drain rule passed (issue #52).
+func metadataNumber(key string, v any) (f float64, ok bool, err error) {
+	switch n := v.(type) {
+	case nil:
+		return 0, false, nil
+	case float64:
+		return n, true, nil
+	case float32:
+		return float64(n), true, nil
+	case int:
+		return float64(n), true, nil
+	case int32:
+		return float64(n), true, nil
+	case int64:
+		return float64(n), true, nil
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return 0, false, fmt.Errorf("%w: metadata.%s must be a number or null", ErrInvalidMetadata, key)
+		}
+		return f, true, nil
+	default:
+		return 0, false, fmt.Errorf("%w: metadata.%s must be a number or null, got %T", ErrInvalidMetadata, key, v)
+	}
+}
+
+// ValidateMetadata checks that every metadata-sourced variable in md is a
+// number or null. Call it before the transaction is stored, so a bad request
+// gets a 400 instead of a failed evaluation.
+func ValidateMetadata(md map[string]any) error {
+	for k, v := range md {
+		if _, ok := metadataOverridable[k]; !ok {
+			continue
+		}
+		if _, _, err := metadataNumber(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}

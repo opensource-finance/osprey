@@ -1,7 +1,8 @@
 package repository
 
 // Schema definitions for Osprey database.
-// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA for PostgreSQL.
+// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA and
+// REAL → DOUBLE PRECISION for PostgreSQL.
 
 const schemaTransactions = `
 CREATE TABLE IF NOT EXISTS transactions (
@@ -69,7 +70,8 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_timestamp ON evaluations(tenant_id, t
 
 // schemaTypologies defines the typologies table.
 // Typologies group multiple rules with weights to calculate composite risk scores.
-// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA for PostgreSQL.
+// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA and
+// REAL → DOUBLE PRECISION for PostgreSQL.
 const schemaTypologies = `
 CREATE TABLE IF NOT EXISTS typologies (
     id TEXT NOT NULL,
