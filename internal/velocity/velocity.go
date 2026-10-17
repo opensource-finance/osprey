@@ -35,8 +35,11 @@ func NewService(repo domain.Repository, cache domain.Cache) *Service {
 	}
 }
 
-// GetTransactionCount returns the number of transactions for an entity within a time window.
-// This is the VelocityGetter function signature expected by the rule engine.
+// GetTransactionCount returns the number of outgoing transactions sent by an
+// entity within a time window. Velocity is a debtor-side metric (see the
+// velocity_* variable catalog: "transactions from the debtor"), so only rows
+// where the entity is the debtor count. This is the VelocityGetter function
+// signature expected by the rule engine.
 func (s *Service) GetTransactionCount(ctx context.Context, tenantID, entityID string, windowSecs int) (int64, error) {
 	if tenantID == "" || entityID == "" {
 		return 0, fmt.Errorf("tenantID and entityID are required")
@@ -52,11 +55,11 @@ func (s *Service) GetTransactionCount(ctx context.Context, tenantID, entityID st
 	return 0, fmt.Errorf("no data source available")
 }
 
-// countFromRepo uses the repository to get transactions and count them.
+// countFromRepo uses the repository to get outgoing transactions and count them.
 func (s *Service) countFromRepo(ctx context.Context, tenantID, entityID string, since time.Time) (int64, error) {
-	txs, err := s.repo.GetTransactionsByEntity(ctx, tenantID, entityID, since)
+	txs, err := s.outgoingTransactions(ctx, tenantID, entityID, since)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get transactions: %w", err)
+		return 0, err
 	}
 	return int64(len(txs)), nil
 }
@@ -90,9 +93,9 @@ func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID string, 
 
 // aggregatesFromRepo computes the metrics in Go from the repository result set.
 func (s *Service) aggregatesFromRepo(ctx context.Context, tenantID, entityID string, since time.Time) (Aggregates, error) {
-	txs, err := s.repo.GetTransactionsByEntity(ctx, tenantID, entityID, since)
+	txs, err := s.outgoingTransactions(ctx, tenantID, entityID, since)
 	if err != nil {
-		return Aggregates{}, fmt.Errorf("failed to get transactions: %w", err)
+		return Aggregates{}, err
 	}
 	a := Aggregates{Count: int64(len(txs))}
 	creditors := make(map[string]struct{}, len(txs))
@@ -104,4 +107,26 @@ func (s *Service) aggregatesFromRepo(ctx context.Context, tenantID, entityID str
 	}
 	a.DistinctCreditors = int64(len(creditors))
 	return a, nil
+}
+
+// outgoingTransactions returns the rows from GetTransactionsByEntity in which
+// entityID is the debtor. GetTransactionsByEntity matches the entity in either
+// role (debtor_id = ? OR creditor_id = ?) because other callers want both
+// directions, but the velocity_* metrics are defined for the debtor only.
+// Counting incoming rows inflated velocity_count and velocity_amount_sum, and
+// for incoming rows CreditorID is the entity itself, which surfaced as the
+// entity counting as its own creditor in velocity_distinct_creditors.
+func (s *Service) outgoingTransactions(ctx context.Context, tenantID, entityID string, since time.Time) ([]*domain.Transaction, error) {
+	txs, err := s.repo.GetTransactionsByEntity(ctx, tenantID, entityID, since)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions: %w", err)
+	}
+	out := make([]*domain.Transaction, 0, len(txs))
+	for _, tx := range txs {
+		if tx.DebtorID != entityID {
+			continue
+		}
+		out = append(out, tx)
+	}
+	return out, nil
 }

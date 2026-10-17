@@ -82,13 +82,15 @@ func TestVelocityService(t *testing.T) {
 			t.Errorf("expected count 5 for debtor, got %d", count)
 		}
 
-		// Check creditor velocity
+		// A creditor-only entity (user-002 only received funds, never sent) has
+		// zero outgoing velocity: velocity_count is a debtor-side metric, so
+		// incoming rows must not inflate it.
 		count, err = svc.GetTransactionCount(ctx, tenantID, "user-002", 3600)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if count != 5 {
-			t.Errorf("expected count 5 for creditor, got %d", count)
+		if count != 0 {
+			t.Errorf("expected count 0 for creditor-only entity (debtor-only), got %d", count)
 		}
 
 		// Check unknown user

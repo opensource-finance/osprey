@@ -50,6 +50,16 @@ This file records all notable changes to this project. The format follows
   In compliance mode this changed the final decision, or returned `503` on every later `POST /evaluate` when it was the last enabled typology.
   The handler now returns `400 enabled is required`, the same guard `PUT /rules/{id}` already has.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- The velocity aggregates now count only the debtor's outgoing transactions.
+  Before this change, `GetTransactionsByEntity` matched the entity as debtor or
+  creditor, and the velocity service treated every returned row as outgoing.
+  Incoming transactions inflated `velocity_count` and `velocity_amount_sum`,
+  and the entity itself appeared in `velocity_distinct_creditors` for rows where
+  it was the creditor. A velocity rule such as `velocity_distinct_creditors > N`
+  could false-positive, and a malicious party could flood a victim with incoming
+  payments to trip a velocity rule on the victim's next outgoing payment. The
+  velocity service now filters to rows where the entity is the debtor, matching
+  the documented semantics.
 
 ### Security
 
