@@ -11,6 +11,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
+	"github.com/opensource-finance/osprey/internal/velocity"
 )
 
 func TestVelocityBypass_NegativeWindowSkipsVelocity(t *testing.T) {
@@ -18,8 +19,10 @@ func TestVelocityBypass_NegativeWindowSkipsVelocity(t *testing.T) {
 	defer func() { _ = eventBus.Close() }()
 
 	var getterCalls atomic.Int32
+	var lastWindow atomic.Int64
 	velocityGetter := func(ctx context.Context, tenantID, entityID string, windowSecs int) (int64, error) {
 		getterCalls.Add(1)
+		lastWindow.Store(int64(windowSecs))
 		return 100, nil
 	}
 	engine, _ := rules.NewEngine(velocityGetter, 2)
@@ -100,5 +103,15 @@ func TestVelocityBypass_NegativeWindowSkipsVelocity(t *testing.T) {
 	if statusBypass != domain.StatusAlert {
 		t.Errorf("bypass: expected ALRT, got %s (score=%.1f) — velocity lookup was skipped because velocityWindow=-1 passed the == 0 guard",
 			statusBypass, scoreBypass)
+	}
+
+	// Issue #64: a window above the maximum is clamped, so the velocity
+	// service never sees a value that overflows time.Duration.
+	statusHuge, scoreHuge := runCase(t, "tx-huge", 10000000000)
+	if statusHuge != domain.StatusAlert {
+		t.Errorf("huge window: expected ALRT, got %s (score=%.1f)", statusHuge, scoreHuge)
+	}
+	if got := lastWindow.Load(); got != velocity.MaxWindowSecs {
+		t.Errorf("huge window: velocity getter got windowSecs=%d, want %d", got, velocity.MaxWindowSecs)
 	}
 }

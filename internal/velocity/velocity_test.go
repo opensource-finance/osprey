@@ -3,6 +3,7 @@ package velocity
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -244,4 +245,62 @@ func TestVelocityCountWindowsOnIngestTime(t *testing.T) {
 			t.Fatalf("expected 1 transaction within the created_at window, got %d", count)
 		}
 	})
+}
+
+// TestVelocityHugeWindowDoesNotOverflow covers issue #64. A window above about
+// 9.2e9 seconds overflowed time.Duration, put the window start in the future,
+// and returned a count of 0, so velocity rules never fired.
+func TestVelocityHugeWindowDoesNotOverflow(t *testing.T) {
+	tmpPath := t.TempDir() + "/velocity-overflow.db"
+	repo, err := repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: tmpPath})
+	if err != nil {
+		t.Fatalf("failed to create repository: %v", err)
+	}
+	defer func() { _ = repo.Close() }()
+
+	svc := NewService(repo, cache.NewLRUCache(100))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i := range 3 {
+		tx := &domain.Transaction{
+			ID:              fmt.Sprintf("huge-%d", i),
+			Type:            "transfer",
+			DebtorID:        "debtor-huge",
+			DebtorAccountID: "acc-d",
+			CreditorID:      "creditor-x",
+			CreditorAcctID:  "acc-c",
+			Amount:          100.0,
+			Currency:        "USD",
+			Timestamp:       now,
+			CreatedAt:       now,
+		}
+		if err := repo.SaveTransaction(ctx, "tenant-huge", tx); err != nil {
+			t.Fatalf("SaveTransaction failed: %v", err)
+		}
+	}
+
+	for _, window := range []int{9223372037, 10000000000, math.MaxInt} {
+		count, err := svc.GetTransactionCount(ctx, "tenant-huge", "debtor-huge", window)
+		if err != nil {
+			t.Fatalf("GetTransactionCount(%d) failed: %v", window, err)
+		}
+		if count != 3 {
+			t.Errorf("GetTransactionCount(window=%d) = %d, want 3", window, count)
+		}
+		agg, err := svc.GetAggregates(ctx, "tenant-huge", "debtor-huge", window)
+		if err != nil {
+			t.Fatalf("GetAggregates(%d) failed: %v", window, err)
+		}
+		if agg.Count != 3 || agg.AmountSum != 300 {
+			t.Errorf("GetAggregates(window=%d) = %+v, want Count 3 and AmountSum 300", window, agg)
+		}
+	}
+}
+
+func TestWindowStartClampsToMax(t *testing.T) {
+	got := time.Since(windowStart(math.MaxInt))
+	want := time.Duration(MaxWindowSecs) * time.Second
+	if got < want || got > want+time.Minute {
+		t.Errorf("windowStart(MaxInt) is %v ago, want about %v", got, want)
+	}
 }
