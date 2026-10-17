@@ -303,6 +303,25 @@ func TestEvaluateEndpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("NonNumericBalanceMetadata", func(t *testing.T) {
+		// Issue #52: a string balance used to make `new_balance == 0.0` false.
+		body := []byte(`{"type":"transfer","debtor":{"id":"d-52"},"creditor":{"id":"c-52"},` +
+			`"amount":{"value":100,"currency":"USD"},"metadata":{"old_balance":15000,"new_balance":"0"}}`)
+		req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "metadata.new_balance must be a number or null") {
+			t.Errorf("unexpected error body: %s", rr.Body.String())
+		}
+	})
+
 	t.Run("MissingTenantID", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBufferString("{}"))
 		req.Header.Set("Content-Type", "application/json")

@@ -633,7 +633,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-          description: Facts that the caller supplies. Rules get these facts in the `meta` map. Use has() to check for optional keys.
+          description: Facts that the caller supplies. Rules get these facts in the `meta` map. Use has() to check for optional keys. The `old_balance` and `new_balance` keys must be numbers or null, or the request gets a 400 response.
         enrichment:
           type: object
           additionalProperties: true

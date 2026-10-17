@@ -198,8 +198,15 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 
 	// Metadata may only set metadata-sourced vars, never amount, tx_type, velocity_*, etc.
 	for k, v := range input.AdditionalData {
-		if _, ok := metadataOverridable[k]; ok {
-			activation[k] = v
+		if _, ok := metadataOverridable[k]; !ok {
+			continue
+		}
+		f, ok, err := metadataNumber(k, v)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			activation[k] = f
 		}
 	}
 

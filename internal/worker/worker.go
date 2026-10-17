@@ -12,6 +12,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
+	"github.com/opensource-finance/osprey/internal/velocity"
 )
 
 // Worker processes transactions asynchronously from the EventBus.
@@ -209,6 +210,13 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 
 	if evalInput.VelocityWindow <= 0 {
 		evalInput.VelocityWindow = 3600 // Default 1 hour
+	} else if evalInput.VelocityWindow > velocity.MaxWindowSecs {
+		slog.Warn("velocityWindow above maximum, clamped",
+			"tx_id", txMsg.TxID,
+			"velocity_window", evalInput.VelocityWindow,
+			"max", velocity.MaxWindowSecs,
+		)
+		evalInput.VelocityWindow = velocity.MaxWindowSecs
 	}
 
 	ruleResults, err := w.engine.EvaluateAll(ctx, evalInput)

@@ -9,6 +9,18 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
+// MaxWindowSecs is the longest velocity window, 30 days. A larger window is
+// clamped to it. Without the clamp, a window above about 9.2e9 seconds
+// overflows time.Duration, wraps negative, and puts the window start in the
+// future, so every velocity metric reads 0 and velocity rules never fire.
+const MaxWindowSecs = 30 * 24 * 60 * 60
+
+// windowStart returns the start of a velocity window that ends now.
+func windowStart(windowSecs int) time.Time {
+	windowSecs = min(windowSecs, MaxWindowSecs)
+	return time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
+}
+
 // Service calculates transaction velocity for entities.
 type Service struct {
 	repo  domain.Repository
@@ -31,7 +43,7 @@ func (s *Service) GetTransactionCount(ctx context.Context, tenantID, entityID st
 	}
 
 	// Query the repository for the actual count (caching would require careful TTL management)
-	since := time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
+	since := windowStart(windowSecs)
 
 	if s.repo != nil {
 		return s.countFromRepo(ctx, tenantID, entityID, since)
@@ -68,7 +80,7 @@ func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID string, 
 		return Aggregates{}, fmt.Errorf("tenantID and entityID are required")
 	}
 
-	since := time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
+	since := windowStart(windowSecs)
 
 	if s.repo != nil {
 		return s.aggregatesFromRepo(ctx, tenantID, entityID, since)
