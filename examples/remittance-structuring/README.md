@@ -22,7 +22,7 @@ The pattern shows only across the transfers.
 
 ## Run It
 
-You need Go 1.26+ and Python 3.
+You need Go 1.26+, Python 3, and curl.
 The example uses only the Python standard library.
 
 From the repository root, run this command:

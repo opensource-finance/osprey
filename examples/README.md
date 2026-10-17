@@ -11,7 +11,7 @@ The script checks each decision, so the output in each walkthrough is the real o
 
 ## Run All Examples
 
-You need Go 1.26+ and Python 3.
+You need Go 1.26+, Python 3, and curl.
 To run all examples, run this command from the repository root:
 
 ```bash
