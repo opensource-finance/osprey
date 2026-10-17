@@ -102,39 +102,6 @@ func (c *TwoPhaseCache) Delete(ctx context.Context, tenantID string, key string)
 	return c.remote.Delete(ctx, tenantID, key)
 }
 
-// GetTransaction retrieves cached transaction data.
-func (c *TwoPhaseCache) GetTransaction(ctx context.Context, tenantID string, txID string) (*domain.DataCache, error) {
-	// Check L1 first
-	data, err := c.local.GetTransaction(ctx, tenantID, txID)
-	if err != nil {
-		return nil, err
-	}
-	if data != nil {
-		return data, nil
-	}
-
-	// Check L2
-	data, err = c.remote.GetTransaction(ctx, tenantID, txID)
-	if err != nil {
-		return nil, err
-	}
-	if data != nil {
-		// Populate L1
-		_ = c.local.SetTransaction(ctx, tenantID, txID, data, c.l1TTL)
-	}
-
-	return data, nil
-}
-
-// SetTransaction caches transaction data in both L1 and L2.
-func (c *TwoPhaseCache) SetTransaction(ctx context.Context, tenantID string, txID string, data *domain.DataCache, ttl time.Duration) error {
-	l1TTL := min(ttl, c.l1TTL)
-	if err := c.local.SetTransaction(ctx, tenantID, txID, data, l1TTL); err != nil {
-		return err
-	}
-	return c.remote.SetTransaction(ctx, tenantID, txID, data, ttl)
-}
-
 // IncrementCounter uses Redis for distributed atomic counters.
 // L1 is not used for counters to ensure accuracy across nodes.
 func (c *TwoPhaseCache) IncrementCounter(ctx context.Context, tenantID string, key string, window time.Duration) (int64, error) {

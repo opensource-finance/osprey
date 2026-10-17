@@ -4,12 +4,9 @@ package cache
 import (
 	"container/list"
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/opensource-finance/osprey/internal/domain"
 )
 
 // LRUCache is a thread-safe LRU cache with TTL support.
@@ -125,29 +122,6 @@ func (c *LRUCache) Delete(ctx context.Context, tenantID string, key string) erro
 		c.removeElement(elem)
 	}
 	return nil
-}
-
-// GetTransaction retrieves cached transaction data.
-func (c *LRUCache) GetTransaction(ctx context.Context, tenantID string, txID string) (*domain.DataCache, error) {
-	data, err := c.Get(ctx, tenantID, "tx:"+txID)
-	if err != nil || data == nil {
-		return nil, err
-	}
-
-	var dc domain.DataCache
-	if err := json.Unmarshal(data, &dc); err != nil {
-		return nil, err
-	}
-	return &dc, nil
-}
-
-// SetTransaction caches transaction data.
-func (c *LRUCache) SetTransaction(ctx context.Context, tenantID string, txID string, data *domain.DataCache, ttl time.Duration) error {
-	bytes, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	return c.Set(ctx, tenantID, "tx:"+txID, bytes, ttl)
 }
 
 // IncrementCounter atomically increments a counter.
