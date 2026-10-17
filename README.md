@@ -57,11 +57,16 @@ curl -fsS -X POST http://localhost:8080/evaluate \
   -d @docs/examples/evaluate-alert.json
 ```
 
+5. To do the same steps in a browser, open Osprey Studio at `http://localhost:8080/studio/`.
+   Studio lets you write rules, send test transactions, and read each decision.
+   Refer to [Osprey Studio](docs/STUDIO.md).
+
 ## Docs
 
 Start here:
 
 - [Quickstart](docs/QUICKSTART.md)
+- [Osprey Studio](docs/STUDIO.md)
 - [Sandbox and API guide](docs/SANDBOX.md)
 - [Rule and typology authoring](docs/RULE_TYPOLOGY_AUTHORING.md)
 - [Starter kit rules](docs/STARTER_KIT.md)
@@ -129,6 +134,7 @@ The `community` profile is the default. It is the easiest profile for a local Os
 | `OSPREY_TENANTS` | unset | Optional. A comma-separated list of tenants for async workers. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` (off) | Requests per second for each tenant. `0` disables the rate limit. Set `0` for load tests. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant. |
+| `OSPREY_STUDIO` | `true` | Serves Osprey Studio at `/studio/`. Set `false` to turn it off. |
 
 ## API
 

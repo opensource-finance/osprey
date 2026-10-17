@@ -237,6 +237,40 @@ paths:
                         access: { type: string }
                         note: { type: string }
                         description: { type: string }
+  /rules/validate:
+    post:
+      tags: [Rules]
+      summary: Compile a CEL rule expression and report if it is valid. This call does not save or load a rule.
+      security:
+        - TenantHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expression]
+              additionalProperties: false
+              properties:
+                expression:
+                  type: string
+                  example: amount > 10000.0
+      responses:
+        "200":
+          description: The compile result. A compile error is a normal result with valid set to false.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid:
+                    type: boolean
+                  error:
+                    type: string
+                    description: The compile error. Present only when valid is false.
+        "400":
+          description: The body is not valid JSON, or the expression is empty.
   /rules/{id}:
     get:
       tags: [Rules]

@@ -11,6 +11,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/rules"
 	"github.com/opensource-finance/osprey/internal/tadp"
+	"github.com/opensource-finance/osprey/studio"
 )
 
 // Server represents the HTTP API server.
@@ -42,6 +43,15 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 	router.Get("/health", handler.Health)
 	router.Get("/ready", handler.Ready)
 
+	// Osprey Studio: static browser UI (no tenant required to load the page;
+	// every API call it makes goes through the tenant and admin checks below).
+	if cfg.Studio {
+		router.Get("/studio", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, studio.Prefix, http.StatusMovedPermanently)
+		})
+		router.Handle(studio.Prefix+"*", studio.Handler())
+	}
+
 	// API routes (tenant required)
 	router.Route("/", func(r chi.Router) {
 		r.Use(TenantMiddleware)
@@ -58,7 +68,8 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 
 		// Rule management
 		r.Get("/rules", handler.ListRules)
-		r.Get("/rules/variables", handler.ListVariables) // static route before /rules/{id}
+		r.Get("/rules/variables", handler.ListVariables)      // static route before /rules/{id}
+		r.Post("/rules/validate", handler.ValidateExpression) // compile check only; changes nothing
 		r.Get("/rules/{id}", handler.GetRule)
 		r.Group(func(r chi.Router) {
 			r.Use(AdminMiddleware(cfg.AdminToken))

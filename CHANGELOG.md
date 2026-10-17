@@ -6,6 +6,16 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Osprey Studio, a web page at `/studio/` to write rules and typologies, send test transactions, and read each decision.
+  Before this change, the only way to author rules and test them was `curl` against the API.
+  Now Osprey serves Studio from the binary, with no install and no build step.
+  Studio compiles CEL expressions as you type, shows the reason for each decision, and imports and exports rules and typologies as JSON.
+  Set `OSPREY_STUDIO=false` to turn it off. Refer to `docs/STUDIO.md`.
+- `POST /rules/validate` compiles a CEL rule expression and returns `valid` and the compile error.
+  It does not save or load a rule, so it does not need the admin token.
+
 ### Fixed
 
 - SQLite now opens the correct file and uses WAL mode when `OSPREY_SQLITE_PATH` contains `?`, `#`, or `%`.

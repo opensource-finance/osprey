@@ -403,6 +403,39 @@ func (h *Handler) ListVariables(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ValidateExpressionRequest is the request body for POST /rules/validate.
+type ValidateExpressionRequest struct {
+	Expression string `json:"expression"`
+}
+
+// ValidateExpression compiles a CEL rule expression against the rule
+// environment and reports whether it is valid. It does not save or load
+// anything, so it needs no admin token. A compile error is a normal result
+// (200 with valid=false), not a request error.
+func (h *Handler) ValidateExpression(w http.ResponseWriter, r *http.Request) {
+	var req ValidateExpressionRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	expr := strings.TrimSpace(req.Expression)
+	if expr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "expression is required",
+		})
+		return
+	}
+
+	err := h.engine.ValidateRule(&domain.RuleConfig{ID: "expression", Expression: expr})
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"valid": false,
+			"error": err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true})
+}
+
 // ListRules returns the rules currently active in the evaluation engine.
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
 	loadedRules := h.engine.GetLoadedRules()
