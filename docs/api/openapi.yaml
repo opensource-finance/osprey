@@ -663,7 +663,7 @@ components:
         timestamp:
           type: string
           format: date-time
-          description: An optional RFC3339 timestamp for the transaction.
+          description: An optional RFC3339 timestamp for the transaction. If you do not send it, Osprey uses the time when it received the transaction. Velocity windows use this value only when Osprey runs with `OSPREY_VELOCITY_CLOCK=event`.
         metadata:
           type: object
           additionalProperties: true

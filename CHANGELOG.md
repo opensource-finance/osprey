@@ -15,8 +15,48 @@ This file records all notable changes to this project. The format follows
   Set `OSPREY_STUDIO=false` to turn it off. Refer to `docs/STUDIO.md`.
 - `POST /rules/validate` compiles a CEL rule expression and returns `valid` and the compile error.
   It does not save or load a rule, so it does not need the admin token.
+- `examples/`: two small projects that use Osprey, with walkthroughs and real
+  output. One finds money-mule activity in detection mode. One finds structuring
+  and sanctions matches in compliance mode. `make examples` runs both and fails
+  if a decision changes.
+- `OSPREY_VELOCITY_CLOCK=event` makes velocity windows use the `timestamp` field of each transaction.
+  Use it to replay historical data. The default, `received`, uses the time when Osprey received the transaction.
+- `OSPREY_ALERT_THRESHOLD` sets the detection-mode alert threshold. Before this change, `0.7` was fixed in the code.
+- `OSPREY_SCORING` selects the detection-mode scoring: `sum` (the new default) or `average`.
+- The CEL variables `velocity_inbound_count` and `velocity_inbound_amount_sum`.
+  They count the payments that the debtor received in the velocity window.
+- The starter-kit rules `pass-through-001` and `fan-out-001`.
+- `cmd/qualitybench` measures precision and recall of a rule set on the labelled PaySim dataset.
+  With `-velocity`, it replays the rows in order with velocity windows on PaySim time.
+- `cmd/benchmark` sends the PaySim time of each row as `timestamp`.
+
+### Changed
+
+- **Breaking:** detection mode now adds `score x weight` for each rule, with a maximum of `1.0`.
+  Before this change, the score was the weighted average over all active rules.
+  Each new rule lowered the score of every transaction that it did not match.
+  To keep the old behavior, set `OSPREY_SCORING=average`.
+  Rule sets that were tuned for the average can alert much more with `sum`, so examine your weights.
+- The starter kit (`fatf-rules.json`, `fatf-typologies.json`, `paysim-rules.json`) is now version 2.0.0.
+  No rule uses `.fail` for a weak signal. Account drain caused an alert alone before, which flagged 24% of PaySim traffic.
+  On all of PaySim, the PaySim rules now alert on 0.13% of transactions with 97.6% recall.
+  The [starter kit guide](docs/STARTER_KIT.md) gives the measured numbers and their limits.
+- `seed-paysim.sh` and `paysim-rules.json` no longer say "100% precision" without context.
+  That claim was false for the v1 rules (0.5% precision).
 
 ### Fixed
+
+- Velocity lookups no longer read every transaction of the tenant in the window.
+  The query used `debtor_id = ? OR creditor_id = ?`, and SQLite searched the `(tenant_id, created_at)` index.
+  Thus, each evaluation got slower as traffic grew.
+  Now the query searches new `(tenant_id, debtor_id, ...)` and `(tenant_id, creditor_id, ...)` indexes.
+  With the HTTP benchmark on 20,000 PaySim rows, throughput went from 84 to 838 transactions per second.
+  Osprey creates the new indexes at startup.
+- `velocity_distinct_creditors` now counts only the payees that the debtor sent money to.
+  Before this change, it also counted payments that the debtor received, so an account that received money counted itself as a payee.
+- Osprey rounds detection and typology scores to 9 decimal places before it compares them with the threshold.
+  Before this change, a sum could miss its threshold by the last binary digit.
+  For example, weights `0.1` and `0.7` add up to `0.7999999999999999`, which is less than a threshold of `0.8`.
 
 - SQLite now opens the correct file and uses WAL mode when `OSPREY_SQLITE_PATH` contains `?`, `#`, or `%`.
   Before this change, Osprey put the path into the SQLite connection URI with no encoding.

@@ -162,20 +162,13 @@ func main() {
 	velocitySvc := velocity.NewService(repo, cacheImpl)
 	slog.Info("velocity service initialized")
 
-	// Initialize Rule Engine with velocity getter
-	engine, err := rules.NewEngine(velocitySvc.GetVelocityGetter(), 100)
+	// Initialize Rule Engine with velocity getters
+	engine, err := newRuleEngine(cfg, velocitySvc)
 	if err != nil {
 		slog.Error("failed to initialize rule engine", "error", err)
 		os.Exit(1)
 	}
-	// Wire richer velocity aggregates (count + amount-sum + distinct-counterparties).
-	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int) (rules.VelocityAggregates, error) {
-		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
-		if err != nil {
-			return rules.VelocityAggregates{}, err
-		}
-		return rules.VelocityAggregates{Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors}, nil
-	})
+	slog.Info("velocity clock", "clock", cfg.Detection.VelocityClock)
 
 	// Load rules from database (no hardcoded defaults - configure via API)
 	if err := loadRulesFromDatabase(ctx, repo, engine); err != nil {
@@ -195,12 +188,11 @@ func main() {
 	slog.Info("typology engine initialized", "typologies_count", typologyEngine.TypologyCount())
 
 	// Initialize Decision Processor (TADP)
-	processor := tadp.NewProcessor()
-	processor.AlertThreshold = 0.7              // Default threshold
-	processor.Mode = string(cfg.EvaluationMode) // Set mode from config
+	processor := newProcessor(cfg)
 	slog.Info("TADP processor initialized",
 		"mode", processor.Mode,
 		"threshold", processor.AlertThreshold,
+		"scoring", processor.Scoring,
 	)
 
 	// Compliance mode validation: require typologies
@@ -475,6 +467,32 @@ func applyEnvOverrides(cfg *domain.Config) error {
 		}
 		cfg.Server.Studio = enabled
 	}
+	return applyDetectionOverrides(cfg)
+}
+
+// applyDetectionOverrides reads the decision settings: alert threshold, scoring and velocity clock.
+func applyDetectionOverrides(cfg *domain.Config) error {
+	if v := strings.TrimSpace(os.Getenv("OSPREY_ALERT_THRESHOLD")); v != "" {
+		t, err := strconv.ParseFloat(v, 64)
+		if err != nil || t <= 0 || t > 1 {
+			return fmt.Errorf("OSPREY_ALERT_THRESHOLD must be a number more than 0 and not more than 1")
+		}
+		cfg.Detection.AlertThreshold = t
+	}
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("OSPREY_SCORING"))); v {
+	case "":
+	case tadp.ScoringSum, tadp.ScoringAverage:
+		cfg.Detection.Scoring = v
+	default:
+		return fmt.Errorf("OSPREY_SCORING must be %q or %q", tadp.ScoringSum, tadp.ScoringAverage)
+	}
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("OSPREY_VELOCITY_CLOCK"))); v {
+	case "":
+	case domain.VelocityClockReceived, domain.VelocityClockEvent:
+		cfg.Detection.VelocityClock = v
+	default:
+		return fmt.Errorf("OSPREY_VELOCITY_CLOCK must be %q or %q", domain.VelocityClockReceived, domain.VelocityClockEvent)
+	}
 	return nil
 }
 
@@ -506,4 +524,42 @@ func parseNonNegativeIntEnv(name string) (int, bool, error) {
 		return 0, false, fmt.Errorf("%s must be zero or greater", name)
 	}
 	return value, true, nil
+}
+
+// newRuleEngine creates the rule engine and wires the velocity sources and the clock.
+func newRuleEngine(cfg *domain.Config, velocitySvc *velocity.Service) (*rules.Engine, error) {
+	engine, err := rules.NewEngine(velocitySvc.GetVelocityGetter(), 100)
+	if err != nil {
+		return nil, err
+	}
+	// Wire richer velocity aggregates (count, amount sum, payees, inbound).
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
+		var a velocity.Aggregates
+		var err error
+		if at.IsZero() {
+			a, err = velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+		} else {
+			a, err = velocitySvc.GetAggregatesAt(ctx, tenantID, entityID, windowSecs, at)
+		}
+		if err != nil {
+			return rules.VelocityAggregates{}, err
+		}
+		return rules.VelocityAggregates{
+			Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors,
+			InboundCount: a.InboundCount, InboundAmountSum: a.InboundAmountSum,
+		}, nil
+	})
+	engine.SetEventClock(cfg.Detection.VelocityClock == domain.VelocityClockEvent)
+	return engine, nil
+}
+
+// newProcessor creates the decision processor from the detection settings and the mode.
+func newProcessor(cfg *domain.Config) *tadp.Processor {
+	processor := tadp.NewProcessor()
+	if cfg.Detection.AlertThreshold > 0 {
+		processor.AlertThreshold = cfg.Detection.AlertThreshold
+	}
+	processor.Scoring = cfg.Detection.Scoring
+	processor.Mode = string(cfg.EvaluationMode)
+	return processor
 }

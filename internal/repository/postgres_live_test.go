@@ -156,3 +156,54 @@ func TestLivePostgresUpgradesExistingREALColumns(t *testing.T) {
 		t.Fatalf("second migrate: %v", err)
 	}
 }
+
+// TestLivePostgresEntityWindows runs both velocity window queries on PostgreSQL:
+// debtor and creditor rows come back once each, a self-transfer once, and the
+// event window filters on the caller's timestamp.
+func TestLivePostgresEntityWindows(t *testing.T) {
+	db := livePostgres(t)
+	repo := &SQLRepository{db: db, driver: "postgres"}
+	if err := repo.migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	event := time.Date(2017, 1, 1, 10, 0, 0, 0, time.UTC)
+	for _, tx := range []*domain.Transaction{
+		{ID: "out", DebtorID: "acct", CreditorID: "other"},
+		{ID: "in", DebtorID: "other", CreditorID: "acct"},
+		{ID: "self", DebtorID: "acct", CreditorID: "acct"},
+		{ID: "old", DebtorID: "acct", CreditorID: "other", Timestamp: event.Add(-2 * time.Hour)},
+	} {
+		tx.Type, tx.Amount, tx.Currency, tx.CreatedAt = "transfer", 1, "USD", now
+		if tx.Timestamp.IsZero() {
+			tx.Timestamp = event
+		}
+		if err := repo.SaveTransaction(ctx, "tenant-pg", tx); err != nil {
+			t.Fatalf("SaveTransaction(%s): %v", tx.ID, err)
+		}
+	}
+	ids := func(txs []*domain.Transaction) string {
+		var out []string
+		for _, tx := range txs {
+			out = append(out, tx.ID)
+		}
+		return strings.Join(out, ",")
+	}
+
+	received, err := repo.GetTransactionsByEntity(ctx, "tenant-pg", "acct", now.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("GetTransactionsByEntity: %v", err)
+	}
+	if len(received) != 4 {
+		t.Errorf("received clock: got [%s], want out, in, self and old once each", ids(received))
+	}
+
+	inWindow, err := repo.GetTransactionsByEntityInEventWindow(ctx, "tenant-pg", "acct", event.Add(-time.Hour), event)
+	if err != nil {
+		t.Fatalf("GetTransactionsByEntityInEventWindow: %v", err)
+	}
+	if len(inWindow) != 3 {
+		t.Errorf("event clock: got [%s], want out, in and self (old is 2 hours earlier)", ids(inWindow))
+	}
+}

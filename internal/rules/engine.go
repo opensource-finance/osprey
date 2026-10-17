@@ -20,6 +20,7 @@ type Engine struct {
 	compiledRules    map[string]*CompiledRule
 	velocityGetter   VelocityGetter
 	aggregatesGetter AggregatesGetter
+	eventClock       bool
 	maxWorkers       int
 }
 
@@ -37,17 +38,28 @@ type VelocityAggregates struct {
 	Count             int64
 	AmountSum         float64
 	DistinctCreditors int64
+	InboundCount      int64
+	InboundAmountSum  float64
 }
 
 // AggregatesGetter returns windowed velocity aggregates for an entity. When set
 // on the engine it supersedes VelocityGetter and additionally populates the
-// velocity_amount_sum and velocity_distinct_creditors CEL variables.
-type AggregatesGetter func(ctx context.Context, tenantID, entityID string, windowSecs int) (VelocityAggregates, error)
+// velocity_amount_sum, velocity_distinct_creditors and velocity_inbound_* CEL
+// variables. A zero at means a window that ends now on the received clock; a
+// non-zero at means a window that ends at that event time on the event clock.
+type AggregatesGetter func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (VelocityAggregates, error)
 
 // SetAggregatesGetter wires a richer velocity source. Optional and additive:
 // if unset, the engine falls back to the count-only VelocityGetter.
 func (e *Engine) SetAggregatesGetter(g AggregatesGetter) {
 	e.aggregatesGetter = g
+}
+
+// SetEventClock makes velocity windows end at each transaction's event time
+// (EvaluateInput.EventTime) instead of now. Off by default: the event time comes
+// from the caller, so a backdated timestamp can move the window.
+func (e *Engine) SetEventClock(on bool) {
+	e.eventClock = on
 }
 
 // maxCELCost bounds the runtime cost of a single rule expression. CEL is
@@ -127,6 +139,7 @@ type EvaluateInput struct {
 	Amount         float64
 	Currency       string
 	VelocityWindow int            // seconds
+	EventTime      time.Time      // transaction timestamp; ends the velocity window when the event clock is on
 	AdditionalData map[string]any // request metadata -> CEL `meta` map
 	Enrichment     map[string]any // externally-computed scores -> CEL `enrichment` map
 }
@@ -152,24 +165,25 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 	// would let velocity rules (e.g. velocity_count > 5) score 0 and pass a
 	// high-velocity transaction. Surface the error so the evaluation fails loudly
 	// (caller logs it + returns 5xx) rather than emitting a false-negative decision.
-	var velocityCount, velocityDistinctCreditors int64
-	var velocityAmountSum float64
+	var agg VelocityAggregates
 	if input.VelocityWindow > 0 {
 		switch {
 		case e.aggregatesGetter != nil:
-			agg, err := e.aggregatesGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow)
+			var at time.Time
+			if e.eventClock {
+				at = input.EventTime
+			}
+			var err error
+			agg, err = e.aggregatesGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow, at)
 			if err != nil {
 				return nil, fmt.Errorf("velocity lookup failed for entity %q: %w", input.DebtorID, err)
 			}
-			velocityCount = agg.Count
-			velocityAmountSum = agg.AmountSum
-			velocityDistinctCreditors = agg.DistinctCreditors
 		case e.velocityGetter != nil:
 			count, err := e.velocityGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow)
 			if err != nil {
 				return nil, fmt.Errorf("velocity lookup failed for entity %q: %w", input.DebtorID, err)
 			}
-			velocityCount = count
+			agg.Count = count
 		}
 	}
 
@@ -183,9 +197,11 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 			"amount":      input.Amount,
 			"currency":    input.Currency,
 		},
-		"velocity_count":              velocityCount,
-		"velocity_amount_sum":         velocityAmountSum,
-		"velocity_distinct_creditors": velocityDistinctCreditors,
+		"velocity_count":              agg.Count,
+		"velocity_amount_sum":         agg.AmountSum,
+		"velocity_distinct_creditors": agg.DistinctCreditors,
+		"velocity_inbound_count":      agg.InboundCount,
+		"velocity_inbound_amount_sum": agg.InboundAmountSum,
 		"amount":                      input.Amount,
 		"currency":                    input.Currency,
 		"debtor_id":                   input.DebtorID,

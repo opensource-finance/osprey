@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -586,6 +587,65 @@ func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 			t.Fatalf("expected creditor match to return role-c, got %#v", creditorTxs)
 		}
 	})
+}
+
+// TestEntityWindowQueryUsesEntityIndexes guards velocity cost. With
+// (debtor_id = ? OR creditor_id = ?), or with an ORDER BY on the window column,
+// SQLite picked the (tenant_id, timestamp) index and read every transaction of
+// the tenant in the window, so each evaluation got slower as traffic grew.
+func TestEntityWindowQueryUsesEntityIndexes(t *testing.T) {
+	s := newWindowSuite(t)
+	defer func() { _ = s.repo.Close() }()
+	db := s.repo.(*SQLRepository).db
+	now := time.Now().UTC()
+	for _, tc := range []struct {
+		window string
+		args   []any
+	}{
+		{"created_at >= ?", []any{now}},
+		{"timestamp >= ? AND timestamp <= ?", []any{now, now}},
+	} {
+		args := append([]any{s.tenantID, "e"}, tc.args...)
+		args = append(append(args, s.tenantID, "e", "e"), tc.args...)
+		rows, err := db.Query("EXPLAIN QUERY PLAN "+entityWindowQuery(tc.window), args...)
+		if err != nil {
+			t.Fatalf("explain: %v", err)
+		}
+		var plan []string
+		for rows.Next() {
+			var id, parent, notUsed int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			plan = append(plan, detail)
+		}
+		_ = rows.Close()
+		joined := strings.Join(plan, "\n")
+		for _, want := range []string{"(tenant_id=? AND debtor_id=?", "(tenant_id=? AND creditor_id=?"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("window %q: plan does not seek on %s:\n%s", tc.window, want, joined)
+			}
+		}
+	}
+}
+
+func TestEntityWindowCountsSelfTransferOnce(t *testing.T) {
+	s := newWindowSuite(t)
+	defer func() { _ = s.repo.Close() }()
+	now := time.Now().UTC()
+	saveWindowTx(t, s.repo, s.ctx, s.tenantID, "self-1", "acct-self", "acct-self", now, now)
+
+	if txs := s.fetch(t, "acct-self", -1*time.Hour); len(txs) != 1 {
+		t.Fatalf("received clock: want 1 row for a self-transfer, got %d", len(txs))
+	}
+	txs, err := s.repo.GetTransactionsByEntityInEventWindow(s.ctx, s.tenantID, "acct-self", now.Add(-time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(txs) != 1 {
+		t.Fatalf("event clock: want 1 row for a self-transfer, got %d", len(txs))
+	}
 }
 
 // newWindowSuite builds a fresh file-backed SQLite repo for the windowing tests.

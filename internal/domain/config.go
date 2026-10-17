@@ -13,6 +13,9 @@ type Config struct {
 	// - "compliance": Rules → Typologies → FATF patterns (auditable)
 	EvaluationMode EvaluationMode `json:"evaluationMode"`
 
+	// Detection holds the decision settings.
+	Detection DetectionConfig `json:"detection"`
+
 	// Component configurations
 	Repository RepositoryConfig `json:"repository"`
 	Cache      CacheConfig      `json:"cache"`
@@ -54,6 +57,23 @@ type ServerConfig struct {
 	Studio bool `json:"studio"`
 }
 
+// DetectionConfig holds the settings that turn rule scores into a decision.
+type DetectionConfig struct {
+	// AlertThreshold is the Detection-mode score at or above which a transaction is ALRT.
+	AlertThreshold float64 `json:"alertThreshold"`
+	// Scoring is "sum" (weights add up, capped at 1) or "average" (weighted average over all rules).
+	Scoring string `json:"scoring"`
+	// VelocityClock is "received" (window ends when Osprey receives the transaction)
+	// or "event" (window ends at the transaction timestamp, for replays of historical data).
+	VelocityClock string `json:"velocityClock"`
+}
+
+// Velocity clocks.
+const (
+	VelocityClockReceived = "received"
+	VelocityClockEvent    = "event"
+)
+
 // Tier represents the product tier.
 type Tier string
 
@@ -81,6 +101,11 @@ func DefaultConfig() *Config {
 		},
 		Tier:           TierCommunity,
 		EvaluationMode: ModeDetection, // Default: fast fraud detection
+		Detection: DetectionConfig{
+			AlertThreshold: 0.7,
+			Scoring:        "sum",
+			VelocityClock:  VelocityClockReceived,
+		},
 		Repository: RepositoryConfig{
 			Driver:     "sqlite",
 			SQLitePath: "./osprey.db",

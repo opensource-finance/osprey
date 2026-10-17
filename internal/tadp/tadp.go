@@ -19,11 +19,24 @@ type Processor struct {
 	// Weight configuration for rule aggregation
 	UseWeightedScoring bool
 
+	// Scoring selects how Detection mode combines rule scores:
+	// - ScoringSum (default, also ""): sum of score x weight, capped at 1.
+	//   A rule's weight is its contribution, whatever other rules exist.
+	// - ScoringAverage: weighted average over all rules (before v0.2). Each new
+	//   rule dilutes the others, including rules that did not match.
+	Scoring string
+
 	// Mode determines evaluation strategy:
 	// - "detection": Rules → Weighted Score → Alert (fast, no typologies)
 	// - "compliance": Rules → Typologies → FATF patterns (requires typologies)
 	Mode string
 }
+
+// Scoring methods for Detection mode.
+const (
+	ScoringSum     = "sum"
+	ScoringAverage = "average"
+)
 
 // NewProcessor creates a new TADP processor with default settings.
 // Defaults to Detection mode - fast, weighted rule scoring.
@@ -31,6 +44,7 @@ func NewProcessor() *Processor {
 	return &Processor{
 		AlertThreshold:     0.7,         // Default threshold
 		UseWeightedScoring: true,        // Use rule weights in scoring
+		Scoring:            ScoringSum,  // Weights add up; no dilution
 		Mode:               "detection", // Default: fast fraud detection
 	}
 }
@@ -41,6 +55,7 @@ func NewComplianceProcessor() *Processor {
 	return &Processor{
 		AlertThreshold:     0.7,
 		UseWeightedScoring: true,
+		Scoring:            ScoringSum,
 		Mode:               "compliance",
 	}
 }
@@ -191,10 +206,14 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 		}
 	}
 
-	// Normalize score
-	if agg.TotalWeight > 0 {
-		agg.AggregateScore = agg.AggregateScore / agg.TotalWeight
+	if p.Scoring == ScoringAverage {
+		if agg.TotalWeight > 0 {
+			agg.AggregateScore = agg.AggregateScore / agg.TotalWeight
+		}
+	} else {
+		agg.AggregateScore = min(agg.AggregateScore, 1.0)
 	}
+	agg.AggregateScore = domain.RoundScore(agg.AggregateScore)
 
 	return agg
 }
