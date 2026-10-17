@@ -4,6 +4,7 @@ package tadp
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +45,10 @@ func NewComplianceProcessor() *Processor {
 	}
 }
 
+// NoTypologiesID marks a compliance evaluation that ran with no typologies
+// loaded. The decision fails closed to ALRT.
+const NoTypologiesID = "compliance-no-typologies"
+
 // DecisionInput contains all data needed for a decision.
 type DecisionInput struct {
 	TenantID        string
@@ -70,7 +75,26 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 	aggResult := p.aggregate(input.RuleResults)
 
 	// Compliance Mode: Use typology results for FATF-inspired evaluation
-	if p.Mode == "compliance" && len(input.TypologyResults) > 0 {
+	if p.Mode == "compliance" && len(input.TypologyResults) == 0 {
+		// The handler and worker reject compliance requests when no typology is
+		// loaded, but a concurrent delete or disable of the last typology can
+		// empty the set after that check. Detection scoring is not a compliance
+		// decision, so fail closed: alert for review and mark the evaluation.
+		slog.Warn("compliance evaluation without typologies, failing closed to ALRT",
+			"tenant_id", input.TenantID,
+			"tx_id", input.TxID,
+			"trace_id", input.TraceID,
+		)
+		eval.Status = domain.StatusAlert
+		eval.Score = aggResult.AggregateScore
+		eval.TypologyResults = []domain.TypologyResult{{
+			TypologyID:   NoTypologiesID,
+			TypologyName: "Compliance evaluation without typologies",
+			Score:        aggResult.AggregateScore,
+			Triggered:    true,
+			Rules:        input.RuleResults,
+		}}
+	} else if p.Mode == "compliance" {
 		eval.TypologyResults = input.TypologyResults
 
 		// Check if any typology triggered

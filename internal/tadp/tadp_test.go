@@ -460,3 +460,40 @@ func TestDetectionModeIgnoresTypologyResults(t *testing.T) {
 		t.Errorf("detection mode should be NALT with low rule score, got %s", eval.Status)
 	}
 }
+
+// TestComplianceModeWithoutTypologyResultsFailsClosed covers issue #54. A
+// compliance evaluation with no typology results used to fall back to
+// detection scoring. A low aggregate score then gave NALT, a missed alert.
+func TestComplianceModeWithoutTypologyResultsFailsClosed(t *testing.T) {
+	proc := NewComplianceProcessor()
+
+	for name, typologies := range map[string][]domain.TypologyResult{
+		"nil":   nil,
+		"empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			eval := proc.Process(context.Background(), &DecisionInput{
+				TenantID:  "tenant-001",
+				TxID:      "tx-054",
+				StartTime: time.Now(),
+				RuleResults: []domain.RuleResult{
+					{RuleID: "rule-1", Score: 0.3, SubRuleRef: domain.RuleOutcomePass, Weight: 1.0},
+				},
+				TypologyResults: typologies,
+			})
+
+			if eval.Status != domain.StatusAlert {
+				t.Errorf("expected ALRT (fail closed), got %s", eval.Status)
+			}
+			if len(eval.TypologyResults) != 1 || eval.TypologyResults[0].TypologyID != NoTypologiesID {
+				t.Fatalf("expected one %q typology result, got %+v", NoTypologiesID, eval.TypologyResults)
+			}
+			if !eval.TypologyResults[0].Triggered {
+				t.Error("expected the marker typology result to be triggered")
+			}
+			if eval.Metadata.TypologiesEvaluated != 0 {
+				t.Errorf("expected TypologiesEvaluated 0, got %d", eval.Metadata.TypologiesEvaluated)
+			}
+		})
+	}
+}

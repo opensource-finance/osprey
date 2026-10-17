@@ -40,6 +40,9 @@ Transaction -> Rules -> Typologies -> Threshold -> ALRT/NALT
   - `POST /evaluate` returns `503`
   - `GET /health` returns `status: "degraded"`
   - `GET /ready` returns `503`
+- If an operator deletes or disables the last typology while a request is in progress, that request gets `ALRT`.
+  The stored evaluation has one typology result with the ID `compliance-no-typologies`.
+  Osprey does not use detection scoring for a compliance decision.
 
 ## Mode Enforcement
 

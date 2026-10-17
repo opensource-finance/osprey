@@ -8,6 +8,13 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- A compliance evaluation no longer uses detection scoring when the typology set becomes empty during the request.
+  Before this change, `POST /evaluate` and the async worker checked for loaded typologies at the start.
+  If an operator deleted or disabled the last typology after that check, the processor used the detection aggregate score.
+  A transaction that a typology flags could get `NALT` with `200 OK`, and the record showed only a `detection-summary` result.
+
+  Now the processor fails closed. The evaluation gets `ALRT` and one typology result with the ID `compliance-no-typologies`.
+  Osprey logs a warning. The transaction and the evaluation are both stored, so a retry is not necessary.
 - PostgreSQL deployments now keep the full value of transaction amounts and scores.
   Before this change, the migration kept the SQLite `REAL` column type on PostgreSQL.
   PostgreSQL `REAL` is single precision (`float4`, about 7 significant digits).
