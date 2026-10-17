@@ -42,9 +42,11 @@ var Catalog = []VariableDoc{
 	{Name: "tx", Type: "map(string, dyn)", Group: "core", Access: "tx.<field>", Description: "Core transaction fields: id, type, debtor_id, creditor_id, amount, currency", celType: dynMap},
 
 	// Velocity aggregates (engine-computed over Osprey's own transaction store)
-	{Name: "velocity_count", Type: "int", Group: "velocity", Description: "Recent transaction count for the debtor in the window", celType: cel.IntType},
-	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Description: "Sum of recent transaction amounts for the debtor in the window", celType: cel.DoubleType},
-	{Name: "velocity_distinct_creditors", Type: "int", Group: "velocity", Description: "Distinct counterparties the debtor transacted with in the window", celType: cel.IntType},
+	{Name: "velocity_count", Type: "int", Group: "velocity", Note: "includes the current transaction", Description: "Transactions in the window where the debtor sent or received money", celType: cel.IntType},
+	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Note: "includes the current transaction", Description: "Sum of the amounts of those transactions, sent and received", celType: cel.DoubleType},
+	{Name: "velocity_distinct_creditors", Type: "int", Group: "velocity", Note: "includes the current payee", Description: "Distinct payees the debtor sent money to in the window", celType: cel.IntType},
+	{Name: "velocity_inbound_count", Type: "int", Group: "velocity", Description: "Transactions in the window where the debtor received money", celType: cel.IntType},
+	{Name: "velocity_inbound_amount_sum", Type: "double", Group: "velocity", Description: "Sum of the amounts the debtor received in the window", celType: cel.DoubleType},
 
 	// Open-ended bags — no per-field declaration needed
 	{Name: "meta", Type: "map(string, dyn)", Group: "metadata", Access: "meta.<key>", Note: "open-ended; guard optional keys with has(meta.<key>)", Description: "Caller-supplied request metadata (country, mcc, device, ...)", celType: dynMap},

@@ -108,6 +108,49 @@ func TestApplyEnvOverrides(t *testing.T) {
 	})
 }
 
+func TestApplyDetectionOverrides(t *testing.T) {
+	t.Run("Defaults", func(t *testing.T) {
+		cfg := domain.DefaultConfig()
+		if err := applyEnvOverrides(cfg); err != nil {
+			t.Fatal(err)
+		}
+		want := domain.DetectionConfig{AlertThreshold: 0.7, Scoring: "sum", VelocityClock: "received"}
+		if cfg.Detection != want {
+			t.Fatalf("got %+v, want %+v", cfg.Detection, want)
+		}
+	})
+
+	t.Run("Overrides", func(t *testing.T) {
+		t.Setenv("OSPREY_ALERT_THRESHOLD", " 0.5 ")
+		t.Setenv("OSPREY_SCORING", "Average")
+		t.Setenv("OSPREY_VELOCITY_CLOCK", "event")
+		cfg := domain.DefaultConfig()
+		if err := applyEnvOverrides(cfg); err != nil {
+			t.Fatal(err)
+		}
+		want := domain.DetectionConfig{AlertThreshold: 0.5, Scoring: "average", VelocityClock: "event"}
+		if cfg.Detection != want {
+			t.Fatalf("got %+v, want %+v", cfg.Detection, want)
+		}
+	})
+
+	for name, env := range map[string][2]string{
+		"ThresholdZero":      {"OSPREY_ALERT_THRESHOLD", "0"},
+		"ThresholdAboveOne":  {"OSPREY_ALERT_THRESHOLD", "1.5"},
+		"ThresholdNotNumber": {"OSPREY_ALERT_THRESHOLD", "high"},
+		"UnknownScoring":     {"OSPREY_SCORING", "max"},
+		"UnknownClock":       {"OSPREY_VELOCITY_CLOCK", "wall"},
+	} {
+		t.Run("Rejects"+name, func(t *testing.T) {
+			t.Setenv(env[0], env[1])
+			err := applyEnvOverrides(domain.DefaultConfig())
+			if err == nil || !strings.Contains(err.Error(), env[0]) {
+				t.Fatalf("want %s error, got %v", env[0], err)
+			}
+		})
+	}
+}
+
 // loaderRepo is a fake domain.Repository for the DB loader tests.
 type loaderRepo struct {
 	domain.Repository
@@ -224,5 +267,21 @@ func TestLoadTypologiesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
 	}
 	if repo.listTypologiesCalls != 1 {
 		t.Fatalf("expected ListTypologies to be called once, got %d", repo.listTypologiesCalls)
+	}
+}
+
+func TestNewProcessorUsesDetectionConfig(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.EvaluationMode = domain.ModeCompliance
+	cfg.Detection.AlertThreshold = 0.55
+	cfg.Detection.Scoring = "average"
+	p := newProcessor(cfg)
+	if p.AlertThreshold != 0.55 || p.Scoring != "average" || p.Mode != "compliance" {
+		t.Fatalf("got threshold %v, scoring %q, mode %q", p.AlertThreshold, p.Scoring, p.Mode)
+	}
+
+	cfg.Detection.AlertThreshold = 0
+	if p := newProcessor(cfg); p.AlertThreshold != 0.7 {
+		t.Fatalf("threshold 0 must keep the default 0.7, got %v", p.AlertThreshold)
 	}
 }

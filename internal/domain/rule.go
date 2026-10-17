@@ -1,5 +1,7 @@
 package domain
 
+import "math"
+
 // RuleConfig defines a fraud detection rule configuration.
 type RuleConfig struct {
 	ID          string `json:"id"`
@@ -55,4 +57,12 @@ type VelocityRule struct {
 	EntityField string `json:"entityField"` // "debtorId" or "creditorId"
 	Threshold   int    `json:"threshold"`   // Max transactions allowed
 	WindowSecs  int    `json:"windowSecs"`  // Time window in seconds
+}
+
+// RoundScore rounds a summed score to 9 decimal places. Decimal weights are not
+// exact in binary: 0.1+0.7 is 0.7999999999999999, below a threshold of 0.8.
+// Rounding before the threshold check makes a sum that equals the threshold on
+// paper trigger, and keeps reported scores free of float noise.
+func RoundScore(s float64) float64 {
+	return math.Round(s*1e9) / 1e9
 }

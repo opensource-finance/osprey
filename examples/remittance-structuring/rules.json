@@ -1,0 +1,50 @@
+[
+  {
+    "id": "rem-near-threshold",
+    "name": "Just Below Reporting Threshold",
+    "description": "The amount is from 9,000 up to, but not including, 10,000.",
+    "expression": "amount >= 9000.0 && amount < 10000.0",
+    "weight": 1,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "Amount is just below the 10,000 reporting threshold"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Amount not near the threshold"}
+    ]
+  },
+  {
+    "id": "rem-repeat-sender",
+    "name": "Repeat Sender",
+    "description": "The customer was a party to 3 or more transfers in the last hour.",
+    "expression": "velocity_count >= 3",
+    "weight": 1,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "3 or more transfers by this customer in the last hour"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Normal frequency"}
+    ]
+  },
+  {
+    "id": "rem-hour-total",
+    "name": "High Hourly Total",
+    "description": "The customer moved 25,000 or more in the last hour, this transfer included.",
+    "expression": "velocity_amount_sum >= 25000.0",
+    "weight": 1,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "25,000 or more moved by this customer in the last hour"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Normal hourly total"}
+    ]
+  },
+  {
+    "id": "rem-sanctions-hit",
+    "name": "Sanctions Screening Hit",
+    "description": "The screening system matched the recipient to a sanctions list entry.",
+    "expression": "has(enrichment.sanctions_hit) && enrichment.sanctions_hit == true",
+    "weight": 1,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "Recipient matches a sanctions list entry"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "No sanctions match"}
+    ]
+  }
+]

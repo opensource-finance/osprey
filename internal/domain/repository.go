@@ -13,6 +13,8 @@ type Repository interface {
 	SaveTransaction(ctx context.Context, tenantID string, tx *Transaction) error
 	GetTransaction(ctx context.Context, tenantID string, txID string) (*Transaction, error)
 	GetTransactionsByEntity(ctx context.Context, tenantID string, entityID string, since time.Time) ([]*Transaction, error)
+	// GetTransactionsByEntityInEventWindow filters on the caller-supplied event timestamp, from and to inclusive.
+	GetTransactionsByEntityInEventWindow(ctx context.Context, tenantID string, entityID string, from, to time.Time) ([]*Transaction, error)
 
 	// Rule configuration operations
 	SaveRuleConfig(ctx context.Context, tenantID string, rule *RuleConfig) error

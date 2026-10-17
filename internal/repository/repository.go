@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -357,20 +358,57 @@ func (r *SQLRepository) GetTransactionsByEntity(ctx context.Context, tenantID st
 	if tenantID == "" {
 		return nil, fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
 	}
+
+	query := entityWindowQuery("created_at >= ?")
 	since = since.UTC()
+	txs, err := r.queryTransactions(ctx, query, tenantID, entityID, since, tenantID, entityID, entityID, since)
+	sort.Slice(txs, func(i, j int) bool { return txs[i].CreatedAt.After(txs[j].CreatedAt) })
+	return txs, err
+}
 
-	query := `
-		SELECT id, tenant_id, type, debtor_id, debtor_account_id,
+// GetTransactionsByEntityInEventWindow retrieves transactions for an entity whose
+// caller-supplied event timestamp is in [from, to]. It backs the "event" velocity
+// clock, which replays of historical data need. The caller controls the timestamp,
+// so this window trusts the caller; the default "received" clock does not.
+func (r *SQLRepository) GetTransactionsByEntityInEventWindow(ctx context.Context, tenantID string, entityID string, from, to time.Time) ([]*domain.Transaction, error) {
+	if tenantID == "" {
+		return nil, fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
+	}
+
+	query := entityWindowQuery("timestamp >= ? AND timestamp <= ?")
+	from, to = from.UTC(), to.UTC()
+	txs, err := r.queryTransactions(ctx, query, tenantID, entityID, from, to, tenantID, entityID, entityID, from, to)
+	sort.Slice(txs, func(i, j int) bool { return txs[i].Timestamp.After(txs[j].Timestamp) })
+	return txs, err
+}
+
+// entityWindowQuery selects the transactions where an entity is debtor or creditor
+// and window (a condition with placeholders) holds. Two index seeks joined by
+// UNION ALL, not one OR: with OR the planner scans every transaction of the
+// tenant in the window, which grows with total traffic instead of with the entity.
+// The creditor branch skips rows the debtor branch already returned.
+// No ORDER BY: with one, SQLite (which has no statistics here) picks the
+// (tenant_id, timestamp) index to skip the sort, which is the same scan again.
+// Callers sort the few rows in Go.
+// Arguments: tenant, entity, window args, then tenant, entity, entity, window args.
+func entityWindowQuery(window string) string {
+	const cols = `id, tenant_id, type, debtor_id, debtor_account_id,
 			   creditor_id, creditor_account_id, amount, currency,
-			   timestamp, created_at, metadata
+			   timestamp, created_at, metadata`
+	return `
+		SELECT ` + cols + `
 		FROM transactions
-		WHERE tenant_id = ?
-		  AND (debtor_id = ? OR creditor_id = ?)
-		  AND created_at >= ?
-		ORDER BY created_at DESC
+		WHERE tenant_id = ? AND debtor_id = ? AND ` + window + `
+		UNION ALL
+		SELECT ` + cols + `
+		FROM transactions
+		WHERE tenant_id = ? AND creditor_id = ? AND debtor_id <> ? AND ` + window + `
 	`
+}
 
-	rows, err := r.db.QueryContext(ctx, r.rebind(query), tenantID, entityID, entityID, since)
+// queryTransactions runs a transactions SELECT with the column list above and scans the rows.
+func (r *SQLRepository) queryTransactions(ctx context.Context, query string, args ...any) ([]*domain.Transaction, error) {
+	rows, err := r.db.QueryContext(ctx, r.rebind(query), args...)
 	if err != nil {
 		return nil, err
 	}

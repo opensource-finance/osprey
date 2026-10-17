@@ -1,0 +1,62 @@
+[
+  {
+    "id": "mule-new-account",
+    "name": "New Account",
+    "description": "The sender account is less than 30 days old.",
+    "expression": "has(meta.account_age_days) && meta.account_age_days < 30.0",
+    "weight": 0.2,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "Sender account is less than 30 days old"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Established account"}
+    ]
+  },
+  {
+    "id": "mule-new-payee",
+    "name": "New Payee",
+    "description": "This is the first payment from the sender to this payee.",
+    "expression": "has(meta.new_payee) && meta.new_payee == true",
+    "weight": 0.2,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "First payment to this payee"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Known payee"}
+    ]
+  },
+  {
+    "id": "mule-pass-through",
+    "name": "Pass-Through Activity",
+    "description": "The account was a party to 3 or more payments in the last hour, in or out.",
+    "expression": "velocity_count >= 3",
+    "weight": 0.2,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "3 or more payments in or out of this account in the last hour"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Normal activity"}
+    ]
+  },
+  {
+    "id": "mule-balance-drain",
+    "name": "Balance Drain",
+    "description": "The payment leaves less than 10% of the opening balance.",
+    "expression": "old_balance > 0.0 && new_balance < old_balance * 0.1",
+    "weight": 0.2,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".review", "reason": "Payment empties more than 90% of the balance"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Balance kept"}
+    ]
+  },
+  {
+    "id": "mule-cop-no-match",
+    "name": "Confirmation of Payee No Match",
+    "description": "The payee name does not match the account holder name.",
+    "expression": "has(enrichment.cop_result) && enrichment.cop_result == \"no_match\"",
+    "weight": 0.2,
+    "enabled": true,
+    "bands": [
+      {"lowerLimit": 1, "subRuleRef": ".fail", "reason": "Confirmation of Payee: the name does not match the account"},
+      {"lowerLimit": 0, "upperLimit": 1, "subRuleRef": ".pass", "reason": "Payee name matches or was not checked"}
+    ]
+  }
+]

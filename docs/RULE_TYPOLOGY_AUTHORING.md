@@ -36,9 +36,17 @@ Use many simple rules, not one expression that is difficult to understand.
 | `creditor_id` | string | `creditor.id` |
 | `old_balance` | double | `metadata.old_balance` |
 | `new_balance` | double | `metadata.new_balance` |
-| `velocity_count` | int | Count of recent transactions from the debtor in the window |
-| `velocity_amount_sum` | double | Sum of the recent transaction amounts from the debtor in the window |
-| `velocity_distinct_creditors` | int | Count of different counterparties of the debtor in the window |
+| `velocity_count` | int | Number of transactions in the window where the debtor sent or received money, including the current transaction |
+| `velocity_amount_sum` | double | Total amount of the same transactions |
+| `velocity_distinct_creditors` | int | Number of different payees that the debtor sent money to in the window, including the current payee |
+| `velocity_inbound_count` | int | Number of payments that the debtor received in the window |
+| `velocity_inbound_amount_sum` | double | Total amount that the debtor received in the window |
+
+The velocity window is one hour before the transaction.
+By default, the window uses the time when Osprey received each transaction.
+Thus, a caller cannot move a transaction out of the window with an old `timestamp`.
+To replay historical data, start Osprey with `OSPREY_VELOCITY_CLOCK=event`.
+Then the window uses the `timestamp` field of each transaction.
 
 If the request does not include `old_balance` or `new_balance`, the value is `0.0`.
 A `null` value also gives `0.0`.
@@ -118,8 +126,27 @@ amount >= 9000.0 && amount < 10000.0
 debtor_id == creditor_id
 old_balance > 0.0 && new_balance == 0.0
 velocity_count > 5
+velocity_distinct_creditors >= 5
+velocity_inbound_count >= 1 && amount >= velocity_inbound_amount_sum * 0.8
 tx_type == "CASH_OUT" || tx_type == "TRANSFER"
 ```
+
+## Choose Weights
+
+In detection mode, Osprey adds `score x weight` for each rule, with a maximum of `1.0`.
+It gives `ALRT` when the total is `0.7` or more, or when a rule gives `.fail` or `.err`.
+
+- Give context signals a small weight, for example `0.05` to `0.1`.
+  Examples are the transaction type, a large amount, or a round amount.
+  Many honest transactions have these signals.
+- Give behaviour signals a larger weight, for example `0.2` to `0.4`.
+  Examples are an account drain, a pass-through payment, or high velocity.
+- Make sure that one behaviour signal plus all context signals stays below `0.7`.
+  Then an alert needs two behaviour signals.
+- Use `.fail` only for a signal that must stop the payment alone, for example a sanctions match.
+  A `.fail` rule causes an alert whatever the weights are.
+- Measure the alert rate on your own traffic before you promote a rule.
+  The [starter kit](STARTER_KIT.md) shows how.
 
 ## Typology Checklist
 
