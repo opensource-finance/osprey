@@ -1,0 +1,74 @@
+[
+  {
+    "note": "Alice pays her rent to a landlord she pays every month.",
+    "expect": "release",
+    "tx": {
+      "id": "pay-001", "type": "TRANSFER",
+      "debtor": {"id": "cust-alice", "accountId": "gb-alice"},
+      "creditor": {"id": "landlord-ltd", "accountId": "gb-landlord"},
+      "amount": {"value": 1200, "currency": "GBP"},
+      "metadata": {"account_age_days": 2190, "new_payee": false, "old_balance": 4800, "new_balance": 3600},
+      "enrichment": {"cop_result": "match"}
+    }
+  },
+  {
+    "note": "Carol pays an invoice, but the payee name does not match the account.",
+    "expect": "hold",
+    "tx": {
+      "id": "pay-002", "type": "TRANSFER",
+      "debtor": {"id": "cust-carol", "accountId": "gb-carol"},
+      "creditor": {"id": "ext-supplier", "accountId": "gb-supplier"},
+      "amount": {"value": 3400, "currency": "GBP"},
+      "metadata": {"account_age_days": 1460, "new_payee": true, "old_balance": 9000, "new_balance": 5600},
+      "enrichment": {"cop_result": "no_match"}
+    }
+  },
+  {
+    "note": "Bob, a scam victim, sends 2,500 GBP to a new payee. The payee is a mule account.",
+    "expect": "warn",
+    "tx": {
+      "id": "pay-003", "type": "TRANSFER",
+      "debtor": {"id": "cust-bob", "accountId": "gb-bob"},
+      "creditor": {"id": "cust-mule", "accountId": "gb-mule"},
+      "amount": {"value": 2500, "currency": "GBP"},
+      "metadata": {"account_age_days": 3650, "new_payee": true, "old_balance": 3100, "new_balance": 600},
+      "enrichment": {"cop_result": "match"}
+    }
+  },
+  {
+    "note": "The 6-day-old mule account forwards the first part of the money.",
+    "expect": "warn",
+    "tx": {
+      "id": "pay-004", "type": "TRANSFER",
+      "debtor": {"id": "cust-mule", "accountId": "gb-mule"},
+      "creditor": {"id": "ext-x1", "accountId": "gb-x1"},
+      "amount": {"value": 800, "currency": "GBP"},
+      "metadata": {"account_age_days": 6, "new_payee": true, "old_balance": 2520, "new_balance": 1720},
+      "enrichment": {"cop_result": "match"}
+    }
+  },
+  {
+    "note": "The mule forwards the second part to a different payee.",
+    "expect": "warn",
+    "tx": {
+      "id": "pay-005", "type": "TRANSFER",
+      "debtor": {"id": "cust-mule", "accountId": "gb-mule"},
+      "creditor": {"id": "ext-x2", "accountId": "gb-x2"},
+      "amount": {"value": 800, "currency": "GBP"},
+      "metadata": {"account_age_days": 6, "new_payee": true, "old_balance": 1720, "new_balance": 920},
+      "enrichment": {"cop_result": "match"}
+    }
+  },
+  {
+    "note": "The mule tries to empty the account to a third payee.",
+    "expect": "hold",
+    "tx": {
+      "id": "pay-006", "type": "TRANSFER",
+      "debtor": {"id": "cust-mule", "accountId": "gb-mule"},
+      "creditor": {"id": "ext-x3", "accountId": "gb-x3"},
+      "amount": {"value": 850, "currency": "GBP"},
+      "metadata": {"account_age_days": 6, "new_payee": true, "old_balance": 920, "new_balance": 70},
+      "enrichment": {"cop_result": "match"}
+    }
+  }
+]

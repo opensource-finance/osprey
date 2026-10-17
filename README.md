@@ -65,6 +65,7 @@ Start here:
 - [Sandbox and API guide](docs/SANDBOX.md)
 - [Rule and typology authoring](docs/RULE_TYPOLOGY_AUTHORING.md)
 - [Starter kit rules](docs/STARTER_KIT.md)
+- [Examples](examples/README.md): small projects that use Osprey, with real output
 - [Architecture](docs/ARCHITECTURE.md)
 - [OpenAPI contract](docs/api/openapi.yaml)
 - [Documentation style](docs/STYLE.md): run `make docs-lint` before a pull request that changes docs.

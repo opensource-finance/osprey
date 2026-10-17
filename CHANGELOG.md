@@ -6,6 +6,13 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `examples/`: two small projects that use Osprey, with walkthroughs and real
+  output. One finds money-mule activity in detection mode. One finds structuring
+  and sanctions matches in compliance mode. `make examples` runs both and fails
+  if a decision changes.
+
 ### Fixed
 
 - SQLite now opens the correct file and uses WAL mode when `OSPREY_SQLITE_PATH` contains `?`, `#`, or `%`.
