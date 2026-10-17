@@ -27,6 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_transactions_debtor ON transactions(tenant_id, de
 CREATE INDEX IF NOT EXISTS idx_transactions_creditor ON transactions(tenant_id, creditor_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(tenant_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_debtor_created_at ON transactions(tenant_id, debtor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_creditor_created_at ON transactions(tenant_id, creditor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_debtor_timestamp ON transactions(tenant_id, debtor_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_transactions_creditor_timestamp ON transactions(tenant_id, creditor_id, timestamp);
 `
 
 const schemaRuleConfigs = `

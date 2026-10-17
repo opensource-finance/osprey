@@ -210,6 +210,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Amount:         tx.Amount,
 		Currency:       tx.Currency,
 		VelocityWindow: 3600, // Default 1 hour window
+		EventTime:      txTimestamp,
 		AdditionalData: tx.Metadata,
 		Enrichment:     tx.Enrichment,
 	}
