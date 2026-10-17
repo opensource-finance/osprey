@@ -8,6 +8,17 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- PostgreSQL deployments now keep the full value of transaction amounts and scores.
+  Before this change, the migration kept the SQLite `REAL` column type on PostgreSQL.
+  PostgreSQL `REAL` is single precision (`float4`, about 7 significant digits).
+  The `amount`, `weight`, `score`, and `alert_threshold` columns rounded large values with no error.
+  For example, an amount of `1234567.89` was stored and returned as `1234567.9`.
+  The rounded amount also went into `velocity_amount_sum` for velocity rules.
+
+  The migration now uses `DOUBLE PRECISION` (`float8`) on PostgreSQL, the same precision as SQLite.
+  At startup, the migration also changes existing `real` columns to `double precision`.
+  This step keeps the value that the client saw before, so `0.1` stays `0.1`.
+  The upgrade cannot restore digits that `float4` already removed.
 - PostgreSQL deployments now start on a fresh database. Before this change, the
   `transactions` migration used the SQLite `BLOB` column type, which PostgreSQL
   does not have. The `CREATE TABLE` statement failed with `type "blob" does not

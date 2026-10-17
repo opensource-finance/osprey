@@ -14,7 +14,7 @@ func TestTransformForPostgresRewritesBLOBToBYTEA(t *testing.T) {
 		{
 			name: "transactions schema BLOB becomes BYTEA",
 			in:   schemaTransactions,
-			want: strings.ReplaceAll(schemaTransactions, " BLOB,", " BYTEA,"),
+			want: strings.ReplaceAll(strings.ReplaceAll(schemaTransactions, " BLOB,", " BYTEA,"), " REAL ", " DOUBLE PRECISION "),
 		},
 		{
 			name: "simple column declaration",
@@ -27,19 +27,9 @@ func TestTransformForPostgresRewritesBLOBToBYTEA(t *testing.T) {
 			want: "CREATE TABLE t (a BYTEA, b BYTEA, c TEXT);",
 		},
 		{
-			name: "rule_configs schema unchanged (no BLOB)",
-			in:   schemaRuleConfigs,
-			want: schemaRuleConfigs,
-		},
-		{
-			name: "evaluations schema unchanged (no BLOB)",
-			in:   schemaEvaluations,
-			want: schemaEvaluations,
-		},
-		{
-			name: "typologies schema unchanged (no BLOB)",
-			in:   schemaTypologies,
-			want: schemaTypologies,
+			name: "schema with no BLOB and no REAL unchanged",
+			in:   "CREATE TABLE t (id TEXT NOT NULL, enabled INTEGER NOT NULL);",
+			want: "CREATE TABLE t (id TEXT NOT NULL, enabled INTEGER NOT NULL);",
 		},
 		{
 			name: "empty string unchanged",
@@ -103,5 +93,65 @@ func TestAllSchemasHaveExactlyOneBLOBDeclaration(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected exactly one \" BLOB,\" declaration across AllSchemas(), got %d", count)
+	}
+}
+
+func TestTransformForPostgresRewritesREALToDoublePrecision(t *testing.T) {
+	// PostgreSQL REAL is float4 and rounds 1234567.89 to 1234567.9 (issue #65).
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "transactions.amount",
+			in:   "    amount REAL NOT NULL,",
+			want: "    amount DOUBLE PRECISION NOT NULL,",
+		},
+		{
+			name: "REAL with a default",
+			in:   "    weight REAL NOT NULL DEFAULT 1.0,",
+			want: "    weight DOUBLE PRECISION NOT NULL DEFAULT 1.0,",
+		},
+		{
+			name: "REAL as the last column",
+			in:   "CREATE TABLE t (id TEXT, amount REAL)",
+			want: "CREATE TABLE t (id TEXT, amount DOUBLE PRECISION)",
+		},
+		{
+			name: "REAL followed by a comma",
+			in:   "CREATE TABLE t (amount REAL, id TEXT)",
+			want: "CREATE TABLE t (amount DOUBLE PRECISION, id TEXT)",
+		},
+		{
+			name: "column names containing real are preserved",
+			in:   "CREATE TABLE t (real_amount TEXT, XREAL TEXT, unreal REAL NOT NULL);",
+			want: "CREATE TABLE t (real_amount TEXT, XREAL TEXT, unreal DOUBLE PRECISION NOT NULL);",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := transformForPostgres(c.in)
+			if got != c.want {
+				t.Errorf("transformForPostgres() mismatch\n  got:  %s\n  want: %s", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAllSchemasHaveNoREALAfterPostgresTransform(t *testing.T) {
+	// Every REAL column (amount, weight, score, alert_threshold) must become
+	// float8 on PostgreSQL, including any REAL column added later.
+	var before, after int
+	for _, schema := range AllSchemas() {
+		before += len(realType.FindAllString(schema, -1))
+		after += len(realType.FindAllString(transformForPostgres(schema), -1))
+	}
+	if before == 0 {
+		t.Fatal("expected REAL declarations in AllSchemas(); the drift guard is checking nothing")
+	}
+	if after != 0 {
+		t.Fatalf("%d REAL declarations survive transformForPostgres", after)
 	}
 }
