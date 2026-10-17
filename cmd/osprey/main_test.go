@@ -269,3 +269,19 @@ func TestLoadTypologiesFromDatabase_EmptyDatabaseStartsCleanly(t *testing.T) {
 		t.Fatalf("expected ListTypologies to be called once, got %d", repo.listTypologiesCalls)
 	}
 }
+
+func TestNewProcessorUsesDetectionConfig(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.EvaluationMode = domain.ModeCompliance
+	cfg.Detection.AlertThreshold = 0.55
+	cfg.Detection.Scoring = "average"
+	p := newProcessor(cfg)
+	if p.AlertThreshold != 0.55 || p.Scoring != "average" || p.Mode != "compliance" {
+		t.Fatalf("got threshold %v, scoring %q, mode %q", p.AlertThreshold, p.Scoring, p.Mode)
+	}
+
+	cfg.Detection.AlertThreshold = 0
+	if p := newProcessor(cfg); p.AlertThreshold != 0.7 {
+		t.Fatalf("threshold 0 must keep the default 0.7, got %v", p.AlertThreshold)
+	}
+}

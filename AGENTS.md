@@ -14,6 +14,7 @@ Rules are CEL expressions. Typologies group the rules for compliance mode.
 |---|---|
 | `cmd/osprey` | The server entry point. `main.go` reads the `OSPREY_*` environment variables. |
 | `cmd/benchmark` | The benchmark tool |
+| `cmd/qualitybench` | Measures precision and recall of a rule set on the labelled PaySim dataset |
 | `internal/api` | The chi router, the handlers, and the middleware |
 | `internal/rules` | The CEL rule engine, the typology engine, and the CEL variable catalog |
 | `internal/tadp` | The decision processor (ALRT or NALT) |

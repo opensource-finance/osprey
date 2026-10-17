@@ -74,7 +74,7 @@ func (c counts) summary() map[string]any {
 }
 
 func loadJSON[T any](path, key string) ([]T, error) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // G304: path is a CLI flag supplied by the operator of this benchmark tool
 	if err != nil {
 		return nil, err
 	}
@@ -149,15 +149,25 @@ func main() {
 	}
 }
 
+type options struct {
+	csvPath, rulesPath, typPath string
+	limit                       int
+	scoring                     string
+	threshold                   float64
+	velocity                    bool
+	dbPath                      string
+}
+
 func run() error {
-	csvPath := flag.String("csv", "", "PaySim CSV")
-	rulesPath := flag.String("rules", "", "rules JSON")
-	typPath := flag.String("typologies", "", "typologies JSON (compliance mode)")
-	limit := flag.Int("limit", 0, "max rows (0 = all)")
-	scoring := flag.String("scoring", tadp.ScoringSum, "detection scoring: sum or average")
-	threshold := flag.Float64("threshold", 0.7, "detection alert threshold")
-	withVelocity := flag.Bool("velocity", false, "replay rows in order into a temporary store so velocity_* variables work (slower)")
-	dbPath := flag.String("db", "", "with -velocity: SQLite file to keep (default: a temporary file)")
+	var o options
+	flag.StringVar(&o.csvPath, "csv", "", "PaySim CSV")
+	flag.StringVar(&o.rulesPath, "rules", "", "rules JSON")
+	flag.StringVar(&o.typPath, "typologies", "", "typologies JSON (compliance mode)")
+	flag.IntVar(&o.limit, "limit", 0, "max rows (0 = all)")
+	flag.StringVar(&o.scoring, "scoring", tadp.ScoringSum, "detection scoring: sum or average")
+	flag.Float64Var(&o.threshold, "threshold", 0.7, "detection alert threshold")
+	flag.BoolVar(&o.velocity, "velocity", false, "replay rows in order into a temporary store so velocity_* variables work (slower)")
+	flag.StringVar(&o.dbPath, "db", "", "with -velocity: SQLite file to keep (default: a temporary file)")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file")
 	flag.Parse()
 	if *cpuProfile != "" {
@@ -170,84 +180,39 @@ func run() error {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	if *csvPath == "" || *rulesPath == "" {
+	if o.csvPath == "" || o.rulesPath == "" {
 		flag.Usage()
 		return fmt.Errorf("-csv and -rules are required")
 	}
-
-	ctx := context.Background()
-	b := &bench{}
-	var err error
-	if *withVelocity {
-		path := *dbPath
-		if path == "" {
-			dir, err := os.MkdirTemp("", "qualitybench")
-			if err != nil {
-				return err
-			}
-			defer func() { _ = os.RemoveAll(dir) }()
-			path = filepath.Join(dir, "bench.db")
-		}
-		b.repo, err = repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: path})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = b.repo.Close() }()
-		svc := velocity.NewService(b.repo, nil)
-		b.engine, err = rules.NewEngine(nil, 1)
-		if err != nil {
-			return err
-		}
-		b.engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
-			a, err := svc.GetAggregatesAt(ctx, tenantID, entityID, windowSecs, at)
-			return rules.VelocityAggregates{
-				Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors,
-				InboundCount: a.InboundCount, InboundAmountSum: a.InboundAmountSum,
-			}, err
-		})
-		b.engine.SetEventClock(true)
-	} else if b.engine, err = rules.NewEngine(nil, 1); err != nil {
-		return err
-	}
-
-	cfgs, err := loadJSON[*domain.RuleConfig](*rulesPath, "rules")
+	report, err := benchmark(context.Background(), o)
 	if err != nil {
 		return err
 	}
-	for _, c := range cfgs {
-		c.Enabled = true
-	}
-	if err := b.engine.LoadRules(cfgs); err != nil {
-		return err
-	}
-	b.proc = tadp.NewProcessor()
-	if *typPath != "" {
-		b.proc = tadp.NewComplianceProcessor()
-		b.typEngine = rules.NewTypologyEngine()
-		ts, err := loadJSON[*domain.Typology](*typPath, "typologies")
-		if err != nil {
-			return err
-		}
-		for _, t := range ts {
-			t.Enabled = true
-		}
-		b.typEngine.LoadTypologies(ts)
-	}
-	b.proc.Scoring = *scoring
-	b.proc.AlertThreshold = *threshold
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", " ")
+	return enc.Encode(report)
+}
 
-	f, err := os.Open(*csvPath)
+// benchmark runs the CSV through Osprey and returns the report.
+func benchmark(ctx context.Context, o options) (map[string]any, error) {
+	b, cfgs, cleanup, err := newBench(o)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	defer cleanup()
+
+	f, err := os.Open(o.csvPath)
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 	r := csv.NewReader(f)
 	if _, err := r.Read(); err != nil {
-		return err
+		return nil, err
 	}
 
 	workers := runtime.NumCPU()
-	if *withVelocity {
+	if o.velocity {
 		workers = 1 // order matters: each row must see the rows before it
 	}
 	in := make(chan row, 4096)
@@ -272,78 +237,167 @@ func run() error {
 			wg.Wait()
 			close(out)
 		}()
-		for n := 0; *limit == 0 || n < *limit; n++ {
-			rec, err := r.Read()
-			if err == io.EOF {
-				return
-			}
-			if err != nil {
-				errCh <- err
-				return
-			}
-			p := func(i int) float64 { v, _ := strconv.ParseFloat(rec[i], 64); return v }
-			step, _ := strconv.Atoi(rec[0])
-			in <- row{n: n, step: step, typ: rec[1], amount: p(2), orig: rec[3], ob: p(4), nb: p(5), dest: rec[6], fraud: rec[9] == "1"}
+		if err := readRows(r, o.limit, in); err != nil {
+			errCh <- err
 		}
 	}()
 
-	var all counts
-	byType := map[string]*counts{}
-	ruleFire := map[string]*counts{} // rule fired = "alert"
-	thresholds := []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}
-	sweep := make([]counts, len(thresholds))
 	start := time.Now()
+	t := newTally(cfgs)
 	for res := range out {
-		all.add(res.alert, res.r.fraud)
-		if byType[res.r.typ] == nil {
-			byType[res.r.typ] = &counts{}
-		}
-		byType[res.r.typ].add(res.alert, res.r.fraud)
-		fired := map[string]bool{}
-		for _, id := range res.fired {
-			fired[id] = true
-		}
-		for _, c := range cfgs {
-			if ruleFire[c.ID] == nil {
-				ruleFire[c.ID] = &counts{}
-			}
-			ruleFire[c.ID].add(fired[c.ID], res.r.fraud)
-		}
-		for i, t := range thresholds {
-			sweep[i].add(res.failed || res.score >= t, res.r.fraud)
-		}
+		t.add(res)
 	}
 	select {
 	case err := <-errCh:
-		return err
+		return nil, err
 	default:
 	}
+	report := t.report()
+	report["seconds"] = time.Since(start).Seconds()
+	report["scoring"], report["threshold"], report["velocity"] = o.scoring, o.threshold, o.velocity
+	return report, nil
+}
 
-	report := map[string]any{"overall": all.summary(), "seconds": time.Since(start).Seconds(),
-		"scoring": *scoring, "threshold": *threshold, "velocity": *withVelocity}
+// newBench builds the engine, the processor and, with velocity, the store.
+func newBench(o options) (*bench, []*domain.RuleConfig, func(), error) {
+	var closers []func()
+	cleanup := func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
+	b := &bench{}
+	var err error
+	if b.engine, err = rules.NewEngine(nil, 1); err != nil {
+		return nil, nil, cleanup, err
+	}
+	if o.velocity {
+		path := o.dbPath
+		if path == "" {
+			dir, err := os.MkdirTemp("", "qualitybench")
+			if err != nil {
+				return nil, nil, cleanup, err
+			}
+			closers = append(closers, func() { _ = os.RemoveAll(dir) })
+			path = filepath.Join(dir, "bench.db")
+		}
+		if b.repo, err = repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: path}); err != nil {
+			return nil, nil, cleanup, err
+		}
+		closers = append(closers, func() { _ = b.repo.Close() })
+		svc := velocity.NewService(b.repo, nil)
+		b.engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
+			a, err := svc.GetAggregatesAt(ctx, tenantID, entityID, windowSecs, at)
+			return rules.VelocityAggregates{
+				Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors,
+				InboundCount: a.InboundCount, InboundAmountSum: a.InboundAmountSum,
+			}, err
+		})
+		b.engine.SetEventClock(true)
+	}
+
+	cfgs, err := loadJSON[*domain.RuleConfig](o.rulesPath, "rules")
+	if err != nil {
+		return nil, nil, cleanup, err
+	}
+	for _, c := range cfgs {
+		c.Enabled = true
+	}
+	if err := b.engine.LoadRules(cfgs); err != nil {
+		return nil, nil, cleanup, err
+	}
+	b.proc = tadp.NewProcessor()
+	if o.typPath != "" {
+		b.proc = tadp.NewComplianceProcessor()
+		b.typEngine = rules.NewTypologyEngine()
+		ts, err := loadJSON[*domain.Typology](o.typPath, "typologies")
+		if err != nil {
+			return nil, nil, cleanup, err
+		}
+		for _, t := range ts {
+			t.Enabled = true
+		}
+		b.typEngine.LoadTypologies(ts)
+	}
+	b.proc.Scoring = o.scoring
+	b.proc.AlertThreshold = o.threshold
+	return b, cfgs, cleanup, nil
+}
+
+// readRows sends PaySim rows to in, up to limit rows (0 = all).
+func readRows(r *csv.Reader, limit int, in chan<- row) error {
+	for n := 0; limit == 0 || n < limit; n++ {
+		rec, err := r.Read()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		p := func(i int) float64 { v, _ := strconv.ParseFloat(rec[i], 64); return v }
+		step, _ := strconv.Atoi(rec[0])
+		in <- row{n: n, step: step, typ: rec[1], amount: p(2), orig: rec[3], ob: p(4), nb: p(5), dest: rec[6], fraud: rec[9] == "1"}
+	}
+	return nil
+}
+
+var thresholds = []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}
+
+// tally counts the confusion matrix overall, by type, for each rule alone
+// (rule fired = "alert") and for each threshold of the sweep.
+type tally struct {
+	cfgs     []*domain.RuleConfig
+	all      counts
+	byType   map[string]*counts
+	ruleFire map[string]*counts
+	sweep    []counts
+}
+
+func newTally(cfgs []*domain.RuleConfig) *tally {
+	t := &tally{cfgs: cfgs, byType: map[string]*counts{}, ruleFire: map[string]*counts{}, sweep: make([]counts, len(thresholds))}
+	for _, c := range cfgs {
+		t.ruleFire[c.ID] = &counts{}
+	}
+	return t
+}
+
+func (t *tally) add(res result) {
+	t.all.add(res.alert, res.r.fraud)
+	if t.byType[res.r.typ] == nil {
+		t.byType[res.r.typ] = &counts{}
+	}
+	t.byType[res.r.typ].add(res.alert, res.r.fraud)
+	fired := map[string]bool{}
+	for _, id := range res.fired {
+		fired[id] = true
+	}
+	for _, c := range t.cfgs {
+		t.ruleFire[c.ID].add(fired[c.ID], res.r.fraud)
+	}
+	for i, th := range thresholds {
+		t.sweep[i].add(res.failed || res.score >= th, res.r.fraud)
+	}
+}
+
+func (t *tally) report() map[string]any {
 	bt := map[string]any{}
-	for k, v := range byType {
+	for k, v := range t.byType {
 		bt[k] = v.summary()
 	}
-	report["by_type"] = bt
 	rf := map[string]any{}
-	ids := make([]string, 0, len(ruleFire))
-	for k := range ruleFire {
+	ids := make([]string, 0, len(t.ruleFire))
+	for k := range t.ruleFire {
 		ids = append(ids, k)
 	}
 	sort.Strings(ids)
 	for _, k := range ids {
-		rf[k] = ruleFire[k].summary()
+		rf[k] = t.ruleFire[k].summary()
 	}
-	report["rule_alone"] = rf
 	sw := []any{}
-	for i, t := range thresholds {
-		s := sweep[i].summary()
-		s["threshold"] = t
+	for i, th := range thresholds {
+		s := t.sweep[i].summary()
+		s["threshold"] = th
 		sw = append(sw, s)
 	}
-	report["threshold_sweep"] = sw
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", " ")
-	return enc.Encode(report)
+	return map[string]any{"overall": t.all.summary(), "by_type": bt, "rule_alone": rf, "threshold_sweep": sw}
 }
