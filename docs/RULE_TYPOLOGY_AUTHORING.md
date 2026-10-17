@@ -20,7 +20,7 @@ A good rule finds one risk signal.
 | What risk does this rule find? | One specific signal. |
 | Which fields does it use? | Fields from the transaction or `metadata`. |
 | What starts a review? | A precise CEL expression. |
-| How strong is it? | A `weight` from `0` to `1`. |
+| How strong is it? | A `weight` from `0` to `1`. A `weight` of `0` means the rule is evaluated but adds nothing to the score. |
 | What does the operator see? | A short reason. |
 
 Use many simple rules, not one expression that is difficult to understand.
