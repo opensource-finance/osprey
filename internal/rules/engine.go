@@ -4,6 +4,7 @@ package rules
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -172,6 +173,13 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 			var at time.Time
 			if e.eventClock {
 				at = input.EventTime
+				if at.IsZero() {
+					slog.Warn("event clock enabled but EventTime is zero; velocity window falls back to received clock",
+						"tx_id", input.TxID,
+						"tenant_id", input.TenantID,
+						"debtor_id", input.DebtorID,
+					)
+				}
 			}
 			var err error
 			agg, err = e.aggregatesGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow, at)

@@ -46,6 +46,16 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- The async worker now honors `OSPREY_VELOCITY_CLOCK=event`.
+  Before this change, the worker message had no `timestamp` field and never set `EventTime` on its evaluation input.
+  Under the event clock, every worker-processed transaction silently fell back to the received clock.
+  The velocity window ended at the current time instead of the transaction time.
+  The same transaction evaluated on the HTTP API path used the event clock correctly, so the two paths disagreed.
+
+  Now `TransactionMessage` carries a `timestamp` field (RFC3339) and the worker sets `EventTime` from it.
+  An empty `timestamp` defaults to the current time, matching the API path.
+  A malformed `timestamp` returns an error instead of a silent fallback.
+  The engine also logs a warning when the event clock is on but `EventTime` is zero.
 - Velocity lookups no longer read every transaction of the tenant in the window.
   The query used `debtor_id = ? OR creditor_id = ?`, and SQLite searched the `(tenant_id, created_at)` index.
   Thus, each evaluation got slower as traffic grew.

@@ -219,6 +219,7 @@ func TestTransactionMessageParsing(t *testing.T) {
 		CreditorID:     "creditor-001",
 		Amount:         1234.56,
 		Currency:       "USD",
+		Timestamp:      "2025-06-15T12:30:00Z",
 		VelocityWindow: 7200,
 		AdditionalData: map[string]any{"key": "value"},
 	}
@@ -242,6 +243,9 @@ func TestTransactionMessageParsing(t *testing.T) {
 	}
 	if parsed.VelocityWindow != msg.VelocityWindow {
 		t.Errorf("expected VelocityWindow %d, got %d", msg.VelocityWindow, parsed.VelocityWindow)
+	}
+	if parsed.Timestamp != msg.Timestamp {
+		t.Errorf("expected Timestamp %q, got %q", msg.Timestamp, parsed.Timestamp)
 	}
 }
 
