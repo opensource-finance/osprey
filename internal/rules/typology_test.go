@@ -330,3 +330,60 @@ func TestTypologyEngine_ThresholdIgnoresFloatNoise(t *testing.T) {
 		t.Fatalf("got %+v, want triggered with score 0.8", res)
 	}
 }
+
+// TestTypologyEngine_ZeroWeightIsNoContribution confirms the typology scoring
+// path treats a weight of 0 as zero contribution (contribution = score * weight,
+// no clamp). The TADP detection aggregator now honors the same semantics, so
+// the rule and typology paths agree on what weight 0 means.
+func TestTypologyEngine_ZeroWeightIsNoContribution(t *testing.T) {
+	engine := NewTypologyEngine()
+
+	typologies := []*domain.Typology{
+		{
+			ID:             "zero-weight-typology",
+			Name:           "Zero Weight Typology",
+			AlertThreshold: 0.5,
+			Enabled:        true,
+			Rules: []domain.TypologyRuleWeight{
+				{RuleID: "contrib", Weight: 1.0},
+				{RuleID: "monitor", Weight: 0.0},
+			},
+		},
+	}
+	engine.LoadTypologies(typologies)
+
+	ruleResults := []domain.RuleResult{
+		{RuleID: "contrib", Score: 0.4},
+		{RuleID: "monitor", Score: 1.0},
+	}
+
+	results := engine.EvaluateTypologies(ruleResults)
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+	result := results[0]
+
+	// 0.4*1.0 + 1.0*0.0 = 0.4. The high monitor score must not raise it.
+	if result.Score < 0.399 || result.Score > 0.401 {
+		t.Errorf("Expected typology score ~0.4 (zero-weight rule excluded), got %v", result.Score)
+	}
+	if result.Triggered {
+		t.Error("Expected typology NOT triggered (0.4 < 0.5 threshold)")
+	}
+
+	var monitorContrib *domain.RuleContribution
+	for i := range result.Contributions {
+		if result.Contributions[i].RuleID == "monitor" {
+			monitorContrib = &result.Contributions[i]
+		}
+	}
+	if monitorContrib == nil {
+		t.Fatal("expected a contribution entry for the zero-weight rule")
+	}
+	if monitorContrib.Weight != 0.0 {
+		t.Errorf("expected monitor weight 0, got %v", monitorContrib.Weight)
+	}
+	if monitorContrib.Contribution != 0.0 {
+		t.Errorf("expected monitor contribution 0 (score * weight 0), got %v", monitorContrib.Contribution)
+	}
+}

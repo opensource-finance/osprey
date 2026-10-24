@@ -584,6 +584,184 @@ func TestSumScoringBelowThresholdByFloatNoise(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// ZERO-WEIGHT RULE TESTS
+//
+// A rule saved with weight 0 must contribute nothing to the weighted aggregate
+// score (TotalWeight and AggregateScore), matching the typology scoring path.
+// It is still evaluated, and a .fail/.err outcome still forces ALRT.
+// ============================================================================
+
+// TestAggregateZeroWeightIsNoContribution reproduces the reported bug. Before
+// the fix, weight 0 was clamped to 1.0, so the zero-weight rule contributed at
+// full weight and inflated TotalWeight to 1.5 instead of 0.5.
+func TestAggregateZeroWeightIsNoContribution(t *testing.T) {
+	p := NewProcessor() // UseWeightedScoring=true, AlertThreshold=0.7, detection
+
+	results := []domain.RuleResult{
+		{RuleID: "r1", Weight: 0.5, Score: 1.0, SubRuleRef: domain.RuleOutcomePass},
+		{RuleID: "r2", Weight: 0.0, Score: 1.0, SubRuleRef: domain.RuleOutcomePass},
+	}
+
+	agg := p.aggregate(results)
+
+	if agg.TotalWeight != 0.5 {
+		t.Errorf("expected TotalWeight 0.5 (zero-weight rule excluded), got %v", agg.TotalWeight)
+	}
+	// Sum scoring: 1.0*0.5 + 1.0*0 = 0.5 (the zero-weight rule adds nothing).
+	if agg.AggregateScore != 0.5 {
+		t.Errorf("expected AggregateScore 0.5, got %v", agg.AggregateScore)
+	}
+	if agg.RulesTriggered != 0 {
+		t.Errorf("expected 0 rules triggered, got %d", agg.RulesTriggered)
+	}
+}
+
+// TestAggregateZeroWeightPassDoesNotFlipDecision shows the real-world impact:
+// without the bug fix, a zero-weight rule with a high score pulled the average
+// up and could push a transaction over the alert threshold (false positive).
+func TestAggregateZeroWeightPassDoesNotFlipDecision(t *testing.T) {
+	p := NewProcessor() // threshold 0.7
+
+	// One contributing rule at 0.6 (below threshold). A zero-weight rule with a
+	// high score must NOT change the decision, since it contributes nothing.
+	results := []domain.RuleResult{
+		{RuleID: "contribute", Weight: 1.0, Score: 0.6, SubRuleRef: domain.RuleOutcomePass},
+		{RuleID: "monitor-only", Weight: 0.0, Score: 1.0, SubRuleRef: domain.RuleOutcomePass},
+	}
+
+	eval := p.Process(context.Background(), &DecisionInput{
+		TenantID:    "t",
+		TxID:        "tx-zero",
+		StartTime:   time.Now(),
+		RuleResults: results,
+	})
+
+	// (0.6*1.0 + 1.0*0) / 1.0 = 0.6 < 0.7 -> NALT
+	if eval.Status != domain.StatusNoAlert {
+		t.Errorf("expected NALT (zero-weight rule must not contribute), got %s (score %.3f)", eval.Status, eval.Score)
+	}
+	if eval.Score != 0.6 {
+		t.Errorf("expected score 0.6, got %.3f", eval.Score)
+	}
+}
+
+// TestAggregateAllZeroWeightsNoDivisionByZero guards the normalization guard:
+// if every rule has weight 0, TotalWeight is 0 and the score stays 0.
+func TestAggregateAllZeroWeightsNoDivisionByZero(t *testing.T) {
+	p := NewProcessor()
+
+	results := []domain.RuleResult{
+		{RuleID: "r1", Weight: 0.0, Score: 1.0, SubRuleRef: domain.RuleOutcomePass},
+		{RuleID: "r2", Weight: 0.0, Score: 1.0, SubRuleRef: domain.RuleOutcomePass},
+	}
+
+	agg := p.aggregate(results)
+
+	if agg.TotalWeight != 0.0 {
+		t.Errorf("expected TotalWeight 0, got %v", agg.TotalWeight)
+	}
+	if agg.AggregateScore != 0.0 {
+		t.Errorf("expected AggregateScore 0 (no normalization of empty weight), got %v", agg.AggregateScore)
+	}
+}
+
+// TestAggregateZeroWeightFailStillForcesAlert confirms that a zero-weight rule
+// is still evaluated and a .fail outcome still fails closed to ALRT. Weight
+// only controls the score contribution, not the critical-failure semantics.
+func TestAggregateZeroWeightFailStillForcesAlert(t *testing.T) {
+	p := NewProcessor()
+
+	results := []domain.RuleResult{
+		{RuleID: "ok", Weight: 1.0, Score: 0.1, SubRuleRef: domain.RuleOutcomePass},
+		{RuleID: "monitor-only-fail", Weight: 0.0, Score: 1.0, SubRuleRef: domain.RuleOutcomeFail},
+	}
+
+	agg := p.aggregate(results)
+
+	if !agg.HasCriticalFailure {
+		t.Error("expected HasCriticalFailure true for a zero-weight .fail rule")
+	}
+	if agg.RulesTriggered != 1 {
+		t.Errorf("expected 1 rule triggered, got %d", agg.RulesTriggered)
+	}
+	// The .fail rule's score adds 0 because its weight is 0.
+	if agg.TotalWeight != 1.0 {
+		t.Errorf("expected TotalWeight 1.0 (only the .pass rule), got %v", agg.TotalWeight)
+	}
+
+	eval := p.Process(context.Background(), &DecisionInput{
+		TenantID:    "t",
+		TxID:        "tx-fail",
+		StartTime:   time.Now(),
+		RuleResults: results,
+	})
+	if eval.Status != domain.StatusAlert {
+		t.Errorf("expected ALRT from zero-weight .fail (still evaluated), got %s", eval.Status)
+	}
+}
+
+// TestAggregateZeroWeightErrStillForcesAlert confirms the same for .err.
+func TestAggregateZeroWeightErrStillForcesAlert(t *testing.T) {
+	p := NewProcessor()
+
+	results := []domain.RuleResult{
+		{RuleID: "broken", Weight: 0.0, Score: 0.0, SubRuleRef: domain.RuleOutcomeError},
+	}
+
+	agg := p.aggregate(results)
+
+	if !agg.HasCriticalFailure {
+		t.Error("expected HasCriticalFailure true for a zero-weight .err rule")
+	}
+	if agg.TotalWeight != 0.0 {
+		t.Errorf("expected TotalWeight 0, got %v", agg.TotalWeight)
+	}
+}
+
+// TestAggregatePositiveWeightsUnchanged is a regression guard: the fix must
+// not change aggregation for rules that use normal positive weights.
+func TestAggregatePositiveWeightsUnchanged(t *testing.T) {
+	p := NewProcessor()
+
+	results := []domain.RuleResult{
+		{RuleID: "r1", Weight: 1.0, Score: 1.0, SubRuleRef: domain.RuleOutcomeReview},
+		{RuleID: "r2", Weight: 5.0, Score: 0.1, SubRuleRef: domain.RuleOutcomePass},
+	}
+
+	agg := p.aggregate(results)
+
+	// Sum scoring: 1.0*1.0 + 0.1*5.0 = 1.5, capped at 1.0.
+	if agg.TotalWeight != 6.0 {
+		t.Errorf("expected TotalWeight 6.0, got %v", agg.TotalWeight)
+	}
+	if agg.AggregateScore != 1.0 {
+		t.Errorf("expected AggregateScore 1.0 (capped), got %v", agg.AggregateScore)
+	}
+}
+
+// TestAggregateZeroWeightIgnoredByUnweightedPath confirms that with weighted
+// scoring disabled, a zero-weight rule is still counted in the simple average.
+// The unweighted branch always uses 1.0 as the per-rule weight by design.
+func TestAggregateZeroWeightIgnoredByUnweightedPath(t *testing.T) {
+	p := &Processor{AlertThreshold: 0.7, UseWeightedScoring: false}
+
+	results := []domain.RuleResult{
+		{RuleID: "r1", Weight: 0.0, Score: 0.4, SubRuleRef: domain.RuleOutcomeReview},
+		{RuleID: "r2", Weight: 0.0, Score: 0.4, SubRuleRef: domain.RuleOutcomeReview},
+	}
+
+	agg := p.aggregate(results)
+
+	// Unweighted (sum): 0.4 + 0.4 = 0.8, with each rule counting as weight 1.
+	if agg.TotalWeight != 2.0 {
+		t.Errorf("expected TotalWeight 2.0 in unweighted mode, got %v", agg.TotalWeight)
+	}
+	if agg.AggregateScore < 0.799 || agg.AggregateScore > 0.801 {
+		t.Errorf("expected AggregateScore ~0.8, got %v", agg.AggregateScore)
+	}
+}
+
 // TestEmptyRuleResultsFailsClosed covers the zero-rules fail-open bug. When
 // the rule engine evaluates zero rules (empty RuleResults), both detection
 // mode and compliance mode used to score the empty set to zero and return

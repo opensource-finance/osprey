@@ -483,8 +483,11 @@ type CreateRuleRequest struct {
 	Description string            `json:"description,omitempty"`
 	Expression  string            `json:"expression"`
 	Bands       []domain.RuleBand `json:"bands"`
-	Weight      float64           `json:"weight"`
-	Enabled     bool              `json:"enabled"`
+	// Weight is a pointer so an omitted field (nil) can default to 1.0 while
+	// an explicit weight of 0 is honored as "no contribution". This mirrors the
+	// Enabled *bool guard and keeps weight 0 from being silently reinterpreted.
+	Weight  *float64 `json:"weight"`
+	Enabled bool     `json:"enabled"`
 }
 
 // CreateRule creates a new rule and saves it to the database.
@@ -516,6 +519,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	req.ID = strings.TrimSpace(req.ID)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Expression = strings.TrimSpace(req.Expression)
+	defaultRuleWeight(&req)
 
 	if !validateRuleRequest(w, &req) {
 		return
@@ -530,7 +534,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		Version:     "1.0.0",
 		Expression:  req.Expression,
 		Bands:       req.Bands,
-		Weight:      req.Weight,
+		Weight:      *req.Weight,
 		Enabled:     req.Enabled,
 	}
 
@@ -602,6 +606,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	req.ID = ruleID
 	req.Name = strings.TrimSpace(req.Name)
 	req.Expression = strings.TrimSpace(req.Expression)
+	defaultRuleWeight(&req)
 
 	if !validateRuleRequest(w, &req) {
 		return
@@ -615,7 +620,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		Version:     "1.0.0",
 		Expression:  req.Expression,
 		Bands:       req.Bands,
-		Weight:      req.Weight,
+		Weight:      *req.Weight,
 		Enabled:     req.Enabled,
 	}
 
@@ -723,6 +728,17 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// defaultRuleWeight sets a rule request's weight to 1.0 when the caller omitted
+// it (nil pointer). An explicit weight of 0 is preserved so the author can keep
+// a rule evaluated while excluding it from the weighted aggregate score. The
+// 1.0 default matches the repository's weight column default.
+func defaultRuleWeight(req *CreateRuleRequest) {
+	if req.Weight == nil {
+		w := 1.0
+		req.Weight = &w
+	}
+}
+
 func validateRuleRequest(w http.ResponseWriter, req *CreateRuleRequest) bool {
 	if req.ID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -742,7 +758,14 @@ func validateRuleRequest(w http.ResponseWriter, req *CreateRuleRequest) bool {
 		})
 		return false
 	}
-	if req.Weight < 0 || req.Weight > 1 {
+	if req.Weight == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "weight must be between 0 and 1",
+		})
+		return false
+	}
+	weight := *req.Weight
+	if weight < 0 || weight > 1 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "weight must be between 0 and 1",
 		})

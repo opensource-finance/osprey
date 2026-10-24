@@ -147,6 +147,21 @@ This file records all notable changes to this project. The format follows
   In compliance mode this changed the final decision, or returned `503` on every later `POST /evaluate` when it was the last enabled typology.
   The handler now returns `400 enabled is required`, the same guard `PUT /rules/{id}` already has.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- A rule saved with `weight: 0` now adds nothing to the detection aggregate score.
+  Before this change, the create and update APIs accepted `weight: 0` and stored it.
+  The TADP aggregator then clamped any weight at or below `0` up to `1.0`.
+  So a rule that the author removed from the score still contributed at full strength.
+  It could push a transaction over `AlertThreshold` and cause a false `ALRT`.
+  The weight also inflated `TotalWeight`, which lowered the score when the rule's own score was low.
+
+  The typology scoring path already treated `0` as no contribution, so the two paths disagreed.
+  Now the aggregator honors the configured weight as-is, and `.fail` or `.err` on a zero-weight rule still forces `ALRT`.
+  The create and update APIs treat an omitted or `null` weight as the default `1.0`, so an omitted field keeps its old behavior.
+
+  **Upgrade:** older versions stored an omitted weight as `0`, and those rules scored at full strength.
+  After you upgrade, these rules add nothing to the score. At startup, Osprey logs a warning that lists each one.
+  To keep the old behavior, set `weight: 1.0` on each listed rule with `PUT /rules/{id}`.
+
 - `POST /rules` and `POST /typologies` now require the `enabled` field.
   Before this change, a request body that omitted `enabled` decoded `enabled` to `false`.
   The handler persisted the rule or typology as disabled and returned `201 Created` with `saved and loaded`.

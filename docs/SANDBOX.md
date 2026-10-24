@@ -346,7 +346,7 @@ Rule request fields:
 | `name` | Yes | Human-readable name. |
 | `description` | No | Purpose of the rule. |
 | `expression` | Yes | CEL expression. |
-| `weight` | Yes | Number from `0` to `1`. |
+| `weight` | Yes | Number from `0` to `1`. A weight of `0` means the rule is evaluated but adds nothing to the score. |
 | `enabled` | Yes | Osprey keeps a disabled rule, but the rule is not active. |
 | `bands` | No | Reasons for score ranges. |
 
