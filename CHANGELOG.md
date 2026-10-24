@@ -52,6 +52,12 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
+  Before this change, they added raw amounts across every currency the entity touched in the window.
+  A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).
+  Threshold and ratio rules misfired for multi-currency entities in both directions.
+  The dimensionless counters (`velocity_count`, `velocity_distinct_creditors`, `velocity_inbound_count`) stay currency-agnostic.
+  The variable catalog (`GET /rules/variables`) and `docs/RULE_TYPOLOGY_AUTHORING.md` now document the per-currency semantics.
 - Velocity lookups no longer read every transaction of the tenant in the window.
   The query used `debtor_id = ? OR creditor_id = ?`, and SQLite searched the `(tenant_id, created_at)` index.
   Thus, each evaluation got slower as traffic grew.

@@ -45,7 +45,7 @@ func TestGetAggregates(t *testing.T) {
 	}
 
 	t.Run("Aggregates", func(t *testing.T) {
-		agg, err := svc.GetAggregates(ctx, tenantID, "d1", 3600)
+		agg, err := svc.GetAggregates(ctx, tenantID, "d1", "USD", 3600)
 		if err != nil {
 			t.Fatalf("GetAggregates: %v", err)
 		}
@@ -61,16 +61,16 @@ func TestGetAggregates(t *testing.T) {
 	})
 
 	t.Run("RequiresIDs", func(t *testing.T) {
-		if _, err := svc.GetAggregates(ctx, "", "d1", 3600); err == nil {
+		if _, err := svc.GetAggregates(ctx, "", "d1", "USD", 3600); err == nil {
 			t.Error("expected error for empty tenantID")
 		}
-		if _, err := svc.GetAggregates(ctx, tenantID, "", 3600); err == nil {
+		if _, err := svc.GetAggregates(ctx, tenantID, "", "USD", 3600); err == nil {
 			t.Error("expected error for empty entityID")
 		}
 	})
 
 	t.Run("NoDataSource", func(t *testing.T) {
-		if _, err := (&Service{}).GetAggregates(ctx, "t", "e", 3600); err == nil {
+		if _, err := (&Service{}).GetAggregates(ctx, "t", "e", "USD", 3600); err == nil {
 			t.Error("expected error with no data source")
 		}
 	})
@@ -113,7 +113,7 @@ func TestGetAggregatesBackdatedTimestamps(t *testing.T) {
 		}
 	}
 
-	agg, err := svc.GetAggregates(ctx, tenantID, "d1-bd", 3600)
+	agg, err := svc.GetAggregates(ctx, tenantID, "d1-bd", "USD", 3600)
 	if err != nil {
 		t.Fatalf("GetAggregates: %v", err)
 	}
@@ -156,13 +156,128 @@ func TestDistinctCreditorsCountsOutgoingOnly(t *testing.T) {
 	save("in-2", "victim-2", "mule", 500)
 	save("out-1", "mule", "x1", 800)
 
-	agg, err := svc.GetAggregates(ctx, "t", "mule", 3600)
+	agg, err := svc.GetAggregates(ctx, "t", "mule", "GBP", 3600)
 	if err != nil {
 		t.Fatalf("GetAggregates: %v", err)
 	}
 	want := Aggregates{Count: 3, AmountSum: 3800, DistinctCreditors: 1, InboundCount: 2, InboundAmountSum: 3000}
 	if agg != want {
 		t.Errorf("got %+v, want %+v", agg, want)
+	}
+}
+
+// TestAggregateSumsPerCurrency is the regression test for currency-incoherent
+// velocity sums. Before the fix, aggregate added raw amounts across every
+// currency in the window, so one 100 EUR outbound tx and one 100 USD inbound tx
+// for the same entity produced AmountSum=200 (neither 200 USD nor 200 EUR).
+// The sums must now be scoped to the evaluated transaction's currency, while the
+// dimensionless counters stay currency-agnostic.
+func TestAggregateSumsPerCurrency(t *testing.T) {
+	entity := "E"
+	now := time.Now().UTC()
+	txs := []*domain.Transaction{
+		{ID: "out-eur", Type: "TRANSFER", DebtorID: entity, CreditorID: "c1", Amount: 100, Currency: "EUR", Timestamp: now, CreatedAt: now},
+		{ID: "in-usd", Type: "TRANSFER", DebtorID: "other", CreditorID: entity, Amount: 100, Currency: "USD", Timestamp: now, CreatedAt: now},
+	}
+
+	// Counts cover every transaction regardless of currency.
+	aggUSD := aggregate(entity, "USD", txs)
+	if aggUSD.Count != 2 {
+		t.Errorf("Count: want 2 (currency-agnostic), got %d", aggUSD.Count)
+	}
+	if aggUSD.InboundCount != 1 {
+		t.Errorf("InboundCount: want 1 (currency-agnostic), got %d", aggUSD.InboundCount)
+	}
+	// USD sums only the USD inbound row; the EUR outbound row is excluded.
+	if aggUSD.AmountSum != 100 {
+		t.Errorf("USD AmountSum: want 100.0, got %f", aggUSD.AmountSum)
+	}
+	if aggUSD.InboundAmountSum != 100 {
+		t.Errorf("USD InboundAmountSum: want 100.0, got %f", aggUSD.InboundAmountSum)
+	}
+
+	// EUR sums only the EUR outbound row; the USD inbound row is excluded.
+	aggEUR := aggregate(entity, "EUR", txs)
+	if aggEUR.AmountSum != 100 {
+		t.Errorf("EUR AmountSum: want 100.0, got %f", aggEUR.AmountSum)
+	}
+	if aggEUR.InboundAmountSum != 0 {
+		t.Errorf("EUR InboundAmountSum: want 0.0, got %f", aggEUR.InboundAmountSum)
+	}
+	if aggEUR.DistinctCreditors != 1 {
+		t.Errorf("EUR DistinctCreditors: want 1, got %d", aggEUR.DistinctCreditors)
+	}
+
+	// A third currency present in the window contributes nothing to the sums.
+	aggJPY := aggregate(entity, "JPY", txs)
+	if aggJPY.AmountSum != 0 || aggJPY.InboundAmountSum != 0 {
+		t.Errorf("JPY sums should be 0, got %+v", aggJPY)
+	}
+	if aggJPY.Count != 2 {
+		t.Errorf("JPY Count: want 2 (currency-agnostic), got %d", aggJPY.Count)
+	}
+
+	// Empty currency falls back to summing every row (legacy behavior), so a
+	// caller that does not know the currency is no worse off than before.
+	aggAll := aggregate(entity, "", txs)
+	if aggAll.AmountSum != 200 {
+		t.Errorf("empty-currency AmountSum: want 200.0 (legacy fallback), got %f", aggAll.AmountSum)
+	}
+	if aggAll.InboundAmountSum != 100 {
+		t.Errorf("empty-currency InboundAmountSum: want 100.0 (legacy fallback), got %f", aggAll.InboundAmountSum)
+	}
+}
+
+// TestGetAggregatesPerCurrencyEndToEnd checks the per-currency sums through the
+// service and repository, the path the rule engine uses.
+func TestGetAggregatesPerCurrencyEndToEnd(t *testing.T) {
+	svc, repo := newAggRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	save := func(id, from, to, currency string, amount float64) {
+		t.Helper()
+		tx := &domain.Transaction{ID: id, Type: "TRANSFER", DebtorID: from, CreditorID: to, Amount: amount, Currency: currency, Timestamp: now, CreatedAt: now}
+		if err := repo.SaveTransaction(ctx, "t", tx); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+	}
+	// Entity mule sends 100 EUR and 300 USD, and receives 200 USD.
+	save("out-eur", "mule", "x1", "EUR", 100)
+	save("out-usd", "mule", "x2", "USD", 300)
+	save("in-usd", "victim", "mule", "USD", 200)
+
+	agg, err := svc.GetAggregates(ctx, "t", "mule", "USD", 3600)
+	if err != nil {
+		t.Fatalf("GetAggregates: %v", err)
+	}
+	// Count is currency-agnostic: all three txs.
+	if agg.Count != 3 {
+		t.Errorf("Count: want 3, got %d", agg.Count)
+	}
+	// USD sum: 300 sent + 200 received = 500. The 100 EUR row is excluded.
+	if agg.AmountSum != 500 {
+		t.Errorf("USD AmountSum: want 500.0, got %f", agg.AmountSum)
+	}
+	if agg.InboundAmountSum != 200 {
+		t.Errorf("USD InboundAmountSum: want 200.0, got %f", agg.InboundAmountSum)
+	}
+	if agg.InboundCount != 1 {
+		t.Errorf("USD InboundCount: want 1, got %d", agg.InboundCount)
+	}
+	if agg.DistinctCreditors != 2 {
+		t.Errorf("DistinctCreditors: want 2, got %d", agg.DistinctCreditors)
+	}
+
+	// EUR sum: only the 100 EUR outbound row.
+	aggEUR, err := svc.GetAggregates(ctx, "t", "mule", "EUR", 3600)
+	if err != nil {
+		t.Fatalf("GetAggregates EUR: %v", err)
+	}
+	if aggEUR.AmountSum != 100 {
+		t.Errorf("EUR AmountSum: want 100.0, got %f", aggEUR.AmountSum)
+	}
+	if aggEUR.InboundAmountSum != 0 {
+		t.Errorf("EUR InboundAmountSum: want 0.0, got %f", aggEUR.InboundAmountSum)
 	}
 }
 
@@ -181,7 +296,7 @@ func TestGetAggregatesAtUsesEventTime(t *testing.T) {
 		}
 	}
 
-	agg, err := svc.GetAggregatesAt(ctx, "t", "d", 3600, base)
+	agg, err := svc.GetAggregatesAt(ctx, "t", "d", "USD", 3600, base)
 	if err != nil {
 		t.Fatalf("GetAggregatesAt: %v", err)
 	}
@@ -191,7 +306,7 @@ func TestGetAggregatesAtUsesEventTime(t *testing.T) {
 	}
 
 	// The received clock sees all 4: Osprey received them all just now.
-	recv, err := svc.GetAggregates(ctx, "t", "d", 3600)
+	recv, err := svc.GetAggregates(ctx, "t", "d", "USD", 3600)
 	if err != nil {
 		t.Fatalf("GetAggregates: %v", err)
 	}

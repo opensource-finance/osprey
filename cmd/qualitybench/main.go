@@ -286,8 +286,8 @@ func newBench(o options) (*bench, []*domain.RuleConfig, func(), error) {
 		}
 		closers = append(closers, func() { _ = b.repo.Close() })
 		svc := velocity.NewService(b.repo, nil)
-		b.engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
-			a, err := svc.GetAggregatesAt(ctx, tenantID, entityID, windowSecs, at)
+		b.engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID, currency string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
+			a, err := svc.GetAggregatesAt(ctx, tenantID, entityID, currency, windowSecs, at)
 			return rules.VelocityAggregates{
 				Count: a.Count, AmountSum: a.AmountSum, DistinctCreditors: a.DistinctCreditors,
 				InboundCount: a.InboundCount, InboundAmountSum: a.InboundAmountSum,

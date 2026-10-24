@@ -50,7 +50,10 @@ type VelocityAggregates struct {
 // velocity_amount_sum, velocity_distinct_creditors and velocity_inbound_* CEL
 // variables. A zero at means a window that ends now on the received clock; a
 // non-zero at means a window that ends at that event time on the event clock.
-type AggregatesGetter func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (VelocityAggregates, error)
+// currency scopes the monetary sums to the evaluated transaction's currency;
+// pass the current transaction's Currency so a multi-currency window does not
+// add incomparable amounts. The dimensionless counters are currency-agnostic.
+type AggregatesGetter func(ctx context.Context, tenantID, entityID, currency string, windowSecs int, at time.Time) (VelocityAggregates, error)
 
 // SanctionsScreener returns the best sanctions-list match for a party name.
 // listedEntry identifies the matched list entry for analysts, e.g.
@@ -210,7 +213,7 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 				at = input.EventTime
 			}
 			var err error
-			agg, err = e.aggregatesGetter(ctx, input.TenantID, input.DebtorID, input.VelocityWindow, at)
+			agg, err = e.aggregatesGetter(ctx, input.TenantID, input.DebtorID, input.Currency, input.VelocityWindow, at)
 			if err != nil {
 				return nil, fmt.Errorf("velocity lookup failed for entity %q: %w", input.DebtorID, err)
 			}

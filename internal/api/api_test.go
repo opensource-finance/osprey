@@ -218,8 +218,8 @@ func createPersistentTestServerWithVelocity(t *testing.T) (*Server, func()) {
 		_ = os.Remove(dbPath)
 		t.Fatalf("failed to create engine: %v", err)
 	}
-	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, _ time.Time) (rules.VelocityAggregates, error) {
-		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID, currency string, windowSecs int, _ time.Time) (rules.VelocityAggregates, error) {
+		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, currency, windowSecs)
 		if err != nil {
 			return rules.VelocityAggregates{}, err
 		}
