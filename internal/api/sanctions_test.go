@@ -57,7 +57,7 @@ func TestEvaluateScreensPartyNames(t *testing.T) {
 	if resp.Status != domain.StatusAlert {
 		t.Errorf("status = %s, want ALRT for a creditor SDN hit", resp.Status)
 	}
-	if len(resp.Reasons) != 1 || resp.Reasons[0] != "Probable OFAC SDN match: ACTOR, Bad" {
+	if len(resp.Reasons) != 1 || resp.Reasons[0] != "Probable OFAC SDN match: creditor matches ACTOR, Bad" {
 		t.Errorf("reasons = %q, want the matched entry named", resp.Reasons)
 	}
 }

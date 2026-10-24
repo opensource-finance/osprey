@@ -43,7 +43,7 @@ func TestSanctionsScoreTakesWorsePartyAndFailsRule(t *testing.T) {
 	if err != nil || res[0].SubRuleRef != domain.RuleOutcomeFail || res[0].Score != 0.97 {
 		t.Fatalf("creditor hit: %+v %v", res, err)
 	}
-	if res[0].Reason != "SDN hit: ACTOR, Bad" {
+	if res[0].Reason != "SDN hit: creditor matches ACTOR, Bad" {
 		t.Errorf("reason = %q, want the matched entry appended", res[0].Reason)
 	}
 

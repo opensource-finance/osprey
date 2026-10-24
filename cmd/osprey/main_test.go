@@ -147,11 +147,12 @@ func TestApplyDetectionOverrides(t *testing.T) {
 		t.Setenv("OSPREY_ALERT_THRESHOLD", " 0.5 ")
 		t.Setenv("OSPREY_SCORING", "Average")
 		t.Setenv("OSPREY_VELOCITY_CLOCK", "event")
+		t.Setenv("OSPREY_SANCTIONS_DIR", " data/ofac ")
 		cfg := domain.DefaultConfig()
 		if err := applyEnvOverrides(cfg); err != nil {
 			t.Fatal(err)
 		}
-		want := domain.DetectionConfig{AlertThreshold: 0.5, Scoring: "average", VelocityClock: "event"}
+		want := domain.DetectionConfig{AlertThreshold: 0.5, Scoring: "average", VelocityClock: "event", SanctionsDir: "data/ofac"}
 		if cfg.Detection != want {
 			t.Fatalf("got %+v, want %+v", cfg.Detection, want)
 		}

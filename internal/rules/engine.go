@@ -63,19 +63,21 @@ func (e *Engine) SetSanctionsScreener(s SanctionsScreener) {
 	e.sanctionsScreener = s
 }
 
-// screen returns the higher-scoring of the debtor and creditor matches.
+// screen returns the higher-scoring of the debtor and creditor matches. The
+// match names the party, e.g. "creditor matches SAMPLE, Jonathan Quill (...)",
+// so an analyst knows whether to stop the customer or the payee.
 func (e *Engine) screen(input *EvaluateInput) (float64, string) {
 	if e.sanctionsScreener == nil {
 		return 0, ""
 	}
 	var best float64
 	var match string
-	for _, name := range []string{input.DebtorName, input.CreditorName} {
-		if name == "" {
+	for _, p := range [...]struct{ role, name string }{{"debtor", input.DebtorName}, {"creditor", input.CreditorName}} {
+		if p.name == "" {
 			continue
 		}
-		if s, m := e.sanctionsScreener(name); s > best {
-			best, match = s, m
+		if s, m := e.sanctionsScreener(p.name); s > best && m != "" {
+			best, match = s, p.role+" matches "+m
 		}
 	}
 	return best, match
@@ -232,7 +234,6 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 	}
 
 	// Prepare CEL activation variables
-
 	activation := map[string]any{
 		"tx": map[string]any{
 			"id":          input.TxID,

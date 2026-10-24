@@ -171,7 +171,7 @@ func main() {
 	}
 	slog.Info("velocity clock", "clock", cfg.Detection.VelocityClock)
 
-	if err := wireSanctions(engine); err != nil {
+	if err := wireSanctions(engine, cfg.Detection.SanctionsDir); err != nil {
 		slog.Error("failed to load sanctions list", "error", err)
 		os.Exit(1)
 	}
@@ -499,6 +499,7 @@ func applyDetectionOverrides(cfg *domain.Config) error {
 	default:
 		return fmt.Errorf("OSPREY_VELOCITY_CLOCK must be %q or %q", domain.VelocityClockReceived, domain.VelocityClockEvent)
 	}
+	cfg.Detection.SanctionsDir = strings.TrimSpace(os.Getenv("OSPREY_SANCTIONS_DIR"))
 	return nil
 }
 
@@ -532,11 +533,10 @@ func parseNonNegativeIntEnv(name string) (int, bool, error) {
 	return value, true, nil
 }
 
-// wireSanctions loads the OFAC list from OSPREY_SANCTIONS_DIR (see
-// scripts/fetch-ofac.sh). Unset leaves screening off; a bad path is fatal so a
+// wireSanctions loads the OFAC list from dir (OSPREY_SANCTIONS_DIR, see
+// scripts/fetch-ofac.sh). Empty leaves screening off; a bad path is fatal so a
 // misconfigured deploy never silently screens against nothing.
-func wireSanctions(engine *rules.Engine) error {
-	dir := strings.TrimSpace(os.Getenv("OSPREY_SANCTIONS_DIR"))
+func wireSanctions(engine *rules.Engine, dir string) error {
 	if dir == "" {
 		slog.Warn("sanctions screening disabled: OSPREY_SANCTIONS_DIR not set; sanctions_score is always 0")
 		return nil

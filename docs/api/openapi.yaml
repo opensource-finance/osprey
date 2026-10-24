@@ -709,7 +709,7 @@ components:
           type: number
         reasons:
           type: array
-          description: The reason of each rule that gave `.review`, `.fail`, or `.err`. A sanctions rule reason ends with the matched SDN entry.
+          description: The reason of each rule that gave `.review`, `.fail`, or `.err`. A sanctions rule reason ends with the matched party and the SDN entry.
           items:
             type: string
         metadata:

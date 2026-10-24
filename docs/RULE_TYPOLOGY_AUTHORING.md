@@ -42,7 +42,7 @@ Use many simple rules, not one expression that is difficult to understand.
 | `velocity_inbound_count` | int | Number of payments that the debtor received in the window |
 | `velocity_inbound_amount_sum` | double | Total amount that the debtor received in the window |
 | `sanctions_score` | double | Best OFAC SDN name-match score (0 to 1) for `debtor.name` or `creditor.name`. `0` when no list is loaded |
-| `sanctions_match` | string | Listed SDN entry behind `sanctions_score`: name, OFAC ent_num and program. Empty when there is no candidate. A sanctions rule's non-pass reason ends with it |
+| `sanctions_match` | string | The party and the listed SDN entry behind `sanctions_score`, for example `creditor matches NAME (OFAC ent 1002, PROGRAM)`. Empty when there is no candidate. A sanctions rule's non-pass reason ends with it |
 
 The velocity window is one hour before the transaction.
 By default, the window uses the time when Osprey received each transaction.

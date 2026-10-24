@@ -139,7 +139,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 <script type="application/json" id="ontology">
 {
   "updated": "2026-10-24",
-  "source": "osprey @ e28c4dd (feat/ofac-sanctions-screening, includes main up to b58cb79)",
+  "source": "osprey feat/ofac-sanctions-screening after a111445 (includes main up to b58cb79)",
   "verified_by": "read of internal/api/server.go routes + middleware, internal/domain/bus.go topics, internal/repository/schema.go tables, cmd/osprey/main.go env vars, grep for Publish/Subscribe/Save* call sites",
   "types": {
     "actor": {"label": "Actor", "color": "--t-actor"},
@@ -191,9 +191,9 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 
     {"id": "handler", "type": "engine", "layer": "engine", "label": "Evaluate handler", "file": "internal/api/handler.go", "props": {"steps": "validate, save transaction, build input, rules, typologies, TADP, save evaluation, respond", "velocity window": "3600 s"}},
     {"id": "engine", "type": "engine", "layer": "engine", "label": "CEL rule engine", "file": "internal/rules/engine.go", "props": {"runs": "all compiled (enabled) rules in parallel, semaphore of 100", "cost limit": "1,000,000 CEL units per rule", "outcomes": ".pass, .review, .fail, .err via ordered bands"}},
-    {"id": "catalog", "type": "engine", "layer": "engine", "label": "CEL variable catalog", "file": "internal/rules/variables.go", "props": {"core": "amount, currency, tx_type, debtor_id, creditor_id, old_balance, new_balance, tx", "velocity": "velocity_count, velocity_amount_sum, velocity_distinct_creditors, velocity_inbound_count, velocity_inbound_amount_sum", "sanctions": "sanctions_score, sanctions_match", "open maps": "meta.*, enrichment.*", "single source for": "CEL env, /rules/variables, authoring docs"}},
+    {"id": "catalog", "type": "engine", "layer": "engine", "label": "CEL variable catalog", "file": "internal/rules/variables.go", "props": {"core": "amount, currency, tx_type, debtor_id, creditor_id, old_balance, new_balance, tx", "velocity": "velocity_count, velocity_amount_sum, velocity_distinct_creditors, velocity_inbound_count, velocity_inbound_amount_sum", "sanctions": "sanctions_score, sanctions_match (party and entry)", "open maps": "meta.*, enrichment.*", "single source for": "CEL env, /rules/variables, authoring docs"}},
     {"id": "velocity", "type": "engine", "layer": "engine", "label": "Velocity service", "file": "internal/velocity/velocity.go", "props": {"scope": "debtor only", "source": "repository query per evaluation", "clock": "OSPREY_VELOCITY_CLOCK received (default) or event", "fails": "closed: lookup error fails the evaluation"}},
-    {"id": "sanctions", "type": "engine", "layer": "engine", "label": "Sanctions screener", "file": "internal/sanctions/sanctions.go", "props": {"list": "OFAC SDN + aliases, in memory", "match": "token Jaro-Winkler over a 3-letter prefix index", "runs when": "a loaded rule reads sanctions_*", "cost": "about 0.6 ms worst case per name"}},
+    {"id": "sanctions", "type": "engine", "layer": "engine", "label": "Sanctions screener", "file": "internal/sanctions/sanctions.go", "props": {"list": "OFAC SDN + aliases, in memory", "match": "token Jaro-Winkler over a 3-letter prefix index", "runs when": "a loaded rule reads sanctions_*", "reports": "which party matched, debtor or creditor", "cost": "about 0.6 ms worst case per name"}},
     {"id": "typo-engine", "type": "decision", "layer": "decision", "label": "Typology engine", "file": "internal/rules/typology.go", "props": {"mode": "compliance", "score": "sum of rule score x typology weight", "trigger": "score at or above alertThreshold"}},
     {"id": "tadp", "type": "decision", "layer": "decision", "label": "TADP decision processor", "file": "internal/tadp/tadp.go", "props": {"detection": "sum of score x weight, capped at 1 (OSPREY_SCORING=sum) or weighted average", "threshold": "OSPREY_ALERT_THRESHOLD, default 0.7", "forces ALRT": "any .fail or .err", "output": "ALRT or NALT, score, reasons"}},
 
@@ -209,7 +209,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     {"id": "paysim-rules", "type": "content", "layer": "content", "label": "PaySim rules", "file": "configs/rules/paysim-rules.json", "props": {"use": "benchmark on the labelled PaySim dataset"}},
     {"id": "fatf-typos", "type": "content", "layer": "content", "label": "FATF typologies", "file": "configs/typologies/fatf-typologies.json", "props": {"includes": "structuring, account takeover, mule, rapid movement, cash intensive, fraud basic, sanctions"}},
     {"id": "seed", "type": "tool", "layer": "content", "label": "Seed scripts", "file": "scripts/seed-starter-kit.sh", "props": {"loads": "rules, plus typologies with --compliance", "via": "the admin API"}},
-    {"id": "env", "type": "config", "layer": "content", "label": "OSPREY_* environment", "file": "cmd/osprey/main.go", "props": {"tier": "OSPREY_TIER community | pro", "mode": "OSPREY_MODE detection | compliance", "scoring": "OSPREY_SCORING, OSPREY_ALERT_THRESHOLD", "velocity": "OSPREY_VELOCITY_CLOCK", "sanctions": "OSPREY_SANCTIONS_DIR", "server": "OSPREY_HOST, OSPREY_PORT, OSPREY_STUDIO, OSPREY_DEBUG"}},
+    {"id": "env", "type": "config", "layer": "content", "label": "OSPREY_* environment", "file": "cmd/osprey/main.go", "props": {"tier": "OSPREY_TIER community | pro", "parsed in": "applyEnvOverrides into domain.Config", "mode": "OSPREY_MODE detection | compliance", "scoring": "OSPREY_SCORING, OSPREY_ALERT_THRESHOLD", "velocity": "OSPREY_VELOCITY_CLOCK", "sanctions": "OSPREY_SANCTIONS_DIR", "server": "OSPREY_HOST, OSPREY_PORT, OSPREY_STUDIO, OSPREY_DEBUG"}},
 
     {"id": "benchmark", "type": "tool", "layer": "tools", "label": "cmd/benchmark", "file": "cmd/benchmark", "props": {"measures": "throughput on PaySim CSV"}},
     {"id": "qualitybench", "type": "tool", "layer": "tools", "label": "cmd/qualitybench", "file": "cmd/qualitybench", "props": {"measures": "precision and recall of a rule set on labelled PaySim", "flag": "-velocity replays in event time"}},
@@ -309,7 +309,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     ]},
     {"id": "async", "label": "Evaluate (async)", "desc": "Pro tier path. A producer publishes to the bus, workers evaluate and publish the decision.", "steps": [
       ["producer", "publish TransactionMessage to osprey.transaction.ingested"],
-      ["bus", "NATS (Pro) or Go channels; tenant-scoped subjects"],
+      ["bus", "NATS (Pro) or Go channels, with tenant-scoped subjects"],
       ["worker", "subscription tenant wins over the payload tenant, except on the global worker"],
       ["velocity", "query the debtor's transactions", "Bus-only transactions are never saved, so they never count here."],
       ["engine", "same rule evaluation as the sync path"],
@@ -324,7 +324,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["r-rules", "POST /rules/validate compiles without saving"],
       ["mw-admin", "POST /rules needs OSPREY_ADMIN_TOKEN"],
       ["tbl-rules", "save the rule config"],
-      ["engine", "compile and load; POST /rules/reload reloads all"]
+      ["engine", "compile and load. POST /rules/reload reloads all rules"]
     ]},
     {"id": "sanctions", "label": "Sanctions list", "desc": "The list is a file on disk. Nothing downloads at runtime.", "steps": [
       ["ofac", "publishes SDN.CSV and ALT.CSV"],
@@ -332,7 +332,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["ofac-dir", "folder named by OSPREY_SANCTIONS_DIR"],
       ["sanctions", "load at startup, index names and aliases by 3-letter prefix"],
       ["engine", "sanctions_score and sanctions_match available to rules"],
-      ["fatf-rules", "sanctions-001 gives .fail from 0.88 and names the matched entry"]
+      ["fatf-rules", "sanctions-001 gives .fail from 0.88 and names the party and the entry"]
     ]},
     {"id": "startup", "label": "Startup", "desc": "Order of cmd/osprey/main.go. A failure at any step exits the process.", "steps": [
       ["env", "read OSPREY_* into the tier config, require the admin token"],
@@ -341,7 +341,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["bus", "open channels or NATS"],
       ["engine", "create the engine, wire velocity and the clock"],
       ["sanctions", "load the list if OSPREY_SANCTIONS_DIR is set"],
-      ["tbl-rules", "load rules; no hard-coded defaults"],
+      ["tbl-rules", "load rules. There are no hard-coded defaults"],
       ["tbl-typo", "load typologies"],
       ["worker", "start workers when Pro or OSPREY_ASYNC_WORKER=true"],
       ["router", "serve HTTP, and Studio unless OSPREY_STUDIO=false"]
@@ -355,7 +355,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     "Velocity is debtor-only. There is no creditor-side or account-level aggregate."
   ],
   "changelog": [
-    "2026-10-24: first map, from osprey e28c4dd."
+    "2026-10-24: first map, from osprey e28c4dd.",
+    "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md."
   ]
 }
 </script>
@@ -397,7 +398,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
   function chip(id, extra = '') {
     const n = byId[id];
     const cls = ['chip', n.gap ? 'gap' : '', selected === id ? 'on' : '', extra].join(' ').trim();
-    return el('button', {class: cls, type: 'button', 'data-id': id, onclick: () => select(id)},
+    return el('button', {class: cls, type: 'button', 'data-id': id, onclick: ev => { ev.stopPropagation(); select(id); }},
       el('i', {class: 'dot', style: `background:${color(n.type)}`}), label(n));
   }
 
@@ -502,7 +503,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
         const deg = O.edges.filter(e => e.from === n.id || e.to === n.id).length;
         tbody.append(el('tr', {onclick: () => select(n.id)},
           el('td', {}, chip(n.id)), el('td', {}, O.types[n.type].label), el('td', {}, O.layers.find(l => l.id === n.layer).label),
-          el('td', {}, n.file ? el('code', {}, n.file) : '—'), el('td', {class: 'mono'}, String(deg))));
+          el('td', {}, n.file ? el('code', {}, n.file) : 'none'), el('td', {class: 'mono'}, String(deg))));
       }
     };
     input.addEventListener('input', () => { query = input.value; fill(); });

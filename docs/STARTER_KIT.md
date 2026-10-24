@@ -66,6 +66,8 @@ All rules except `sanctions-001` use `.review`. Only a probable sanctions match 
 - Behaviour rules (drain, structuring, same party, velocity, pass-through, fan-out) have weights from `0.2` to `0.4`.
 - One behaviour rule plus all the context rules that can match together gives less than `0.7`.
   Thus, an alert needs two behaviour signals.
+- A possible sanctions match from `sanctions-001` adds up to `0.088`.
+  With it, one behaviour rule and the context rules can reach `0.7`.
 
 ## FATF-Inspired Typologies
 

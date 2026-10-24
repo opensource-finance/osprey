@@ -45,7 +45,7 @@ var noise = map[string]bool{
 
 // tokenize lowercases, splits on punctuation and drops noise tokens, so
 // "SAMPLE, Jonathan" and "jonathan sample" carry the same tokens in any order.
-// ponytail: no diacritic folding (needs x/text); add when non-Latin lists matter.
+// Limit: no diacritic folding (needs x/text); add when non-Latin lists matter.
 func tokenize(s string) [][]rune {
 	var toks [][]rune
 	for _, t := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
@@ -61,7 +61,7 @@ func tokenize(s string) [][]rune {
 // indexKey buckets a token by its first three letters (the whole token when
 // shorter), so spellings that differ later ("maximilian"/"maximillian",
 // "jonathon"/"jonathan") still meet as candidates. Initials never retrieve.
-// ponytail: first-letter variants (Katrin/Catrin) rely on ALT.CSV aliases; add
+// Limit: first-letter variants (Katrin/Catrin) rely on ALT.CSV aliases; add
 // phonetic keys if that misses real hits.
 func indexKey(t []rune) (string, bool) {
 	if len(t) < 2 {
@@ -163,7 +163,7 @@ func (l *List) Len() int { return len(l.entries) }
 
 // Screen returns the best match for name, or a zero Match when no listed name
 // shares a token prefix with it.
-// ponytail: scores every entry in the query's prefix buckets; common prefixes
+// Limit: scores every entry in the query's prefix buckets; common prefixes
 // (the most frequent name starts) mean thousands of comparisons per name. Add a tighter
 // index if p99 suffers.
 func (l *List) Screen(name string) Match {
