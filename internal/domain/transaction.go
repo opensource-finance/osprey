@@ -19,6 +19,10 @@ type Transaction struct {
 	CreditorID      string `json:"creditorId"`
 	CreditorAcctID  string `json:"creditorAccountId"`
 
+	// Party names, used only for sanctions screening; not persisted.
+	DebtorName   string `json:"debtorName,omitempty"`
+	CreditorName string `json:"creditorName,omitempty"`
+
 	// Financial details
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency"`

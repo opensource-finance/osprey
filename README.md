@@ -139,6 +139,7 @@ The `community` profile is the default. It is the easiest profile for a local Os
 | `OSPREY_SCORING` | `sum` | Detection mode: `sum` adds score x weight of each rule, with a maximum of `1`. `average` divides by the total weight of all rules (the behavior before v0.2). |
 | `OSPREY_VELOCITY_CLOCK` | `received` | `received` uses the time when Osprey received each transaction for velocity windows. `event` uses the `timestamp` field. Use `event` only to replay historical data, because the caller controls `timestamp`. |
 | `OSPREY_STUDIO` | `true` | Serves Osprey Studio at `/studio/`. Set `false` to turn it off. |
+| `OSPREY_SANCTIONS_DIR` | unset (off) | Folder with OFAC `SDN.CSV` and `ALT.CSV`, fetched by `scripts/fetch-ofac.sh`. A bad path stops startup. |
 
 ## API
 

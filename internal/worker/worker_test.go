@@ -352,3 +352,31 @@ func TestProcessTransactionReturnsPipelineFailures(t *testing.T) {
 		}
 	})
 }
+
+func TestProcessTransactionScreensPartyNames(t *testing.T) {
+	eventBus := bus.NewChannelBus(10)
+	defer func() { _ = eventBus.Close() }()
+
+	engine, _ := rules.NewEngine(nil, 2)
+	_ = engine.LoadRule(&domain.RuleConfig{ID: "sanctions-001", Expression: "sanctions_score", Weight: 0.1, Enabled: true})
+	var screened []string
+	engine.SetSanctionsScreener(func(name string) (float64, string) {
+		screened = append(screened, name)
+		return 0, ""
+	})
+	w := NewWorker(eventBus, nil, engine, rules.NewTypologyEngine(), tadp.NewProcessor(), domain.ModeDetection)
+
+	payload, _ := json.Marshal(TransactionMessage{
+		TxID: "tx-names", TenantID: "tenant-001", Type: "transfer",
+		DebtorID: "d1", CreditorID: "c1", DebtorName: "Alice", CreditorName: "Bob",
+		Amount: 10, Currency: "USD",
+	})
+	if err := w.processTransaction(context.Background(), "tenant-001", &domain.Message{
+		ID: "msg-names", TenantID: "tenant-001", Topic: domain.TopicTransactionIngested, Payload: payload,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(screened) != 2 || screened[0] != "Alice" || screened[1] != "Bob" {
+		t.Errorf("screened names = %q, want debtorName and creditorName", screened)
+	}
+}

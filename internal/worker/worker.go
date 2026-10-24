@@ -139,6 +139,8 @@ type TransactionMessage struct {
 	Type           string         `json:"type"`
 	DebtorID       string         `json:"debtorId"`
 	CreditorID     string         `json:"creditorId"`
+	DebtorName     string         `json:"debtorName,omitempty"`
+	CreditorName   string         `json:"creditorName,omitempty"`
 	Amount         float64        `json:"amount"`
 	Currency       string         `json:"currency"`
 	VelocityWindow int            `json:"velocityWindow,omitempty"`
@@ -201,6 +203,8 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		Type:           txMsg.Type,
 		DebtorID:       txMsg.DebtorID,
 		CreditorID:     txMsg.CreditorID,
+		DebtorName:     txMsg.DebtorName,
+		CreditorName:   txMsg.CreditorName,
 		Amount:         txMsg.Amount,
 		Currency:       txMsg.Currency,
 		VelocityWindow: txMsg.VelocityWindow,

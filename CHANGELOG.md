@@ -8,6 +8,12 @@ This file records all notable changes to this project. The format follows
 
 ### Added
 
+- Sanctions screening against the OFAC SDN list.
+  Before this change, Osprey could only read a `sanctions_hit` flag that the caller supplied.
+  Now Osprey screens `debtor.name` and `creditor.name` itself, with aliases and spelling variants.
+  Set `OSPREY_SANCTIONS_DIR` to a folder from `scripts/fetch-ofac.sh`.
+  Rules get the CEL variables `sanctions_score` and `sanctions_match`.
+  The new starter-kit rule `sanctions-001` gives `.fail` for a probable match, and its reason names the matched party and entry.
 - Osprey Studio, a web page at `/studio/` to write rules and typologies, send test transactions, and read each decision.
   Before this change, the only way to author rules and test them was `curl` against the API.
   Now Osprey serves Studio from the binary, with no install and no build step.
