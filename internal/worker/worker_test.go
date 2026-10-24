@@ -219,6 +219,7 @@ func TestTransactionMessageParsing(t *testing.T) {
 		CreditorID:     "creditor-001",
 		Amount:         1234.56,
 		Currency:       "USD",
+		Timestamp:      "2025-06-15T12:30:00Z",
 		VelocityWindow: 7200,
 		AdditionalData: map[string]any{"key": "value"},
 	}
@@ -242,6 +243,9 @@ func TestTransactionMessageParsing(t *testing.T) {
 	}
 	if parsed.VelocityWindow != msg.VelocityWindow {
 		t.Errorf("expected VelocityWindow %d, got %d", msg.VelocityWindow, parsed.VelocityWindow)
+	}
+	if parsed.Timestamp != msg.Timestamp {
+		t.Errorf("expected Timestamp %q, got %q", msg.Timestamp, parsed.Timestamp)
 	}
 }
 
@@ -283,6 +287,99 @@ func TestProcessTransaction_ComplianceModeRequiresTypologies(t *testing.T) {
 	}, true)
 	if err == nil {
 		t.Fatal("expected error when compliance mode has no typologies")
+	}
+}
+
+// TestProcessTransactionZeroRulesFailsClosed covers the zero-rules fail-open
+// bug on the async path. With no rules loaded, EvaluateAll returns nil and
+// the processor used to return NALT, so the worker stored and published a
+// clean pass. Now the decision is ALRT with the no-rules marker, and the
+// alert topic also receives it.
+func TestProcessTransactionZeroRulesFailsClosed(t *testing.T) {
+	eventBus := bus.NewChannelBus(10)
+	defer func() { _ = eventBus.Close() }()
+
+	// Engine with zero rules loaded.
+	engine, _ := rules.NewEngine(nil, 2)
+	typologyEngine := rules.NewTypologyEngine()
+	processor := tadp.NewProcessor()
+
+	w := NewWorker(eventBus, nil, engine, typologyEngine, processor, domain.ModeDetection)
+
+	// The channel bus delivers to subscriber goroutines, so the payloads
+	// cross a goroutine boundary. Use buffered channels to hand the bytes
+	// to the test goroutine: a channel receive establishes happens-before,
+	// so the unmarshal and reads below are race-free. The worker publishes
+	// the decision first and the alert second, so wait for the alert
+	// channel (not just the decision) before asserting both arrived.
+	decisionCh := make(chan []byte, 1)
+	alertCh := make(chan []byte, 1)
+	_, _ = eventBus.Subscribe(context.Background(), "tenant-zero-rules", domain.TopicDecision, func(ctx context.Context, msg *domain.Message) error {
+		select {
+		case decisionCh <- msg.Payload:
+		default:
+		}
+		return nil
+	})
+	_, _ = eventBus.Subscribe(context.Background(), "tenant-zero-rules", domain.TopicAlert, func(ctx context.Context, msg *domain.Message) error {
+		select {
+		case alertCh <- msg.Payload:
+		default:
+		}
+		return nil
+	})
+
+	payload, _ := json.Marshal(TransactionMessage{
+		TxID:       "tx-zero-rules",
+		TenantID:   "tenant-zero-rules",
+		TraceID:    "trace-zero-rules",
+		Type:       "transfer",
+		DebtorID:   "debtor-001",
+		CreditorID: "creditor-001",
+		Amount:     500.0,
+		Currency:   "USD",
+	})
+
+	if err := w.processTransaction(context.Background(), "tenant-zero-rules", &domain.Message{
+		ID:       "msg-zero-rules",
+		TenantID: "tenant-zero-rules",
+		Topic:    domain.TopicTransactionIngested,
+		Payload:  payload,
+	}, true); err != nil {
+		t.Fatalf("processTransaction: %v", err)
+	}
+
+	// Wait for both the decision and the alert to be delivered. The alert
+	// is published after the decision, so waiting for the alert channel
+	// also gives the decision time to land. A 2s timeout is generous for
+	// the in-process channel bus and avoids flakiness under load.
+	var decisionBytes []byte
+	select {
+	case decisionBytes = <-decisionCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected a decision to be published")
+	}
+	select {
+	case <-alertCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the alert topic to receive the fail-closed ALRT")
+	}
+
+	var decisionEval domain.Evaluation
+	if err := json.Unmarshal(decisionBytes, &decisionEval); err != nil {
+		t.Fatalf("parse decision: %v", err)
+	}
+	if decisionEval.TxID == "" {
+		t.Fatal("expected a decision to be published")
+	}
+	if decisionEval.Status != domain.StatusAlert {
+		t.Fatalf("expected ALRT (fail closed) for zero rules, got %s", decisionEval.Status)
+	}
+	if len(decisionEval.TypologyResults) != 1 || decisionEval.TypologyResults[0].TypologyID != tadp.NoRulesID {
+		t.Fatalf("expected no-rules marker, got %+v", decisionEval.TypologyResults)
+	}
+	if decisionEval.Metadata.RulesEvaluated != 0 {
+		t.Errorf("expected RulesEvaluated 0, got %d", decisionEval.Metadata.RulesEvaluated)
 	}
 }
 

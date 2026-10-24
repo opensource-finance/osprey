@@ -3,7 +3,7 @@ module github.com/opensource-finance/osprey
 go 1.26.0
 
 require (
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/google/cel-go v0.29.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
