@@ -296,6 +296,17 @@ func loadRulesFromDatabase(ctx context.Context, repo domain.Repository, engine *
 	}
 
 	slog.Info("loading rules from database", "count", len(dbRules))
+	// Older versions stored an omitted weight as 0 and scored it as 1.0.
+	// Weight 0 now means no contribution, so flag rules that changed meaning on upgrade.
+	var zero []string
+	for _, r := range dbRules {
+		if r.Enabled && r.Weight == 0 {
+			zero = append(zero, r.ID)
+		}
+	}
+	if len(zero) > 0 {
+		slog.Warn("rules with weight 0 add nothing to the detection score; set weight 1.0 to restore the pre-upgrade behavior", "rules", zero)
+	}
 	return engine.LoadRules(dbRules)
 }
 
