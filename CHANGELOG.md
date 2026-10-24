@@ -129,6 +129,14 @@ This file records all notable changes to this project. The format follows
   In compliance mode this changed the final decision, or returned `503` on every later `POST /evaluate` when it was the last enabled typology.
   The handler now returns `400 enabled is required`, the same guard `PUT /rules/{id}` already has.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- `POST /rules` and `POST /typologies` now require the `enabled` field.
+  Before this change, a request body that omitted `enabled` decoded `enabled` to `false`.
+  The handler persisted the rule or typology as disabled and returned `201 Created` with `saved and loaded`.
+  The engine reload filters `WHERE enabled = 1`, so the entity was never loaded into the active engine.
+  A `GET` request returned `404`, so the silent disable was hard to detect.
+
+  The handlers now return `400 enabled is required`, the same guard the `PUT` handlers have.
+  An explicit `enabled: false` is still an accepted, intentional disable.
 
 ### Security
 

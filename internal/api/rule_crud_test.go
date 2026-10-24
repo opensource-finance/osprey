@@ -123,6 +123,109 @@ func TestUpdateRule(t *testing.T) {
 	})
 }
 
+func TestCreateRuleRequiresEnabled(t *testing.T) {
+	server, cleanup := createPersistentTestServer(t)
+	defer cleanup()
+
+	t.Run("RejectsOmittedEnabled", func(t *testing.T) {
+		// Omitting enabled must not silently create a disabled rule.
+		payload := map[string]any{
+			"id":         "silent-rule",
+			"name":       "Silent Rule",
+			"expression": "amount > 1.0",
+			"weight":     1.0,
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-crud")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+		if resp.Code != http.StatusBadRequest || !strings.Contains(resp.Body.String(), "enabled is required") {
+			t.Fatalf("expected 400 'enabled is required', got %d: %s", resp.Code, resp.Body.String())
+		}
+
+		// The rejected request must not have loaded any rule.
+		listReq := httptest.NewRequest(http.MethodGet, "/rules", nil)
+		listReq.Header.Set("X-Tenant-ID", "tenant-crud")
+		listResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(listResp, listReq)
+		if listResp.Code != http.StatusOK {
+			t.Fatalf("expected rules list 200, got %d: %s", listResp.Code, listResp.Body.String())
+		}
+		var listed struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("failed to decode rules list: %v", err)
+		}
+		if listed.Count != 0 {
+			t.Fatalf("rejected create must not load any rule, got %d", listed.Count)
+		}
+
+		// GET on the would-be-created rule must be 404 (not persisted-disabled).
+		getReq := httptest.NewRequest(http.MethodGet, "/rules/silent-rule", nil)
+		getReq.Header.Set("X-Tenant-ID", "tenant-crud")
+		getResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(getResp, getReq)
+		if getResp.Code != http.StatusNotFound {
+			t.Fatalf("expected GET for rejected rule to be 404, got %d: %s", getResp.Code, getResp.Body.String())
+		}
+	})
+
+	t.Run("AcceptsExplicitEnabledFalse", func(t *testing.T) {
+		// An explicit enabled:false is an intentional disable and is accepted,
+		// persisted, but not loaded into the active engine.
+		payload := map[string]any{
+			"id":         "disabled-rule",
+			"name":       "Disabled Rule",
+			"expression": "amount > 1.0",
+			"weight":     1.0,
+			"enabled":    false,
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-crud")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("expected explicit enabled:false to return 201, got %d: %s", resp.Code, resp.Body.String())
+		}
+		var created struct {
+			Rule struct {
+				Enabled bool `json:"enabled"`
+			} `json:"rule"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
+			t.Fatalf("failed to decode created rule: %v", err)
+		}
+		if created.Rule.Enabled {
+			t.Fatalf("expected rule enabled=false, got true")
+		}
+
+		// A disabled rule is not loaded into the active engine.
+		listReq := httptest.NewRequest(http.MethodGet, "/rules", nil)
+		listReq.Header.Set("X-Tenant-ID", "tenant-crud")
+		listResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(listResp, listReq)
+		if listResp.Code != http.StatusOK {
+			t.Fatalf("expected rules list 200, got %d: %s", listResp.Code, listResp.Body.String())
+		}
+		var listed struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("failed to decode rules list: %v", err)
+		}
+		if listed.Count != 0 {
+			t.Fatalf("expected disabled rule to leave active count at 0, got %d", listed.Count)
+		}
+	})
+}
+
 func TestDeleteRule(t *testing.T) {
 	server, cleanup := createPersistentTestServer(t)
 	defer cleanup()
