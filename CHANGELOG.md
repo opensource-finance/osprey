@@ -58,6 +58,7 @@ This file records all notable changes to this project. The format follows
   Threshold and ratio rules misfired for multi-currency entities in both directions.
   The dimensionless counters (`velocity_count`, `velocity_distinct_creditors`, `velocity_inbound_count`) stay currency-agnostic.
   The variable catalog (`GET /rules/variables`) and `docs/RULE_TYPOLOGY_AUTHORING.md` now document the per-currency semantics.
+
   Currency codes match without case. The async worker now uppercases `currency` and `type` as `POST /evaluate` does.
 - The async worker now honors `OSPREY_VELOCITY_CLOCK=event`.
   Before this change, the worker message had no `timestamp` field and never set `EventTime` on its evaluation input.
