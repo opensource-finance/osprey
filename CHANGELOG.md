@@ -57,6 +57,11 @@ This file records all notable changes to this project. The format follows
 - Osprey rounds detection and typology scores to 9 decimal places before it compares them with the threshold.
   Before this change, a sum could miss its threshold by the last binary digit.
   For example, weights `0.1` and `0.7` add up to `0.7999999999999999`, which is less than a threshold of `0.8`.
+- The per-rule score is now rounded to 9 decimal places before band matching.
+  Before this change, a rule expression such as `0.1 + 0.7` produced `0.7999999999999999`.
+  This value missed a band boundary of `0.8` and matched `.pass` instead of `.fail`.
+  The `.fail` force-alert path was lost, so a transaction that should alert did not alert.
+  The noisy score was also stored in the `rule_results` JSON.
 
 - SQLite now opens the correct file and uses WAL mode when `OSPREY_SQLITE_PATH` contains `?`, `#`, or `%`.
   Before this change, Osprey put the path into the SQLite connection URI with no encoding.

@@ -278,8 +278,12 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 		return result
 	}
 
-	// Convert result to score
-	score := toScore(out)
+	// Convert result to score, rounding to 9 decimals before band matching and
+	// storage. Decimal arithmetic in CEL produces float noise (e.g. 0.1+0.7 is
+	// 0.7999999999999999), which would otherwise miss a band boundary (0.8) and
+	// persist a noisy score in rule_results. Mirrors the rounding applied at the
+	// typology and aggregate threshold checks. No-op for boolean 0.0/1.0 rules.
+	score := domain.RoundScore(toScore(out))
 	result.Score = score
 
 	// Determine outcome based on bands
