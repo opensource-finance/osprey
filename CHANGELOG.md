@@ -46,6 +46,11 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- `HEAD /health`, `HEAD /ready`, and `HEAD /studio` now return the same `200`/`301` as `GET`.
+  Before this change, Osprey registered these tenant-free routes with `GET` only.
+  A `HEAD` request fell through to the tenant-gated catch-all subtree.
+  Without `X-Tenant-ID`, the response was `400`. With the header, it was `405`.
+  A load balancer or uptime monitor that probes with `HEAD` saw the service as unhealthy.
 - Velocity lookups no longer read every transaction of the tenant in the window.
   The query used `debtor_id = ? OR creditor_id = ?`, and SQLite searched the `(tenant_id, created_at)` index.
   Thus, each evaluation got slower as traffic grew.

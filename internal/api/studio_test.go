@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,6 +60,59 @@ func TestStudioRoutes(t *testing.T) {
 		srv.Router().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/studio", nil))
 		if w.Code != http.StatusMovedPermanently || w.Header().Get("Location") != "/studio/" {
 			t.Fatalf("expected redirect to /studio/, got %d %q", w.Code, w.Header().Get("Location"))
+		}
+	})
+
+	t.Run("RedirectsBarePathHEAD", func(t *testing.T) {
+		// HEAD /studio must produce the same 301 redirect as GET, not fall
+		// through into the tenant-gated catch-all (regression for HEAD probes
+		// returning 400 without X-Tenant-ID or 405 with it).
+		srv := createStudioTestServer(t, true)
+		w := httptest.NewRecorder()
+		srv.Router().ServeHTTP(w, httptest.NewRequest(http.MethodHead, "/studio", nil))
+		if w.Code != http.StatusMovedPermanently || w.Header().Get("Location") != "/studio/" {
+			t.Fatalf("expected HEAD /studio redirect to /studio/, got %d %q", w.Code, w.Header().Get("Location"))
+		}
+	})
+
+	t.Run("RedirectsBarePathHEADWithTenantHeader", func(t *testing.T) {
+		// A spurious X-Tenant-ID must not route HEAD /studio into the
+		// tenant-gated subtree (which would yield 405).
+		srv := createStudioTestServer(t, true)
+		req := httptest.NewRequest(http.MethodHead, "/studio", nil)
+		req.Header.Set("X-Tenant-ID", "some-tenant")
+		w := httptest.NewRecorder()
+		srv.Router().ServeHTTP(w, req)
+		if w.Code != http.StatusMovedPermanently || w.Header().Get("Location") != "/studio/" {
+			t.Fatalf("expected HEAD /studio with tenant header to redirect to /studio/, got %d %q", w.Code, w.Header().Get("Location"))
+		}
+	})
+
+	t.Run("RedirectsBarePathHEADSuppressBodyOverWire", func(t *testing.T) {
+		// RFC 9110 §9.3.2: a HEAD response must not carry a body. The real
+		// net/http server enforces this; the ResponseRecorder does not, so
+		// verify against a real httptest server.
+		srv := createStudioTestServer(t, true)
+		ts := httptest.NewServer(srv.Router())
+		defer ts.Close()
+
+		noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
+		resp, err := noRedirect.Head(ts.URL + "/studio")
+		if err != nil {
+			t.Fatalf("HEAD /studio: %v", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusMovedPermanently {
+			t.Fatalf("expected HEAD /studio 301 over the wire, got %d", resp.StatusCode)
+		}
+		if resp.Header.Get("Location") != "/studio/" {
+			t.Fatalf("expected Location /studio/, got %q", resp.Header.Get("Location"))
+		}
+		if len(body) != 0 {
+			t.Errorf("expected HEAD /studio to have no body over the wire, got %d bytes", len(body))
 		}
 	})
 

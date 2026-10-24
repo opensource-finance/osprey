@@ -39,16 +39,23 @@ func NewServer(cfg domain.ServerConfig, repo domain.Repository, cache domain.Cac
 	// actually controls, not trust the leftmost hop.
 	router.Use(middleware.Compress(5)) // Gzip compression
 
-	// Health endpoints (no tenant required)
+	// Health endpoints (no tenant required). Register HEAD alongside GET so
+	// load balancers and uptime monitors that probe with HEAD (RFC 9110 §9.3.2)
+	// are served directly here instead of falling through into the tenant-gated
+	// catch-all subrouter below, where they would otherwise receive a 400/405.
 	router.Get("/health", handler.Health)
+	router.Head("/health", handler.Health)
 	router.Get("/ready", handler.Ready)
+	router.Head("/ready", handler.Ready)
 
 	// Osprey Studio: static browser UI (no tenant required to load the page;
 	// every API call it makes goes through the tenant and admin checks below).
 	if cfg.Studio {
-		router.Get("/studio", func(w http.ResponseWriter, r *http.Request) {
+		studioRedirect := func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, studio.Prefix, http.StatusMovedPermanently)
-		})
+		}
+		router.Get("/studio", studioRedirect)
+		router.Head("/studio", studioRedirect)
 		router.Handle(studio.Prefix+"*", studio.Handler())
 	}
 
