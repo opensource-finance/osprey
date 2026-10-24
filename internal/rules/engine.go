@@ -15,18 +15,21 @@ import (
 
 // Engine is the CEL-based rule evaluation engine.
 type Engine struct {
-	mu               sync.RWMutex
-	env              *cel.Env
-	compiledRules    map[string]*CompiledRule
-	velocityGetter   VelocityGetter
-	aggregatesGetter AggregatesGetter
-	maxWorkers       int
+	mu                sync.RWMutex
+	env               *cel.Env
+	compiledRules     map[string]*CompiledRule
+	velocityGetter    VelocityGetter
+	aggregatesGetter  AggregatesGetter
+	sanctionsScreener SanctionsScreener
+	maxWorkers        int
 }
 
 // CompiledRule holds a pre-compiled CEL program.
 type CompiledRule struct {
 	Config  *domain.RuleConfig
 	Program cel.Program
+
+	usesSanctions bool // expression reads sanctions_score or sanctions_match
 }
 
 // VelocityGetter is a function that returns the transaction count for an entity in a time window.
@@ -43,6 +46,35 @@ type VelocityAggregates struct {
 // on the engine it supersedes VelocityGetter and additionally populates the
 // velocity_amount_sum and velocity_distinct_creditors CEL variables.
 type AggregatesGetter func(ctx context.Context, tenantID, entityID string, windowSecs int) (VelocityAggregates, error)
+
+// SanctionsScreener returns the best sanctions-list match for a party name.
+// listedEntry identifies the matched list entry for analysts, e.g.
+// "PUTIN, Vladimir Vladimirovich (OFAC ent 12345, RUSSIA-EO14024)".
+type SanctionsScreener func(name string) (score float64, listedEntry string)
+
+// SetSanctionsScreener wires sanctions screening. Optional: if unset,
+// sanctions_score is 0 and sanctions_match is empty.
+func (e *Engine) SetSanctionsScreener(s SanctionsScreener) {
+	e.sanctionsScreener = s
+}
+
+// screen returns the higher-scoring of the debtor and creditor matches.
+func (e *Engine) screen(input *EvaluateInput) (float64, string) {
+	if e.sanctionsScreener == nil {
+		return 0, ""
+	}
+	var best float64
+	var match string
+	for _, name := range []string{input.DebtorName, input.CreditorName} {
+		if name == "" {
+			continue
+		}
+		if s, m := e.sanctionsScreener(name); s > best {
+			best, match = s, m
+		}
+	}
+	return best, match
+}
 
 // SetAggregatesGetter wires a richer velocity source. Optional and additive:
 // if unset, the engine falls back to the count-only VelocityGetter.
@@ -124,6 +156,8 @@ type EvaluateInput struct {
 	Type           string
 	DebtorID       string
 	CreditorID     string
+	DebtorName     string // optional; screened against the sanctions list
+	CreditorName   string // optional; screened against the sanctions list
 	Amount         float64
 	Currency       string
 	VelocityWindow int            // seconds
@@ -173,7 +207,18 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 		}
 	}
 
+	// Screen only when a loaded rule reads the result; it is the costliest input.
+	var sanctionsScore float64
+	var sanctionsMatch string
+	for _, r := range rules {
+		if r.usesSanctions {
+			sanctionsScore, sanctionsMatch = e.screen(input)
+			break
+		}
+	}
+
 	// Prepare CEL activation variables
+
 	activation := map[string]any{
 		"tx": map[string]any{
 			"id":          input.TxID,
@@ -191,6 +236,8 @@ func (e *Engine) EvaluateAll(ctx context.Context, input *EvaluateInput) ([]domai
 		"debtor_id":                   input.DebtorID,
 		"creditor_id":                 input.CreditorID,
 		"tx_type":                     input.Type,
+		"sanctions_score":             sanctionsScore,
+		"sanctions_match":             sanctionsMatch,
 		// Balance variables for account drain detection (default to 0 if not provided)
 		"old_balance": 0.0,
 		"new_balance": 0.0,
@@ -261,6 +308,11 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 
 	// Determine outcome based on bands
 	result.SubRuleRef, result.Reason = matchBand(score, rule.Config.Bands)
+	// Name the listed entry on a sanctions alert so it can be dispositioned
+	// from the stored evaluation alone.
+	if m, _ := activation["sanctions_match"].(string); rule.usesSanctions && m != "" && result.SubRuleRef != domain.RuleOutcomePass {
+		result.Reason += ": " + m
+	}
 	result.ProcessMs = time.Since(start).Milliseconds()
 
 	return result
@@ -393,8 +445,16 @@ func (e *Engine) compileRule(cfg *domain.RuleConfig) (*CompiledRule, error) {
 		return nil, fmt.Errorf("failed to create program for rule %s: %w", cfg.ID, err)
 	}
 
+	usesSanctions := false
+	for _, ref := range ast.NativeRep().ReferenceMap() {
+		if ref.Name == "sanctions_score" || ref.Name == "sanctions_match" {
+			usesSanctions = true
+		}
+	}
+
 	return &CompiledRule{
-		Config:  cfg,
-		Program: program,
+		Config:        cfg,
+		Program:       program,
+		usesSanctions: usesSanctions,
 	}, nil
 }

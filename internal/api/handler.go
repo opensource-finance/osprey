@@ -65,6 +65,7 @@ type TransactionRequest struct {
 type PartyInfo struct {
 	ID        string `json:"id"`
 	AccountID string `json:"accountId"`
+	Name      string `json:"name,omitempty"` // screened against the sanctions list; not persisted
 }
 
 // AmountInfo represents the transaction amount.
@@ -165,6 +166,8 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		DebtorAccountID: req.Debtor.AccountID,
 		CreditorID:      req.Creditor.ID,
 		CreditorAcctID:  req.Creditor.AccountID,
+		DebtorName:      req.Debtor.Name,
+		CreditorName:    req.Creditor.Name,
 		Amount:          req.Amount.Value,
 		Currency:        req.Amount.Currency,
 		Timestamp:       txTimestamp,
@@ -200,6 +203,8 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Type:           tx.Type,
 		DebtorID:       tx.DebtorID,
 		CreditorID:     tx.CreditorID,
+		DebtorName:     tx.DebtorName,
+		CreditorName:   tx.CreditorName,
 		Amount:         tx.Amount,
 		Currency:       tx.Currency,
 		VelocityWindow: 3600, // Default 1 hour window

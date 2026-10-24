@@ -40,6 +40,10 @@ var Catalog = []VariableDoc{
 	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Description: "Sum of recent transaction amounts for the debtor in the window", celType: cel.DoubleType},
 	{Name: "velocity_distinct_creditors", Type: "int", Group: "velocity", Description: "Distinct counterparties the debtor transacted with in the window", celType: cel.IntType},
 
+	// Sanctions screening (engine-computed against the local OFAC SDN list; 0 / "" when no list is loaded)
+	{Name: "sanctions_score", Type: "double", Group: "sanctions", Note: "needs debtor.name / creditor.name and OSPREY_SANCTIONS_DIR", Description: "Best OFAC SDN name-match score (0..1) across debtor and creditor", celType: cel.DoubleType},
+	{Name: "sanctions_match", Type: "string", Group: "sanctions", Description: "Listed SDN entry behind sanctions_score (name, OFAC ent_num, program); empty when no candidate", celType: cel.StringType},
+
 	// Open-ended bags — no per-field declaration needed
 	{Name: "meta", Type: "map(string, dyn)", Group: "metadata", Access: "meta.<key>", Note: "open-ended; guard optional keys with has(meta.<key>)", Description: "Caller-supplied request metadata (country, mcc, device, ...)", celType: dynMap},
 	{Name: "enrichment", Type: "map(string, dyn)", Group: "enrichment", Access: "enrichment.<key>", Note: "externally computed; guard with has(enrichment.<key>); JSON numbers are doubles", Description: "Scores/flags from external enrichment services (ml_score, sanctions_hit, ring_risk, ...)", celType: dynMap},

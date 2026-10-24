@@ -117,6 +117,7 @@ Core variables:
 | `OSPREY_ASYNC_WORKER` | `false` | `true` enables the async workers. The Pro tier always enables them. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` | Requests per second for each tenant. `0` disables the rate limit. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant |
+| `OSPREY_SANCTIONS_DIR` | _(unset)_ | OFAC SDN list folder for sanctions screening (`scripts/fetch-ofac.sh`) |
 
 Pro tier backends:
 

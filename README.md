@@ -129,6 +129,7 @@ The `community` profile is the default. It is the easiest profile for a local Os
 | `OSPREY_TENANTS` | unset | Optional. A comma-separated list of tenants for async workers. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` (off) | Requests per second for each tenant. `0` disables the rate limit. Set `0` for load tests. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant. |
+| `OSPREY_SANCTIONS_DIR` | unset (off) | Folder with OFAC `SDN.CSV` and `ALT.CSV`, fetched by `scripts/fetch-ofac.sh`. A bad path stops startup. |
 
 ## API
 

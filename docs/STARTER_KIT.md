@@ -56,6 +56,7 @@ File: `configs/rules/fatf-rules.json`
 | `high-risk-type-001` | `CASH_OUT` or `TRANSFER`. |
 | `cash-intensive-001` | Transaction types that are similar to cash. |
 | `micro-transaction-001` | Amounts of less than 10. |
+| `sanctions-001` | Debtor or creditor name matches the OFAC SDN list: `.fail` from 0.88, `.review` from 0.80. Weight 0.1, since `.fail` alerts on its own. Needs `OSPREY_SANCTIONS_DIR` and party `name` fields. |
 
 ## FATF-Inspired Typologies
 
@@ -69,6 +70,7 @@ File: `configs/typologies/fatf-typologies.json`
 | `typology-rapid-movement` | Rapid movement of funds. |
 | `typology-cash-intensive` | Cash-intensive activity. |
 | `typology-fraud-basic` | Basic fraud pattern. |
+| `typology-sanctions` | Probable OFAC SDN match. |
 
 ## PaySim Rules
 

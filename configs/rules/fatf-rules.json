@@ -146,6 +146,19 @@
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Micro transaction - potential card testing"},
         {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal amount"}
       ]
+    },
+    {
+      "id": "sanctions-001",
+      "name": "OFAC SDN Name Match",
+      "description": "Screens debtor and creditor names against the OFAC SDN list (OSPREY_SANCTIONS_DIR). FATF Recommendation 6. Weight is low on purpose: .fail forces ALRT by itself, so the weight only keeps this rule from diluting the detection average.",
+      "expression": "sanctions_score >= 0.80 ? sanctions_score : 0.0",
+      "weight": 0.1,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 0.88, "subRuleRef": ".fail", "reason": "Probable OFAC SDN match - block and review"},
+        {"lowerLimit": 0.80, "upperLimit": 0.88, "subRuleRef": ".review", "reason": "Possible OFAC SDN match - review"},
+        {"lowerLimit": 0.0, "upperLimit": 0.80, "subRuleRef": ".pass", "reason": "No SDN match, or not screened (party names or OSPREY_SANCTIONS_DIR missing)"}
+      ]
     }
   ]
 }
