@@ -492,10 +492,22 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateRuleRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required: an omitted bool would silently create a disabled rule.
+	var body struct {
+		CreateRuleRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateRuleRequest
+	req.Enabled = *body.Enabled
 	req.ID = strings.TrimSpace(req.ID)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Expression = strings.TrimSpace(req.Expression)
@@ -957,10 +969,22 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateTypologyRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required: an omitted bool would silently create a disabled typology.
+	var body struct {
+		CreateTypologyRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateTypologyRequest
+	req.Enabled = *body.Enabled
 	req.ID = strings.TrimSpace(req.ID)
 	req.Name = strings.TrimSpace(req.Name)
 
