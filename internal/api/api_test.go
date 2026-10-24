@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1457,6 +1458,21 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("HealthCheckHEAD", func(t *testing.T) {
+		// HEAD must not fall through into the tenant-gated catch-all subrouter
+		// (regression for HEAD probes returning 400 without X-Tenant-ID or 405
+		// with it). RFC 9110 §9.3.2 defines HEAD as identical to GET except that
+		// the server must not send a body.
+		req := httptest.NewRequest(http.MethodHead, "/health", nil)
+
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected HEAD /health 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
 	t.Run("ReadyCheck", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 
@@ -1473,6 +1489,60 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 		if resp["ready"] != "true" {
 			t.Fatalf("expected ready=true, got %q", resp["ready"])
+		}
+	})
+
+	t.Run("ReadyCheckHEAD", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodHead, "/ready", nil)
+
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected HEAD /ready 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("HealthAndReadyHEADIgnoreTenantHeader", func(t *testing.T) {
+		// A spurious X-Tenant-ID must not change the behavior of the
+		// tenant-free endpoints when probed with HEAD.
+		for _, path := range []string{"/health", "/ready"} {
+			req := httptest.NewRequest(http.MethodHead, path, nil)
+			req.Header.Set("X-Tenant-ID", "some-tenant")
+
+			rr := httptest.NewRecorder()
+			server.Router().ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("HEAD %s with tenant header: expected 200, got %d: %s", path, rr.Code, rr.Body.String())
+			}
+		}
+	})
+
+	t.Run("HealthAndReadyHEADSuppressBodyOverWire", func(t *testing.T) {
+		// RFC 9110 §9.3.2: a HEAD response must not carry a body. Go's
+		// net/http server enforces this at the transport level, so verify it
+		// against a real (httptest) server rather than the ResponseRecorder,
+		// which records writes regardless of method.
+		ts := httptest.NewServer(server.Router())
+		defer ts.Close()
+
+		for _, path := range []string{"/health", "/ready"} {
+			resp, err := http.Head(ts.URL + path)
+			if err != nil {
+				t.Fatalf("HEAD %s: %v", path, err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected HEAD %s 200 over the wire, got %d", path, resp.StatusCode)
+			}
+			if len(body) != 0 {
+				t.Errorf("expected HEAD %s to have no body over the wire, got %d bytes", path, len(body))
+			}
+			if resp.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("expected HEAD %s to keep GET headers (Content-Type), got %q", path, resp.Header.Get("Content-Type"))
+			}
 		}
 	})
 
