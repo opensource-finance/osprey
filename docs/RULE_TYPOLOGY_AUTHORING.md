@@ -37,10 +37,10 @@ Use many simple rules, not one expression that is difficult to understand.
 | `old_balance` | double | `metadata.old_balance` |
 | `new_balance` | double | `metadata.new_balance` |
 | `velocity_count` | int | Number of transactions in the window where the debtor sent or received money, including the current transaction |
-| `velocity_amount_sum` | double | Total amount of the same transactions |
+| `velocity_amount_sum` | double | Total amount of the same transactions. Per-currency: sums only transactions whose currency matches the evaluated transaction, so a window that mixes currencies never adds incomparable amounts |
 | `velocity_distinct_creditors` | int | Number of different payees that the debtor sent money to in the window, including the current payee |
 | `velocity_inbound_count` | int | Number of payments that the debtor received in the window |
-| `velocity_inbound_amount_sum` | double | Total amount that the debtor received in the window |
+| `velocity_inbound_amount_sum` | double | Total amount that the debtor received in the window. Per-currency: sums only transactions whose currency matches the evaluated transaction |
 | `sanctions_score` | double | Best OFAC SDN name-match score (0 to 1) for `debtor.name` or `creditor.name`. `0` when no list is loaded |
 | `sanctions_match` | string | The party and the listed SDN entry behind `sanctions_score`, for example `creditor matches NAME (OFAC ent 1002, PROGRAM)`. Empty when there is no candidate. A sanctions rule's non-pass reason ends with it |
 
@@ -49,6 +49,11 @@ By default, the window uses the time when Osprey received each transaction.
 Thus, a caller cannot move a transaction out of the window with an old `timestamp`.
 To replay historical data, start Osprey with `OSPREY_VELOCITY_CLOCK=event`.
 Then the window uses the `timestamp` field of each transaction.
+
+The amount sums (`velocity_amount_sum`, `velocity_inbound_amount_sum`) are per-currency:
+they add only transactions whose `currency` matches the evaluated transaction.
+The counters (`velocity_count`, `velocity_distinct_creditors`, `velocity_inbound_count`) are
+currency-agnostic, so they count every transaction in the window regardless of currency.
 
 If the request does not include `old_balance` or `new_balance`, the value is `0.0`.
 A `null` value also gives `0.0`.

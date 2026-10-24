@@ -30,7 +30,7 @@ type capturingAggregatesGetter struct {
 	atTimes []time.Time
 }
 
-func (g *capturingAggregatesGetter) get(_ context.Context, _, _ string, _ int, at time.Time) (rules.VelocityAggregates, error) {
+func (g *capturingAggregatesGetter) get(_ context.Context, _, _, _ string, _ int, at time.Time) (rules.VelocityAggregates, error) {
 	g.mu.Lock()
 	g.lastAt = at
 	g.atTimes = append(g.atTimes, at)
@@ -268,7 +268,7 @@ func TestEngineWarnsOnZeroEventTimeWithEventClock(t *testing.T) {
 	}
 
 	var gotAt atomic.Value // time.Time
-	engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, at time.Time) (rules.VelocityAggregates, error) {
+	engine.SetAggregatesGetter(func(_ context.Context, _, _, _ string, _ int, at time.Time) (rules.VelocityAggregates, error) {
 		gotAt.Store(at)
 		return rules.VelocityAggregates{Count: 1}, nil
 	})
@@ -346,13 +346,13 @@ func TestWorkerEventClock_RealVelocityAgreesWithDirectEvaluate(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	// Mirror cmd/osprey/main.go newRuleEngine wiring.
-	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID, currency string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
 		var a velocity.Aggregates
 		var err error
 		if at.IsZero() {
-			a, err = velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+			a, err = velocitySvc.GetAggregates(ctx, tenantID, entityID, currency, windowSecs)
 		} else {
-			a, err = velocitySvc.GetAggregatesAt(ctx, tenantID, entityID, windowSecs, at)
+			a, err = velocitySvc.GetAggregatesAt(ctx, tenantID, entityID, currency, windowSecs, at)
 		}
 		if err != nil {
 			return rules.VelocityAggregates{}, err

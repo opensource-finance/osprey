@@ -181,7 +181,7 @@ func TestMetadataClobberRepro(t *testing.T) {
 	t.Run("velocity aggregates from getter win over metadata", func(t *testing.T) {
 		eng, _ := NewEngine(nil, 5)
 		defer func() { _ = eng.Close() }()
-		eng.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, _ time.Time) (VelocityAggregates, error) {
+		eng.SetAggregatesGetter(func(_ context.Context, _, _, _ string, _ int, _ time.Time) (VelocityAggregates, error) {
 			return VelocityAggregates{Count: 15, AmountSum: 5000.0, DistinctCreditors: 4}, nil
 		})
 		loadClobberRule(t, eng, "vel-from-getter", "velocity_amount_sum > 1000.0 && velocity_distinct_creditors >= 3 ? 1.0 : 0.0")

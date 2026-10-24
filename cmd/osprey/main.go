@@ -563,13 +563,13 @@ func newRuleEngine(cfg *domain.Config, velocitySvc *velocity.Service) (*rules.En
 		return nil, err
 	}
 	// Wire richer velocity aggregates (count, amount sum, payees, inbound).
-	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID, currency string, windowSecs int, at time.Time) (rules.VelocityAggregates, error) {
 		var a velocity.Aggregates
 		var err error
 		if at.IsZero() {
-			a, err = velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+			a, err = velocitySvc.GetAggregates(ctx, tenantID, entityID, currency, windowSecs)
 		} else {
-			a, err = velocitySvc.GetAggregatesAt(ctx, tenantID, entityID, windowSecs, at)
+			a, err = velocitySvc.GetAggregatesAt(ctx, tenantID, entityID, currency, windowSecs, at)
 		}
 		if err != nil {
 			return rules.VelocityAggregates{}, err

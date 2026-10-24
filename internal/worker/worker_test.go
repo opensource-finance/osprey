@@ -477,3 +477,30 @@ func TestProcessTransactionScreensPartyNames(t *testing.T) {
 		t.Errorf("screened names = %q, want debtorName and creditorName", screened)
 	}
 }
+
+func TestProcessTransactionNormalizesCurrency(t *testing.T) {
+	eventBus := bus.NewChannelBus(10)
+	defer func() { _ = eventBus.Close() }()
+
+	engine, _ := rules.NewEngine(nil, 2)
+	_ = engine.LoadRule(&domain.RuleConfig{ID: "sum", Expression: "velocity_amount_sum >= 0.0", Weight: 0.1, Enabled: true})
+	var got string
+	engine.SetAggregatesGetter(func(_ context.Context, _, _, currency string, _ int, _ time.Time) (rules.VelocityAggregates, error) {
+		got = currency
+		return rules.VelocityAggregates{}, nil
+	})
+	w := NewWorker(eventBus, nil, engine, rules.NewTypologyEngine(), tadp.NewProcessor(), domain.ModeDetection)
+
+	payload, _ := json.Marshal(TransactionMessage{
+		TxID: "tx-ccy", TenantID: "tenant-001", Type: "transfer",
+		DebtorID: "d1", CreditorID: "c1", Amount: 10, Currency: " usd ", VelocityWindow: 3600,
+	})
+	if err := w.processTransaction(context.Background(), "tenant-001", &domain.Message{
+		ID: "msg-ccy", TenantID: "tenant-001", Topic: domain.TopicTransactionIngested, Payload: payload,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got != "USD" {
+		t.Errorf("velocity currency = %q, want USD as on POST /evaluate", got)
+	}
+}

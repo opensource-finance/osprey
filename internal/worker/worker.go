@@ -222,13 +222,13 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 	evalInput := &rules.EvaluateInput{
 		TenantID:       tenantID,
 		TxID:           txMsg.TxID,
-		Type:           txMsg.Type,
+		Type:           strings.ToUpper(strings.TrimSpace(txMsg.Type)),
 		DebtorID:       txMsg.DebtorID,
 		CreditorID:     txMsg.CreditorID,
 		DebtorName:     txMsg.DebtorName,
 		CreditorName:   txMsg.CreditorName,
 		Amount:         txMsg.Amount,
-		Currency:       txMsg.Currency,
+		Currency:       strings.ToUpper(strings.TrimSpace(txMsg.Currency)), // same normalization as POST /evaluate
 		VelocityWindow: txMsg.VelocityWindow,
 		EventTime:      txTimestamp,
 		AdditionalData: txMsg.AdditionalData,

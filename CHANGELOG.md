@@ -52,6 +52,14 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
+  Before this change, they added raw amounts across every currency the entity touched in the window.
+  A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).
+  Threshold and ratio rules misfired for multi-currency entities in both directions.
+  The dimensionless counters (`velocity_count`, `velocity_distinct_creditors`, `velocity_inbound_count`) stay currency-agnostic.
+  The variable catalog (`GET /rules/variables`) and `docs/RULE_TYPOLOGY_AUTHORING.md` now document the per-currency semantics.
+
+  Currency codes match without case. The async worker now uppercases `currency` and `type` as `POST /evaluate` does.
 - The async worker now honors `OSPREY_VELOCITY_CLOCK=event`.
   Before this change, the worker message had no `timestamp` field and never set `EventTime` on its evaluation input.
   Under the event clock, every worker-processed transaction silently fell back to the received clock.
