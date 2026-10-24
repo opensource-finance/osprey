@@ -8,6 +8,12 @@ This file records all notable changes to this project. The format follows
 
 ### Added
 
+- Sanctions screening against the OFAC SDN list.
+  Before this change, Osprey could only read a `sanctions_hit` flag that the caller supplied.
+  Now Osprey screens `debtor.name` and `creditor.name` itself, with aliases and spelling variants.
+  Set `OSPREY_SANCTIONS_DIR` to a folder from `scripts/fetch-ofac.sh`.
+  Rules get the CEL variables `sanctions_score` and `sanctions_match`.
+  The new starter-kit rule `sanctions-001` gives `.fail` for a probable match, and its reason names the matched party and entry.
 - Osprey Studio, a web page at `/studio/` to write rules and typologies, send test transactions, and read each decision.
   Before this change, the only way to author rules and test them was `curl` against the API.
   Now Osprey serves Studio from the binary, with no install and no build step.
@@ -46,6 +52,11 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- `HEAD /health`, `HEAD /ready`, and `HEAD /studio` now return the same `200`/`301` as `GET`.
+  Before this change, Osprey registered these tenant-free routes with `GET` only.
+  A `HEAD` request fell through to the tenant-gated catch-all subtree.
+  Without `X-Tenant-ID`, the response was `400`. With the header, it was `405`.
+  A load balancer or uptime monitor that probes with `HEAD` saw the service as unhealthy.
 - Velocity lookups no longer read every transaction of the tenant in the window.
   The query used `debtor_id = ? OR creditor_id = ?`, and SQLite searched the `(tenant_id, created_at)` index.
   Thus, each evaluation got slower as traffic grew.
@@ -57,6 +68,11 @@ This file records all notable changes to this project. The format follows
 - Osprey rounds detection and typology scores to 9 decimal places before it compares them with the threshold.
   Before this change, a sum could miss its threshold by the last binary digit.
   For example, weights `0.1` and `0.7` add up to `0.7999999999999999`, which is less than a threshold of `0.8`.
+- The per-rule score is now rounded to 9 decimal places before band matching.
+  Before this change, a rule expression such as `0.1 + 0.7` produced `0.7999999999999999`.
+  This value missed a band boundary of `0.8` and matched `.pass` instead of `.fail`.
+  The `.fail` force-alert path was lost, so a transaction that should alert did not alert.
+  The noisy score was also stored in the `rule_results` JSON.
 
 - SQLite now opens the correct file and uses WAL mode when `OSPREY_SQLITE_PATH` contains `?`, `#`, or `%`.
   Before this change, Osprey put the path into the SQLite connection URI with no encoding.
@@ -70,6 +86,19 @@ This file records all notable changes to this project. The format follows
 
   Now the processor fails closed. The evaluation gets `ALRT` and one typology result with the ID `compliance-no-typologies`.
   Osprey logs a warning. The transaction and the evaluation are both stored, so a retry is not necessary.
+- An evaluation no longer returns `NALT` when the rule engine has zero rules loaded.
+  Before this change, `EvaluateAll` returned no results and no error when the rule set was empty.
+  The processor scored the empty result set to zero, and both detection mode and compliance mode returned `NALT` with score 0.
+  A deployment with an empty rule set silently stopped generating alerts.
+
+  An operator with rule-management access could disable or delete the last rule.
+  The operator could also reload from an empty rules table.
+  Every later transaction got `200 OK` with a clean pass.
+  The health and readiness checks stayed green, so the blinded state looked like normal operation.
+
+  Now the processor fails closed. The evaluation gets `ALRT` and one typology result with the ID `no-rules`.
+  Osprey logs a warning. The transaction and the evaluation are both stored, so nothing is orphaned and no retry is necessary.
+  An empty database still starts correctly for the first run, and `POST /rules` still works to seed the first rule set.
 - PostgreSQL deployments now keep the full value of transaction amounts and scores.
   Before this change, the migration kept the SQLite `REAL` column type on PostgreSQL.
   PostgreSQL `REAL` is single precision (`float4`, about 7 significant digits).

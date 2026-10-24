@@ -65,3 +65,6 @@ go.work.sum
 
 # Design system lives in the monorepo, not the engine repo
 /Osprey Design System/
+
+# OFAC list fetched by scripts/fetch-ofac.sh
+data/ofac/

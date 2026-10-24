@@ -66,6 +66,8 @@ type DetectionConfig struct {
 	// VelocityClock is "received" (window ends when Osprey receives the transaction)
 	// or "event" (window ends at the transaction timestamp, for replays of historical data).
 	VelocityClock string `json:"velocityClock"`
+	// SanctionsDir is the folder with the OFAC SDN.CSV and ALT.CSV files. Empty turns screening off.
+	SanctionsDir string `json:"sanctionsDir,omitempty"`
 }
 
 // Velocity clocks.

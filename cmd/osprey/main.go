@@ -22,6 +22,7 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 	"github.com/opensource-finance/osprey/internal/repository"
 	"github.com/opensource-finance/osprey/internal/rules"
+	"github.com/opensource-finance/osprey/internal/sanctions"
 	"github.com/opensource-finance/osprey/internal/tadp"
 	"github.com/opensource-finance/osprey/internal/velocity"
 	"github.com/opensource-finance/osprey/internal/worker"
@@ -169,6 +170,11 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("velocity clock", "clock", cfg.Detection.VelocityClock)
+
+	if err := wireSanctions(engine, cfg.Detection.SanctionsDir); err != nil {
+		slog.Error("failed to load sanctions list", "error", err)
+		os.Exit(1)
+	}
 
 	// Load rules from database (no hardcoded defaults - configure via API)
 	if err := loadRulesFromDatabase(ctx, repo, engine); err != nil {
@@ -493,6 +499,7 @@ func applyDetectionOverrides(cfg *domain.Config) error {
 	default:
 		return fmt.Errorf("OSPREY_VELOCITY_CLOCK must be %q or %q", domain.VelocityClockReceived, domain.VelocityClockEvent)
 	}
+	cfg.Detection.SanctionsDir = strings.TrimSpace(os.Getenv("OSPREY_SANCTIONS_DIR"))
 	return nil
 }
 
@@ -524,6 +531,29 @@ func parseNonNegativeIntEnv(name string) (int, bool, error) {
 		return 0, false, fmt.Errorf("%s must be zero or greater", name)
 	}
 	return value, true, nil
+}
+
+// wireSanctions loads the OFAC list from dir (OSPREY_SANCTIONS_DIR, see
+// scripts/fetch-ofac.sh). Empty leaves screening off; a bad path is fatal so a
+// misconfigured deploy never silently screens against nothing.
+func wireSanctions(engine *rules.Engine, dir string) error {
+	if dir == "" {
+		slog.Warn("sanctions screening disabled: OSPREY_SANCTIONS_DIR not set; sanctions_score is always 0")
+		return nil
+	}
+	list, err := sanctions.LoadOFACDir(dir)
+	if err != nil {
+		return err
+	}
+	engine.SetSanctionsScreener(func(name string) (float64, string) {
+		m := list.Screen(name)
+		if m.Name == "" {
+			return 0, ""
+		}
+		return m.Score, fmt.Sprintf("%s (OFAC ent %s, %s)", m.Name, m.EntryID, m.Program)
+	})
+	slog.Info("sanctions list loaded", "dir", dir, "names", list.Len())
+	return nil
 }
 
 // newRuleEngine creates the rule engine and wires the velocity sources and the clock.
