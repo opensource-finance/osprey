@@ -1,5 +1,7 @@
 # Osprey Architecture
 
+For an interactive map of the components, the flows, and the known gaps, open [ontology.html](ontology.html) in a browser.
+
 ## Overview
 
 Osprey is a real-time transaction monitoring engine.
