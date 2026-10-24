@@ -103,3 +103,10 @@ volumes:
   postgres_data:
   redis_data:
   nats_data:
+
+# Publish host ports on loopback only, so dev datastores are not reachable
+# from the LAN or tailnet. Per-port "host:container" mappings stay unchanged.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"

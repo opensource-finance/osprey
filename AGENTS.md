@@ -59,6 +59,26 @@ You must run the gates on your computer.
 - If a change has an effect on users, update `CHANGELOG.md` under `## [Unreleased]`.
 - Do not edit `scripts/lint-message.sh`. It is a copy from `josephgoksu/standards`.
 
+## Architecture map
+
+[docs/ontology.html](docs/ontology.html) is the single source of truth for the architecture.
+Its `<script id="ontology">` JSON block holds the facts. All views of the page come from that block.
+Update the block in the same pull request as each change in this table.
+
+| If you change | Update in the JSON block |
+|---|---|
+| A package, a component, or a file path in `internal/` or `cmd/` | `nodes` (`file`, `props`) and their `edges` |
+| An HTTP route or a middleware | `nodes` for the route or the guard, and the `sync` or `author` flow |
+| A bus topic, a publisher, or a subscriber | `nodes` for the topic, its `edges`, and the `async` flow |
+| A table, a column, or a storage driver | `nodes` for the table or the repository, and `tier` |
+| An `OSPREY_*` variable or a startup step | the `env` node and the `startup` flow |
+| A CEL variable | the `catalog` node |
+| A starter rule or a typology | the `fatf-rules` or `fatf-typos` node |
+| A gap that you fix or find | `gaps`, and the `gap` field of the node |
+
+Then set `updated` and `source` to the date and the commit, and add a `changelog` line.
+Keep the block to architecture. Do not put secrets, tokens, or vulnerability details in it.
+
 ## Docs rules
 
 All docs use ASD-STE100 Simplified Technical English.

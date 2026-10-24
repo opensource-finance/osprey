@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Osprey Ontology</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a field-guide plate. Header strip, view tabs, one main canvas, a detail drawer on the right (stacks under at phone width). */
+:root {
+  --bg: #eef1ef; --panel: #f8faf9; --ink: #13201d; --muted: #5b6b67; --rule: #cfd8d4;
+  --accent: #b5651d; --accent-ink: #ffffff; --hi: #fde9c9;
+  --display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --t-actor:#c2410c; --t-edge:#0e7490; --t-guard:#6d28d9; --t-engine:#15803d; --t-decision:#b91c1c;
+  --t-store:#7c5c3b; --t-transport:#1d4ed8; --t-content:#a16207; --t-config:#475569; --t-tool:#9d174d; --t-external:#0f766e;
+  --gap: #b91c1c;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#0f1715; --panel:#16211e; --ink:#e3ece8; --muted:#93a59f; --rule:#2a3a35; --accent:#e0954f; --accent-ink:#1a1006; --hi:#3a2a14;
+  --t-actor:#fb923c; --t-edge:#22d3ee; --t-guard:#a78bfa; --t-engine:#4ade80; --t-decision:#f87171;
+  --t-store:#d6a77a; --t-transport:#60a5fa; --t-content:#facc15; --t-config:#94a3b8; --t-tool:#f472b6; --t-external:#2dd4bf; --gap:#f87171;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg:#0f1715; --panel:#16211e; --ink:#e3ece8; --muted:#93a59f; --rule:#2a3a35; --accent:#e0954f; --accent-ink:#1a1006; --hi:#3a2a14;
+  --t-actor:#fb923c; --t-edge:#22d3ee; --t-guard:#a78bfa; --t-engine:#4ade80; --t-decision:#f87171;
+  --t-store:#d6a77a; --t-transport:#60a5fa; --t-content:#facc15; --t-config:#94a3b8; --t-tool:#f472b6; --t-external:#2dd4bf; --gap:#f87171;
+  color-scheme: dark }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 20px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+h1 { font: 700 clamp(28px, 4vw, 40px)/1.05 var(--display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h1 small { display: block; font: 500 13px/1.4 var(--mono); color: var(--muted); letter-spacing: 0; margin-top: 6px; }
+h2 { font: 700 20px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 700 15px/1.3 var(--display); margin: 0; }
+.meta { font: 12px/1.5 var(--mono); color: var(--muted); text-align: right; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tabs button, .seg button { font: 600 13px var(--body); border: 1px solid var(--rule); background: var(--panel); color: var(--ink); padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.seg { display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 12px var(--mono); color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.view { min-width: 0; }
+aside { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); display: grid; gap: 10px; min-width: 0; }
+aside .empty { color: var(--muted); font-size: 14px; }
+aside dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+aside dt { font: 600 11px/1.6 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+aside dd { margin: 0; overflow-wrap: anywhere; }
+.rels { display: grid; gap: 4px; font-size: 13px; }
+.rels div { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+.rel { font: 11px var(--mono); color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); background: var(--panel); color: var(--ink); border-radius: 5px; padding: 4px 9px; font: 13px/1.3 var(--body); cursor: pointer; text-align: left; }
+.chip .dot { width: 8px; height: 8px; }
+.chip.on { background: var(--hi); border-color: var(--accent); }
+.chip.dim { opacity: 0.35; }
+.chip.gap { border-style: dashed; border-color: var(--gap); }
+/* Layers */
+.layers { display: grid; gap: 10px; }
+.layer { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+.layer > div:first-child { font: 600 12px/1.4 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.layer > div:first-child p { text-transform: none; letter-spacing: 0; font: 12px/1.45 var(--body); margin: 4px 0 0; }
+.layer .chips { display: flex; flex-wrap: wrap; gap: 6px; align-content: start; }
+@media (max-width: 560px) { .layer { grid-template-columns: minmax(0, 1fr); } }
+/* Flows */
+.flowpick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.flowpick button { font: 13px var(--body); border: 1px solid var(--rule); background: var(--panel); color: var(--ink); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.flowpick button[aria-pressed="true"] { border-color: var(--accent); background: var(--hi); font-weight: 700; }
+.flowdesc { color: var(--muted); margin: 0 0 12px; max-width: 70ch; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-left: 2px solid var(--rule); margin-left: 16px; padding-left: 0; position: relative; }
+ol.steps li::before { content: counter(s); position: absolute; left: -15px; top: 8px; width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: var(--bg); font: 600 12px/28px var(--mono); text-align: center; }
+ol.steps li > div { grid-column: 2; display: grid; gap: 4px; min-width: 0; }
+ol.steps .note { color: var(--muted); font-size: 13px; }
+ol.steps .warn { color: var(--gap); font-size: 13px; font-weight: 700; }
+/* Graph */
+.graphbox { border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); overflow-x: auto; }
+svg#g { display: block; width: 100%; min-width: 760px; height: auto; }
+svg#g text { font: 11px var(--body); fill: var(--ink); pointer-events: none; }
+svg#g .edge { stroke: var(--rule); stroke-width: 1.2; fill: none; }
+svg#g .edge.on { stroke: var(--accent); stroke-width: 2; }
+svg#g .node circle { stroke: var(--panel); stroke-width: 2; cursor: pointer; }
+svg#g .node.dim { opacity: 0.25; }
+svg#g .node.on circle { stroke: var(--accent); stroke-width: 3; }
+.hint { font: 12px var(--mono); color: var(--muted); margin: 8px 0 0; }
+/* Index */
+.tablebox { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+tr { cursor: pointer; } tr:hover td { background: var(--hi); }
+.filter { font: 13px var(--body); padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); color: var(--ink); width: min(320px, 100%); margin-bottom: 10px; }
+/* Gaps */
+.gaps { border: 1px solid var(--rule); border-left: 4px solid var(--gap); border-radius: 8px; background: var(--panel); padding: 14px 16px; display: grid; gap: 8px; }
+.gaps ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.gaps li { max-width: 90ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Osprey Ontology<small>opensource-finance/osprey · real-time AML transaction monitoring</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <div class="controls">
+    <div class="tabs" role="tablist" aria-label="View">
+      <button role="tab" id="tab-flows" data-view="flows">Flows</button>
+      <button role="tab" id="tab-layers" data-view="layers">Layers</button>
+      <button role="tab" id="tab-graph" data-view="graph">Graph</button>
+      <button role="tab" id="tab-index" data-view="index">Index</button>
+    </div>
+    <div class="seg" role="group" aria-label="Tier">tier
+      <button id="tier-community" data-tier="community">Community</button>
+      <button id="tier-pro" data-tier="pro">Pro</button>
+    </div>
+  </div>
+  <div class="legend" id="legend"></div>
+
+  <div class="main">
+    <section class="view" id="view"></section>
+    <aside id="detail" aria-live="polite"><p class="empty">Select a node to see what it is, where it lives in the code, and what it connects to.</p></aside>
+  </div>
+
+  <section class="gaps" id="gaps"></section>
+</div>
+
+<script type="application/json" id="ontology">
+{
+  "updated": "2026-10-24",
+  "source": "osprey feat/ofac-sanctions-screening after a111445 (includes main up to b58cb79)",
+  "verified_by": "read of internal/api/server.go routes + middleware, internal/domain/bus.go topics, internal/repository/schema.go tables, cmd/osprey/main.go env vars, grep for Publish/Subscribe/Save* call sites",
+  "types": {
+    "actor": {"label": "Actor", "color": "--t-actor"},
+    "edge": {"label": "HTTP route", "color": "--t-edge"},
+    "guard": {"label": "Middleware", "color": "--t-guard"},
+    "engine": {"label": "Engine", "color": "--t-engine"},
+    "decision": {"label": "Decision", "color": "--t-decision"},
+    "store": {"label": "Storage", "color": "--t-store"},
+    "transport": {"label": "Bus / topic", "color": "--t-transport"},
+    "content": {"label": "Detection content", "color": "--t-content"},
+    "config": {"label": "Configuration", "color": "--t-config"},
+    "tool": {"label": "Tool", "color": "--t-tool"},
+    "external": {"label": "External data", "color": "--t-external"}
+  },
+  "layers": [
+    {"id": "actors", "label": "Actors", "note": "Who or what starts work."},
+    {"id": "edge", "label": "HTTP edge", "note": "chi router, middleware, routes. Every route except health and Studio needs X-Tenant-ID."},
+    {"id": "async", "label": "Async path", "note": "Bus and workers. Off unless Pro tier or OSPREY_ASYNC_WORKER=true."},
+    {"id": "engine", "label": "Evaluation", "note": "Builds CEL inputs and scores each rule."},
+    {"id": "decision", "label": "Decision", "note": "Typologies and TADP turn rule results into ALRT or NALT."},
+    {"id": "data", "label": "Storage", "note": "One repository interface, two drivers. All rows are tenant-scoped."},
+    {"id": "content", "label": "Content and config", "note": "Starter rules, typologies, and the OSPREY_* environment."},
+    {"id": "tools", "label": "Tooling", "note": "Benchmarks, quality bench, examples, list fetcher."}
+  ],
+  "nodes": [
+    {"id": "caller", "type": "actor", "layer": "actors", "label": "API caller", "props": {"who": "payment system or core banking app", "sends": "POST /evaluate with X-Tenant-ID"}},
+    {"id": "producer", "type": "actor", "layer": "actors", "label": "Bus producer", "props": {"who": "an upstream system on NATS (Pro)", "sends": "TransactionMessage on osprey.transaction.ingested", "note": "no producer lives in this repo"}},
+    {"id": "analyst", "type": "actor", "layer": "actors", "label": "Rule author / analyst", "props": {"uses": "Studio at /studio/ or the rules API"}},
+    {"id": "operator", "type": "actor", "layer": "actors", "label": "Operator", "props": {"sets": "OSPREY_* env, admin token, list folder"}},
+    {"id": "ofac", "type": "external", "layer": "actors", "label": "OFAC SDN list", "props": {"source": "sanctionslistservice.ofac.treas.gov exports", "files": "SDN.CSV, ALT.CSV"}},
+
+    {"id": "router", "type": "edge", "layer": "edge", "label": "chi router", "file": "internal/api/server.go", "props": {"global middleware": "CORS, Recover, OTel tracing, logging, gzip"}},
+    {"id": "mw-tenant", "type": "guard", "layer": "edge", "label": "Tenant middleware", "file": "internal/api/middleware.go", "props": {"requires": "X-Tenant-ID", "propagates to": "DB queries, cache keys, bus subjects"}},
+    {"id": "mw-rate", "type": "guard", "layer": "edge", "label": "Rate limit", "file": "internal/api/middleware.go", "props": {"scope": "per tenant", "env": "OSPREY_RATE_LIMIT_RPS, OSPREY_RATE_LIMIT_BURST", "default": "off"}},
+    {"id": "mw-admin", "type": "guard", "layer": "edge", "label": "Admin token", "file": "internal/api/server.go", "props": {"guards": "rule and typology writes and reloads", "env": "OSPREY_ADMIN_TOKEN (required at startup)"}},
+    {"id": "r-health", "type": "edge", "layer": "edge", "label": "GET /health, /ready", "file": "internal/api/handler.go", "props": {"ready checks": "repository and cache ping", "tenant": "not required"}},
+    {"id": "r-evaluate", "type": "edge", "layer": "edge", "label": "POST /evaluate", "file": "internal/api/handler.go", "props": {"body": "id, type, debtor{id, accountId, name}, creditor{...}, amount{value, currency}, timestamp, metadata, enrichment", "returns": "evaluationId, status, score, reasons, metadata", "contract": "docs/api/openapi.yaml"}},
+    {"id": "r-read", "type": "edge", "layer": "edge", "label": "GET /evaluations/{id}, /transactions/{id}", "file": "internal/api/handler.go", "props": {"reads": "stored evaluation or transaction"}},
+    {"id": "r-rules", "type": "edge", "layer": "edge", "label": "/rules", "file": "internal/api/handler.go", "props": {"read": "GET /rules, /rules/{id}, /rules/variables", "check": "POST /rules/validate (compile only, no admin)", "write (admin)": "POST, PUT, DELETE /rules, POST /rules/reload"}},
+    {"id": "r-typologies", "type": "edge", "layer": "edge", "label": "/typologies", "file": "internal/api/handler.go", "props": {"read": "GET /typologies, /typologies/{id}", "write (admin)": "POST, PUT, DELETE, POST /typologies/reload"}},
+    {"id": "studio", "type": "edge", "layer": "edge", "label": "Studio /studio/", "file": "studio/studio.go", "props": {"what": "static rule and typology editor served from the binary", "reads variables from": "GET /rules/variables", "env": "OSPREY_STUDIO (default true)"}},
+
+    {"id": "bus", "type": "transport", "layer": "async", "label": "Event bus", "file": "internal/bus", "tier": {"community": "Go channels (in process)", "pro": "NATS"}, "props": {"env": "OSPREY_BUS_TYPE, OSPREY_NATS_URL", "subjects": "tenant-scoped"}},
+    {"id": "t-ingested", "type": "transport", "layer": "async", "label": "osprey.transaction.ingested", "file": "internal/domain/bus.go", "props": {"published by": "external producers only", "subscribed by": "worker (_global and per tenant)"}},
+    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS", "persists": "evaluations only"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
+    {"id": "t-decision", "type": "transport", "layer": "async", "label": "osprey.decision", "file": "internal/domain/bus.go", "props": {"published by": "worker, every evaluation", "consumed by": "nothing in this repo"}},
+    {"id": "t-alert", "type": "transport", "layer": "async", "label": "osprey.alert", "file": "internal/domain/bus.go", "props": {"published by": "worker, on ALRT", "consumed by": "nothing in this repo"}},
+    {"id": "t-unused", "type": "transport", "layer": "async", "label": "rule.* / typology.* topics", "file": "internal/domain/bus.go", "props": {"topics": "osprey.rule.evaluate, osprey.rule.result, osprey.typology.evaluate, osprey.typology.result"}, "gap": "Declared, never published or subscribed. Left over from the Tazama microservice split."},
+
+    {"id": "handler", "type": "engine", "layer": "engine", "label": "Evaluate handler", "file": "internal/api/handler.go", "props": {"steps": "validate, save transaction, build input, rules, typologies, TADP, save evaluation, respond", "velocity window": "3600 s"}},
+    {"id": "engine", "type": "engine", "layer": "engine", "label": "CEL rule engine", "file": "internal/rules/engine.go", "props": {"runs": "all compiled (enabled) rules in parallel, semaphore of 100", "cost limit": "1,000,000 CEL units per rule", "outcomes": ".pass, .review, .fail, .err via ordered bands"}},
+    {"id": "catalog", "type": "engine", "layer": "engine", "label": "CEL variable catalog", "file": "internal/rules/variables.go", "props": {"core": "amount, currency, tx_type, debtor_id, creditor_id, old_balance, new_balance, tx", "velocity": "velocity_count, velocity_amount_sum, velocity_distinct_creditors, velocity_inbound_count, velocity_inbound_amount_sum", "sanctions": "sanctions_score, sanctions_match (party and entry)", "open maps": "meta.*, enrichment.*", "single source for": "CEL env, /rules/variables, authoring docs"}},
+    {"id": "velocity", "type": "engine", "layer": "engine", "label": "Velocity service", "file": "internal/velocity/velocity.go", "props": {"scope": "debtor only", "source": "repository query per evaluation", "clock": "OSPREY_VELOCITY_CLOCK received (default) or event", "fails": "closed: lookup error fails the evaluation"}},
+    {"id": "sanctions", "type": "engine", "layer": "engine", "label": "Sanctions screener", "file": "internal/sanctions/sanctions.go", "props": {"list": "OFAC SDN + aliases, in memory", "match": "token Jaro-Winkler over a 3-letter prefix index", "runs when": "a loaded rule reads sanctions_*", "reports": "which party matched, debtor or creditor", "cost": "about 0.6 ms worst case per name"}},
+    {"id": "typo-engine", "type": "decision", "layer": "decision", "label": "Typology engine", "file": "internal/rules/typology.go", "props": {"mode": "compliance", "score": "sum of rule score x typology weight", "trigger": "score at or above alertThreshold"}},
+    {"id": "tadp", "type": "decision", "layer": "decision", "label": "TADP decision processor", "file": "internal/tadp/tadp.go", "props": {"detection": "sum of score x weight, capped at 1 (OSPREY_SCORING=sum) or weighted average", "threshold": "OSPREY_ALERT_THRESHOLD, default 0.7", "forces ALRT": "any .fail or .err", "output": "ALRT or NALT, score, reasons"}},
+
+    {"id": "repo", "type": "store", "layer": "data", "label": "Repository", "file": "internal/repository", "tier": {"community": "SQLite (OSPREY_SQLITE_PATH)", "pro": "PostgreSQL (OSPREY_POSTGRES_*)"}, "props": {"interface": "internal/domain/repository.go", "migrations": "same schema, BLOB rewritten to BYTEA on Postgres"}},
+    {"id": "tbl-tx", "type": "store", "layer": "data", "label": "transactions", "file": "internal/repository/schema.go", "props": {"key": "(id, tenant_id)", "indexes": "debtor, creditor, timestamp, created_at", "not stored": "party names, enrichment"}},
+    {"id": "tbl-eval", "type": "store", "layer": "data", "label": "evaluations", "file": "internal/repository/schema.go", "props": {"holds": "status, score, rule_results JSON, typology_results JSON, metadata"}},
+    {"id": "tbl-rules", "type": "store", "layer": "data", "label": "rule_configs", "file": "internal/repository/schema.go", "props": {"holds": "expression, bands, weight, enabled", "tenant": "global * for shared rules"}},
+    {"id": "tbl-typo", "type": "store", "layer": "data", "label": "typologies", "file": "internal/repository/schema.go", "props": {"holds": "rule ids with weights, alertThreshold"}},
+    {"id": "cache", "type": "store", "layer": "data", "label": "Cache", "file": "internal/cache", "tier": {"community": "in-memory LRU", "pro": "Redis"}, "props": {"env": "OSPREY_CACHE_TYPE, OSPREY_REDIS_*"}, "gap": "Only /ready pings it. Velocity holds a reference but reads the repository every time."},
+    {"id": "ofac-dir", "type": "store", "layer": "data", "label": "OFAC list folder", "file": "scripts/fetch-ofac.sh", "props": {"env": "OSPREY_SANCTIONS_DIR", "unset": "screening off, startup warning", "bad path or non-OFAC file": "startup fails"}},
+
+    {"id": "fatf-rules", "type": "content", "layer": "content", "label": "FATF starter rules", "file": "configs/rules/fatf-rules.json", "props": {"count": "15", "only alert-alone rule": "sanctions-001 (.fail at 0.88)"}},
+    {"id": "paysim-rules", "type": "content", "layer": "content", "label": "PaySim rules", "file": "configs/rules/paysim-rules.json", "props": {"use": "benchmark on the labelled PaySim dataset"}},
+    {"id": "fatf-typos", "type": "content", "layer": "content", "label": "FATF typologies", "file": "configs/typologies/fatf-typologies.json", "props": {"includes": "structuring, account takeover, mule, rapid movement, cash intensive, fraud basic, sanctions"}},
+    {"id": "seed", "type": "tool", "layer": "content", "label": "Seed scripts", "file": "scripts/seed-starter-kit.sh", "props": {"loads": "rules, plus typologies with --compliance", "via": "the admin API"}},
+    {"id": "env", "type": "config", "layer": "content", "label": "OSPREY_* environment", "file": "cmd/osprey/main.go", "props": {"tier": "OSPREY_TIER community | pro", "parsed in": "applyEnvOverrides into domain.Config", "mode": "OSPREY_MODE detection | compliance", "scoring": "OSPREY_SCORING, OSPREY_ALERT_THRESHOLD", "velocity": "OSPREY_VELOCITY_CLOCK", "sanctions": "OSPREY_SANCTIONS_DIR", "server": "OSPREY_HOST, OSPREY_PORT, OSPREY_STUDIO, OSPREY_DEBUG"}},
+
+    {"id": "benchmark", "type": "tool", "layer": "tools", "label": "cmd/benchmark", "file": "cmd/benchmark", "props": {"measures": "throughput on PaySim CSV"}},
+    {"id": "qualitybench", "type": "tool", "layer": "tools", "label": "cmd/qualitybench", "file": "cmd/qualitybench", "props": {"measures": "precision and recall of a rule set on labelled PaySim", "flag": "-velocity replays in event time"}},
+    {"id": "examples", "type": "tool", "layer": "tools", "label": "examples/", "file": "examples", "props": {"projects": "mule detection (detection mode), remittance structuring (compliance mode)", "gate": "make examples fails if a decision changes"}},
+    {"id": "fetch-ofac", "type": "tool", "layer": "tools", "label": "fetch-ofac.sh", "file": "scripts/fetch-ofac.sh", "props": {"fetches": "SDN.CSV and ALT.CSV as a pair", "refresh": "rerun, then restart Osprey"}}
+  ],
+  "edges": [
+    {"from": "caller", "to": "router", "rel": "HTTP"},
+    {"from": "analyst", "to": "studio", "rel": "uses"},
+    {"from": "analyst", "to": "r-rules", "rel": "authors"},
+    {"from": "operator", "to": "env", "rel": "sets"},
+    {"from": "operator", "to": "fetch-ofac", "rel": "runs"},
+    {"from": "ofac", "to": "fetch-ofac", "rel": "downloaded by"},
+    {"from": "fetch-ofac", "to": "ofac-dir", "rel": "writes"},
+    {"from": "router", "to": "r-health", "rel": "routes"},
+    {"from": "router", "to": "studio", "rel": "serves"},
+    {"from": "router", "to": "mw-tenant", "rel": "wraps"},
+    {"from": "mw-tenant", "to": "mw-rate", "rel": "then"},
+    {"from": "mw-rate", "to": "r-evaluate", "rel": "guards"},
+    {"from": "mw-rate", "to": "r-read", "rel": "guards"},
+    {"from": "mw-rate", "to": "r-rules", "rel": "guards"},
+    {"from": "mw-rate", "to": "r-typologies", "rel": "guards"},
+    {"from": "mw-admin", "to": "r-rules", "rel": "guards writes"},
+    {"from": "mw-admin", "to": "r-typologies", "rel": "guards writes"},
+    {"from": "studio", "to": "r-rules", "rel": "calls"},
+    {"from": "studio", "to": "r-typologies", "rel": "calls"},
+    {"from": "studio", "to": "r-evaluate", "rel": "test sends"},
+    {"from": "r-evaluate", "to": "handler", "rel": "runs"},
+    {"from": "r-read", "to": "tbl-eval", "rel": "reads"},
+    {"from": "r-read", "to": "tbl-tx", "rel": "reads"},
+    {"from": "r-rules", "to": "tbl-rules", "rel": "writes"},
+    {"from": "r-rules", "to": "engine", "rel": "compiles, reloads"},
+    {"from": "r-rules", "to": "catalog", "rel": "lists"},
+    {"from": "r-typologies", "to": "tbl-typo", "rel": "writes"},
+    {"from": "r-typologies", "to": "typo-engine", "rel": "reloads"},
+    {"from": "r-health", "to": "repo", "rel": "pings"},
+    {"from": "r-health", "to": "cache", "rel": "pings"},
+    {"from": "handler", "to": "tbl-tx", "rel": "saves"},
+    {"from": "handler", "to": "engine", "rel": "evaluates"},
+    {"from": "handler", "to": "typo-engine", "rel": "compliance mode"},
+    {"from": "handler", "to": "tadp", "rel": "decides"},
+    {"from": "handler", "to": "tbl-eval", "rel": "saves"},
+    {"from": "engine", "to": "catalog", "rel": "declares from"},
+    {"from": "engine", "to": "velocity", "rel": "asks"},
+    {"from": "engine", "to": "sanctions", "rel": "screens names"},
+    {"from": "velocity", "to": "tbl-tx", "rel": "queries by debtor"},
+    {"from": "velocity", "to": "cache", "rel": "holds, unused"},
+    {"from": "sanctions", "to": "ofac-dir", "rel": "loads at startup"},
+    {"from": "typo-engine", "to": "tadp", "rel": "typology results"},
+    {"from": "producer", "to": "t-ingested", "rel": "publishes"},
+    {"from": "t-ingested", "to": "bus", "rel": "carried by"},
+    {"from": "t-ingested", "to": "worker", "rel": "subscribed"},
+    {"from": "worker", "to": "engine", "rel": "evaluates"},
+    {"from": "worker", "to": "typo-engine", "rel": "compliance mode"},
+    {"from": "worker", "to": "tadp", "rel": "decides"},
+    {"from": "worker", "to": "tbl-eval", "rel": "saves"},
+    {"from": "worker", "to": "t-decision", "rel": "publishes"},
+    {"from": "worker", "to": "t-alert", "rel": "publishes on ALRT"},
+    {"from": "t-unused", "to": "bus", "rel": "declared on"},
+    {"from": "repo", "to": "tbl-tx", "rel": "owns"},
+    {"from": "repo", "to": "tbl-eval", "rel": "owns"},
+    {"from": "repo", "to": "tbl-rules", "rel": "owns"},
+    {"from": "repo", "to": "tbl-typo", "rel": "owns"},
+    {"from": "tbl-rules", "to": "engine", "rel": "loaded at startup"},
+    {"from": "tbl-typo", "to": "typo-engine", "rel": "loaded at startup"},
+    {"from": "env", "to": "tadp", "rel": "configures"},
+    {"from": "env", "to": "repo", "rel": "selects driver"},
+    {"from": "env", "to": "bus", "rel": "selects bus"},
+    {"from": "env", "to": "cache", "rel": "selects cache"},
+    {"from": "env", "to": "worker", "rel": "enables"},
+    {"from": "env", "to": "sanctions", "rel": "points to list"},
+    {"from": "seed", "to": "r-rules", "rel": "posts"},
+    {"from": "seed", "to": "r-typologies", "rel": "posts"},
+    {"from": "fatf-rules", "to": "seed", "rel": "read by"},
+    {"from": "fatf-typos", "to": "seed", "rel": "read by"},
+    {"from": "paysim-rules", "to": "benchmark", "rel": "used by"},
+    {"from": "paysim-rules", "to": "qualitybench", "rel": "used by"},
+    {"from": "qualitybench", "to": "engine", "rel": "drives in process"},
+    {"from": "benchmark", "to": "engine", "rel": "drives in process"},
+    {"from": "examples", "to": "r-evaluate", "rel": "sends"}
+  ],
+  "flows": [
+    {"id": "sync", "label": "Evaluate (sync)", "desc": "The default path. One HTTP call gives the decision. Detection mode skips typologies.", "steps": [
+      ["caller", "POST /evaluate with X-Tenant-ID"],
+      ["router", "CORS, recover, tracing, logging, gzip"],
+      ["mw-tenant", "reject a missing X-Tenant-ID"],
+      ["mw-rate", "per-tenant token bucket, off by default"],
+      ["r-evaluate", "decode and validate the body, 400 on bad balance metadata"],
+      ["tbl-tx", "save the transaction first, 409 on a duplicate id"],
+      ["velocity", "query the debtor's transactions in the window"],
+      ["sanctions", "screen debtor and creditor names, only if a rule reads sanctions_*"],
+      ["engine", "run every enabled rule in parallel, map each score to a band"],
+      ["typo-engine", "compliance mode only: sum weighted rule scores per typology"],
+      ["tadp", "ALRT if score at or above threshold, or any .fail or .err"],
+      ["tbl-eval", "save the evaluation with rule and typology results"],
+      ["caller", "respond with status, score, reasons, timings"]
+    ]},
+    {"id": "async", "label": "Evaluate (async)", "desc": "Pro tier path. A producer publishes to the bus, workers evaluate and publish the decision.", "steps": [
+      ["producer", "publish TransactionMessage to osprey.transaction.ingested"],
+      ["bus", "NATS (Pro) or Go channels, with tenant-scoped subjects"],
+      ["worker", "subscription tenant wins over the payload tenant, except on the global worker"],
+      ["velocity", "query the debtor's transactions", "Bus-only transactions are never saved, so they never count here."],
+      ["engine", "same rule evaluation as the sync path"],
+      ["tadp", "same decision step"],
+      ["tbl-eval", "save the evaluation"],
+      ["t-decision", "publish every decision"],
+      ["t-alert", "publish again when ALRT"]
+    ]},
+    {"id": "author", "label": "Author a rule", "desc": "How a rule reaches the engine. Writes need the admin token. Rules are global (tenant *).", "steps": [
+      ["analyst", "write a CEL expression in Studio"],
+      ["catalog", "Studio lists variables from GET /rules/variables"],
+      ["r-rules", "POST /rules/validate compiles without saving"],
+      ["mw-admin", "POST /rules needs OSPREY_ADMIN_TOKEN"],
+      ["tbl-rules", "save the rule config"],
+      ["engine", "compile and load. POST /rules/reload reloads all rules"]
+    ]},
+    {"id": "sanctions", "label": "Sanctions list", "desc": "The list is a file on disk. Nothing downloads at runtime.", "steps": [
+      ["ofac", "publishes SDN.CSV and ALT.CSV"],
+      ["fetch-ofac", "download both, then replace both"],
+      ["ofac-dir", "folder named by OSPREY_SANCTIONS_DIR"],
+      ["sanctions", "load at startup, index names and aliases by 3-letter prefix"],
+      ["engine", "sanctions_score and sanctions_match available to rules"],
+      ["fatf-rules", "sanctions-001 gives .fail from 0.88 and names the party and the entry"]
+    ]},
+    {"id": "startup", "label": "Startup", "desc": "Order of cmd/osprey/main.go. A failure at any step exits the process.", "steps": [
+      ["env", "read OSPREY_* into the tier config, require the admin token"],
+      ["repo", "open SQLite or PostgreSQL, run migrations"],
+      ["cache", "open memory or Redis"],
+      ["bus", "open channels or NATS"],
+      ["engine", "create the engine, wire velocity and the clock"],
+      ["sanctions", "load the list if OSPREY_SANCTIONS_DIR is set"],
+      ["tbl-rules", "load rules. There are no hard-coded defaults"],
+      ["tbl-typo", "load typologies"],
+      ["worker", "start workers when Pro or OSPREY_ASYNC_WORKER=true"],
+      ["router", "serve HTTP, and Studio unless OSPREY_STUDIO=false"]
+    ]}
+  ],
+  "gaps": [
+    "The async worker saves evaluations but never the transaction. Velocity reads only stored transactions, so bus-only traffic has a velocity of zero.",
+    "Four topics (osprey.rule.*, osprey.typology.*) are declared but nothing publishes or subscribes to them.",
+    "The cache is opened on both tiers but only /ready pings it. Velocity queries the repository on every evaluation.",
+    "osprey.decision and osprey.alert have no consumer in the repo, and there is no alert queue, case, or feedback endpoint.",
+    "Velocity is debtor-only. There is no creditor-side or account-level aggregate."
+  ],
+  "changelog": [
+    "2026-10-24: first map, from osprey e28c4dd.",
+    "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md."
+  ]
+}
+</script>
+
+<script>
+(() => {
+  const O = JSON.parse(document.getElementById('ontology').textContent);
+  const byId = Object.fromEntries(O.nodes.map(n => [n.id, n]));
+  const color = t => `var(${O.types[t].color})`;
+  const el = (tag, attrs = {}, ...kids) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+    }
+    for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
+    return e;
+  };
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+  };
+
+  let view = 'flows', tier = store.get('osprey-tier') || 'community', selected = null, flowId = 'sync';
+  const views = ['flows', 'layers', 'graph', 'index'];
+  if (views.includes(location.hash.slice(1))) view = location.hash.slice(1);
+
+  document.getElementById('meta').innerHTML = '';
+  document.getElementById('meta').append(
+    el('div', {}, `updated ${O.updated}`), el('div', {}, O.source),
+    el('div', {}, `${O.nodes.length} nodes · ${O.edges.length} edges · ${O.flows.length} flows`));
+
+  const legend = document.getElementById('legend');
+  for (const [k, t] of Object.entries(O.types)) legend.append(el('span', {}, el('i', {class: 'dot', style: `background:${color(k)}`}), t.label));
+  legend.append(el('span', {}, el('i', {class: 'dot', style: 'border:1.5px dashed var(--gap);background:transparent'}), 'Known gap'));
+
+  const label = n => n.tier ? `${n.label} · ${n.tier[tier]}` : n.label;
+  const neighbors = id => new Set(O.edges.flatMap(e => e.from === id ? [e.to] : e.to === id ? [e.from] : []));
+
+  function chip(id, extra = '') {
+    const n = byId[id];
+    const cls = ['chip', n.gap ? 'gap' : '', selected === id ? 'on' : '', extra].join(' ').trim();
+    return el('button', {class: cls, type: 'button', 'data-id': id, onclick: ev => { ev.stopPropagation(); select(id); }},
+      el('i', {class: 'dot', style: `background:${color(n.type)}`}), label(n));
+  }
+
+  function renderDetail() {
+    const box = document.getElementById('detail');
+    box.innerHTML = '';
+    if (!selected) { box.append(el('p', {class: 'empty'}, 'Select a node to see what it is, where it lives in the code, and what it connects to.')); return; }
+    const n = byId[selected];
+    box.append(el('div', {class: 'legend'}, el('span', {}, el('i', {class: 'dot', style: `background:${color(n.type)}`}), O.types[n.type].label)));
+    box.append(el('h2', {}, n.label));
+    const dl = el('dl');
+    if (n.file) dl.append(el('dt', {}, 'code'), el('dd', {}, el('code', {}, n.file)));
+    if (n.tier) dl.append(el('dt', {}, 'community'), el('dd', {}, n.tier.community), el('dt', {}, 'pro'), el('dd', {}, n.tier.pro));
+    for (const [k, v] of Object.entries(n.props || {})) dl.append(el('dt', {}, k), el('dd', {}, v));
+    box.append(dl);
+    if (n.gap) box.append(el('p', {style: 'margin:0;color:var(--gap);font-weight:700;font-size:13px'}, n.gap));
+    const out = O.edges.filter(e => e.from === n.id), inn = O.edges.filter(e => e.to === n.id);
+    const rels = el('div', {class: 'rels'});
+    if (out.length) rels.append(el('h3', {}, 'Goes to'), ...out.map(e => el('div', {}, el('span', {class: 'rel'}, e.rel), chip(e.to))));
+    if (inn.length) rels.append(el('h3', {}, 'Comes from'), ...inn.map(e => el('div', {}, chip(e.from), el('span', {class: 'rel'}, e.rel))));
+    box.append(rels);
+  }
+
+  function select(id) { selected = selected === id ? null : id; render(); }
+
+  function renderFlows(root) {
+    const pick = el('div', {class: 'flowpick'});
+    for (const f of O.flows) pick.append(el('button', {type: 'button', 'aria-pressed': String(f.id === flowId), onclick: () => { flowId = f.id; render(); }}, f.label));
+    const f = O.flows.find(x => x.id === flowId);
+    const ol = el('ol', {class: 'steps'});
+    for (const [id, note, warn] of f.steps) ol.append(el('li', {}, el('div', {}, el('span', {}, chip(id)), el('span', {class: 'note'}, note), warn ? el('span', {class: 'warn'}, warn) : null)));
+    root.append(el('h2', {}, f.label), el('p', {class: 'flowdesc'}, f.desc), pick, ol);
+  }
+
+  function renderLayers(root) {
+    const near = selected ? neighbors(selected) : null;
+    const box = el('div', {class: 'layers'});
+    for (const L of O.layers) {
+      const ids = O.nodes.filter(n => n.layer === L.id).map(n => n.id);
+      box.append(el('div', {class: 'layer'},
+        el('div', {}, L.label, el('p', {}, L.note)),
+        el('div', {class: 'chips'}, ids.map(id => chip(id, near && id !== selected && !near.has(id) ? 'dim' : '')))));
+    }
+    root.append(box);
+  }
+
+  // Layered graph: x by layer column, y spread within the column, then a short relaxation pass.
+  function renderGraph(root) {
+    const W = 1100, colW = W / O.layers.length, H = 620;
+    const pos = {};
+    O.layers.forEach((L, li) => {
+      const ids = O.nodes.filter(n => n.layer === L.id).map(n => n.id);
+      ids.forEach((id, i) => { pos[id] = {x: colW * li + colW / 2, y: 60 + (H - 110) * (ids.length === 1 ? 0.5 : i / (ids.length - 1))}; });
+    });
+    for (let it = 0; it < 40; it++) {
+      for (const e of O.edges) {
+        const a = pos[e.from], b = pos[e.to];
+        const dy = (b.y - a.y) * 0.02; a.y += dy; b.y -= dy;
+      }
+      for (const L of O.layers) {
+        const ids = O.nodes.filter(n => n.layer === L.id).map(n => n.id).sort((p, q) => pos[p].y - pos[q].y);
+        for (let i = 1; i < ids.length; i++) { const p = pos[ids[i - 1]], q = pos[ids[i]]; if (q.y - p.y < 48) q.y = p.y + 48; }
+        const over = ids.length ? pos[ids[ids.length - 1]].y - (H - 40) : 0;
+        if (over > 0) ids.forEach(id => { pos[id].y -= over; });
+        ids.forEach(id => { pos[id].y = Math.max(40, pos[id].y); });
+      }
+    }
+    const NS = 'http://www.w3.org/2000/svg';
+    const s = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+    const svg = s('svg', {id: 'g', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Osprey component graph by layer'});
+    O.layers.forEach((L, li) => { const t = s('text', {x: colW * li + colW / 2, y: 22, 'text-anchor': 'middle', style: 'font:600 11px var(--mono);fill:var(--muted);text-transform:uppercase'}); t.textContent = L.label; svg.append(t); });
+    const near = selected ? neighbors(selected) : null;
+    for (const e of O.edges) {
+      const a = pos[e.from], b = pos[e.to], mx = (a.x + b.x) / 2;
+      const on = selected && (e.from === selected || e.to === selected);
+      svg.append(s('path', {class: 'edge' + (on ? ' on' : ''), d: `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`}));
+    }
+    for (const n of O.nodes) {
+      const p = pos[n.id];
+      const dim = near && n.id !== selected && !near.has(n.id);
+      const g = s('g', {class: 'node' + (selected === n.id ? ' on' : '') + (dim ? ' dim' : ''), tabindex: '0', role: 'button', 'aria-label': n.label});
+      g.append(s('circle', {cx: p.x, cy: p.y, r: 9, fill: color(n.type), 'stroke-dasharray': n.gap ? '3 2' : ''}));
+      const t = s('text', {x: p.x, y: p.y + 22, 'text-anchor': 'middle'}); t.textContent = n.label.length > 22 ? n.label.slice(0, 21) + '…' : n.label;
+      g.append(t);
+      g.addEventListener('click', () => select(n.id));
+      g.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(n.id); } });
+      svg.append(g);
+    }
+    root.append(el('div', {class: 'graphbox'}, svg), el('p', {class: 'hint'}, 'Click a node to light its edges. Columns are layers, left to right.'));
+  }
+
+  let query = '';
+  function renderIndex(root) {
+    const input = el('input', {class: 'filter', id: 'filter', type: 'search', placeholder: 'Filter by name, type, file', value: query});
+    const tbody = el('tbody');
+    const fill = () => {
+      tbody.innerHTML = '';
+      const q = query.toLowerCase();
+      for (const n of O.nodes) {
+        const hay = `${n.label} ${O.types[n.type].label} ${n.file || ''} ${n.layer}`.toLowerCase();
+        if (q && !hay.includes(q)) continue;
+        const deg = O.edges.filter(e => e.from === n.id || e.to === n.id).length;
+        tbody.append(el('tr', {onclick: () => select(n.id)},
+          el('td', {}, chip(n.id)), el('td', {}, O.types[n.type].label), el('td', {}, O.layers.find(l => l.id === n.layer).label),
+          el('td', {}, n.file ? el('code', {}, n.file) : 'none'), el('td', {class: 'mono'}, String(deg))));
+      }
+    };
+    input.addEventListener('input', () => { query = input.value; fill(); });
+    fill();
+    root.append(input, el('div', {class: 'tablebox'}, el('table', {}, el('thead', {}, el('tr', {}, ['Node', 'Type', 'Layer', 'Code', 'Links'].map(h => el('th', {}, h)))), tbody)));
+  }
+
+  function renderGaps() {
+    const g = document.getElementById('gaps'); g.innerHTML = '';
+    g.append(el('h2', {}, 'Gaps the map shows'), el('ul', {}, O.gaps.map(x => el('li', {}, x))));
+  }
+
+  function render() {
+    for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.view === view));
+    for (const b of document.querySelectorAll('.seg button')) b.setAttribute('aria-pressed', String(b.dataset.tier === tier));
+    const root = document.getElementById('view'); root.innerHTML = '';
+    ({flows: renderFlows, layers: renderLayers, graph: renderGraph, index: renderIndex})[view](root);
+    renderDetail();
+  }
+
+  for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => { view = b.dataset.view; history.replaceState(null, '', '#' + view); render(); });
+  for (const b of document.querySelectorAll('.seg button')) b.addEventListener('click', () => { tier = b.dataset.tier; store.set('osprey-tier', tier); render(); });
+  window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (views.includes(h)) { view = h; render(); } });
+  renderGaps();
+  render();
+})();
+</script>
+</body>
+</html>
