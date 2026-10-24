@@ -97,7 +97,7 @@ func TestExtensibleVariables(t *testing.T) {
 	t.Run("VelocityAggregates", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
 		defer func() { _ = engine.Close() }()
-		engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, _ time.Time) (VelocityAggregates, error) {
+		engine.SetAggregatesGetter(func(_ context.Context, _, _, _ string, _ int, _ time.Time) (VelocityAggregates, error) {
 			return VelocityAggregates{Count: 7, AmountSum: 5000.0, DistinctCreditors: 3}, nil
 		})
 		_ = engine.LoadRule(&domain.RuleConfig{
@@ -122,7 +122,7 @@ func TestEventClockPassesEventTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotAt time.Time
-	engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, at time.Time) (VelocityAggregates, error) {
+	engine.SetAggregatesGetter(func(_ context.Context, _, _, _ string, _ int, at time.Time) (VelocityAggregates, error) {
 		gotAt = at
 		return VelocityAggregates{InboundCount: 2, InboundAmountSum: 300}, nil
 	})
@@ -149,5 +149,61 @@ func TestEventClockPassesEventTime(t *testing.T) {
 	}
 	if !gotAt.Equal(eventTime) {
 		t.Errorf("event clock: want %s, got %s", eventTime, gotAt)
+	}
+}
+
+// TestAggregatesGetterReceivesCurrency checks that the engine hands the evaluated
+// transaction's currency to the AggregatesGetter, so velocity sums can be scoped
+// per-currency. A getter that returns a USD-only sum must not see its amount
+// polluted by an EUR row, and the currency it receives must match the input.
+func TestAggregatesGetterReceivesCurrency(t *testing.T) {
+	engine, err := NewEngine(nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	var gotCurrency string
+	engine.SetAggregatesGetter(func(_ context.Context, _, _, currency string, _ int, _ time.Time) (VelocityAggregates, error) {
+		gotCurrency = currency
+		// Simulate a per-currency sum: only same-currency rows counted.
+		if currency == "USD" {
+			return VelocityAggregates{AmountSum: 500.0, InboundAmountSum: 200.0}, nil
+		}
+		return VelocityAggregates{AmountSum: 100.0, InboundAmountSum: 0.0}, nil
+	})
+	if err := engine.LoadRule(&domain.RuleConfig{
+		ID:         "per-currency",
+		Expression: "(currency == \"USD\" && velocity_amount_sum == 500.0 && velocity_inbound_amount_sum == 200.0) || (currency == \"EUR\" && velocity_amount_sum == 100.0 && velocity_inbound_amount_sum == 0.0)",
+		Weight:     1, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := engine.EvaluateAll(context.Background(), &EvaluateInput{
+		TenantID: "t", TxID: "x", DebtorID: "d", Currency: "USD", VelocityWindow: 3600,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCurrency != "USD" {
+		t.Errorf("getter currency: want USD, got %q", gotCurrency)
+	}
+	if res[0].Score != 1.0 {
+		t.Errorf("USD per-currency sums not wired through: score %.2f", res[0].Score)
+	}
+
+	// EUR input must receive EUR sums and EUR currency from the getter.
+	res, err = engine.EvaluateAll(context.Background(), &EvaluateInput{
+		TenantID: "t", TxID: "x", DebtorID: "d", Currency: "EUR", VelocityWindow: 3600,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCurrency != "EUR" {
+		t.Errorf("getter currency: want EUR, got %q", gotCurrency)
+	}
+	if res[0].Score != 1.0 {
+		t.Errorf("EUR per-currency sums not wired through: score %.2f", res[0].Score)
 	}
 }

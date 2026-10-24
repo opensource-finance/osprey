@@ -4,6 +4,7 @@ package velocity
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/opensource-finance/osprey/internal/domain"
@@ -80,7 +81,12 @@ type Aggregates struct {
 
 // GetAggregates returns velocity metrics for an entity in a window that ends now,
 // keyed on the time Osprey received each transaction (the "received" clock).
-func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID string, windowSecs int) (Aggregates, error) {
+//
+// currency scopes the monetary sums (AmountSum, InboundAmountSum) to transactions
+// in that currency so a window that mixes currencies does not add incomparable
+// amounts. The dimensionless counters (Count, DistinctCreditors, InboundCount)
+// stay currency-agnostic. A empty currency sums all rows (legacy fallback).
+func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID, currency string, windowSecs int) (Aggregates, error) {
 	if tenantID == "" || entityID == "" {
 		return Aggregates{}, fmt.Errorf("tenantID and entityID are required")
 	}
@@ -91,14 +97,19 @@ func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID string, 
 	if err != nil {
 		return Aggregates{}, fmt.Errorf("failed to get transactions: %w", err)
 	}
-	return aggregate(entityID, txs), nil
+	return aggregate(entityID, currency, txs), nil
 }
 
 // GetAggregatesAt returns velocity metrics for an entity in the window that ends at
 // the event time at, keyed on each transaction's own timestamp (the "event" clock).
 // Replays of historical data need this clock: with the received clock, a replay
 // puts months of activity into a few minutes.
-func (s *Service) GetAggregatesAt(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (Aggregates, error) {
+//
+// currency scopes the monetary sums (AmountSum, InboundAmountSum) to transactions
+// in that currency so a window that mixes currencies does not add incomparable
+// amounts. The dimensionless counters (Count, DistinctCreditors, InboundCount)
+// stay currency-agnostic. A empty currency sums all rows (legacy fallback).
+func (s *Service) GetAggregatesAt(ctx context.Context, tenantID, entityID, currency string, windowSecs int, at time.Time) (Aggregates, error) {
 	if tenantID == "" || entityID == "" {
 		return Aggregates{}, fmt.Errorf("tenantID and entityID are required")
 	}
@@ -111,15 +122,30 @@ func (s *Service) GetAggregatesAt(ctx context.Context, tenantID, entityID string
 	if err != nil {
 		return Aggregates{}, fmt.Errorf("failed to get transactions: %w", err)
 	}
-	return aggregate(entityID, txs), nil
+	return aggregate(entityID, currency, txs), nil
+}
+
+// sameCurrency reports whether a stored row counts toward the sums for the
+// evaluated currency. Codes compare without case, because the async path
+// receives currency as the producer sent it. An empty currency matches every row.
+func sameCurrency(evaluated, row string) bool {
+	return evaluated == "" || strings.EqualFold(strings.TrimSpace(evaluated), strings.TrimSpace(row))
 }
 
 // aggregate computes the metrics in Go from the repository result set.
-func aggregate(entityID string, txs []*domain.Transaction) Aggregates {
+//
+// The dimensionless counters (Count, DistinctCreditors, InboundCount) cover every
+// transaction in the window regardless of currency. The monetary sums
+// (AmountSum, InboundAmountSum) only add transactions whose Currency matches the
+// evaluated transaction's currency, so a multi-currency window never produces a
+// currency-incoherent total. A empty currency matches every row (legacy fallback).
+func aggregate(entityID, currency string, txs []*domain.Transaction) Aggregates {
 	a := Aggregates{Count: int64(len(txs))}
 	creditors := make(map[string]struct{}, len(txs))
 	for _, tx := range txs {
-		a.AmountSum += tx.Amount
+		if sameCurrency(currency, tx.Currency) {
+			a.AmountSum += tx.Amount
+		}
 		if tx.DebtorID == entityID {
 			if tx.CreditorID != "" {
 				creditors[tx.CreditorID] = struct{}{}
@@ -127,7 +153,9 @@ func aggregate(entityID string, txs []*domain.Transaction) Aggregates {
 			continue
 		}
 		a.InboundCount++
-		a.InboundAmountSum += tx.Amount
+		if sameCurrency(currency, tx.Currency) {
+			a.InboundAmountSum += tx.Amount
+		}
 	}
 	a.DistinctCreditors = int64(len(creditors))
 	return a

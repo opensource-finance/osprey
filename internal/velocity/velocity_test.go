@@ -287,7 +287,7 @@ func TestVelocityHugeWindowDoesNotOverflow(t *testing.T) {
 		if count != 3 {
 			t.Errorf("GetTransactionCount(window=%d) = %d, want 3", window, count)
 		}
-		agg, err := svc.GetAggregates(ctx, "tenant-huge", "debtor-huge", window)
+		agg, err := svc.GetAggregates(ctx, "tenant-huge", "debtor-huge", "USD", window)
 		if err != nil {
 			t.Fatalf("GetAggregates(%d) failed: %v", window, err)
 		}

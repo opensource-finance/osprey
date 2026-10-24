@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,8 +140,11 @@ type TransactionMessage struct {
 	Type           string         `json:"type"`
 	DebtorID       string         `json:"debtorId"`
 	CreditorID     string         `json:"creditorId"`
+	DebtorName     string         `json:"debtorName,omitempty"`
+	CreditorName   string         `json:"creditorName,omitempty"`
 	Amount         float64        `json:"amount"`
 	Currency       string         `json:"currency"`
+	Timestamp      string         `json:"timestamp,omitempty"`
 	VelocityWindow int            `json:"velocityWindow,omitempty"`
 	AdditionalData map[string]any `json:"additionalData,omitempty"`
 	Enrichment     map[string]any `json:"enrichment,omitempty"`
@@ -188,6 +192,26 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		traceID = msg.ID
 	}
 
+	// Parse the event timestamp. An empty timestamp defaults to now so the
+	// event clock (when enabled) behaves like the received clock for legacy
+	// messages, matching the synchronous API path. A malformed timestamp is
+	// rejected rather than silently dropped so replay accuracy is not
+	// compromised by a quiet fallback.
+	txTimestamp := time.Now().UTC()
+	if strings.TrimSpace(txMsg.Timestamp) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(txMsg.Timestamp))
+		if err != nil {
+			slog.Error("failed to parse transaction timestamp",
+				"message_id", msg.ID,
+				"tx_id", txMsg.TxID,
+				"timestamp", txMsg.Timestamp,
+				"error", err,
+			)
+			return fmt.Errorf("invalid timestamp: %w", err)
+		}
+		txTimestamp = parsed.UTC()
+	}
+
 	slog.Debug("processing transaction",
 		"tx_id", txMsg.TxID,
 		"tenant_id", tenantID,
@@ -198,12 +222,15 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 	evalInput := &rules.EvaluateInput{
 		TenantID:       tenantID,
 		TxID:           txMsg.TxID,
-		Type:           txMsg.Type,
+		Type:           strings.ToUpper(strings.TrimSpace(txMsg.Type)),
 		DebtorID:       txMsg.DebtorID,
 		CreditorID:     txMsg.CreditorID,
+		DebtorName:     txMsg.DebtorName,
+		CreditorName:   txMsg.CreditorName,
 		Amount:         txMsg.Amount,
-		Currency:       txMsg.Currency,
+		Currency:       strings.ToUpper(strings.TrimSpace(txMsg.Currency)), // same normalization as POST /evaluate
 		VelocityWindow: txMsg.VelocityWindow,
+		EventTime:      txTimestamp,
 		AdditionalData: txMsg.AdditionalData,
 		Enrichment:     txMsg.Enrichment,
 	}

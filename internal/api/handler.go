@@ -65,6 +65,7 @@ type TransactionRequest struct {
 type PartyInfo struct {
 	ID        string `json:"id"`
 	AccountID string `json:"accountId"`
+	Name      string `json:"name,omitempty"` // screened against the sanctions list; not persisted
 }
 
 // AmountInfo represents the transaction amount.
@@ -172,6 +173,8 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		DebtorAccountID: req.Debtor.AccountID,
 		CreditorID:      req.Creditor.ID,
 		CreditorAcctID:  req.Creditor.AccountID,
+		DebtorName:      req.Debtor.Name,
+		CreditorName:    req.Creditor.Name,
 		Amount:          req.Amount.Value,
 		Currency:        req.Amount.Currency,
 		Timestamp:       txTimestamp,
@@ -207,6 +210,8 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Type:           tx.Type,
 		DebtorID:       tx.DebtorID,
 		CreditorID:     tx.CreditorID,
+		DebtorName:     tx.DebtorName,
+		CreditorName:   tx.CreditorName,
 		Amount:         tx.Amount,
 		Currency:       tx.Currency,
 		VelocityWindow: 3600, // Default 1 hour window
@@ -495,10 +500,22 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateRuleRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required: an omitted bool would silently create a disabled rule.
+	var body struct {
+		CreateRuleRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateRuleRequest
+	req.Enabled = *body.Enabled
 	req.ID = strings.TrimSpace(req.ID)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Expression = strings.TrimSpace(req.Expression)
@@ -980,10 +997,22 @@ func (h *Handler) CreateTypology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateTypologyRequest
-	if !decodeJSONBody(w, r, &req) {
+	// enabled is required: an omitted bool would silently create a disabled typology.
+	var body struct {
+		CreateTypologyRequest
+		Enabled *bool `json:"enabled"`
+	}
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	if body.Enabled == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "enabled is required",
+		})
+		return
+	}
+	req := body.CreateTypologyRequest
+	req.Enabled = *body.Enabled
 	req.ID = strings.TrimSpace(req.ID)
 	req.Name = strings.TrimSpace(req.Name)
 

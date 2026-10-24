@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -218,8 +219,8 @@ func createPersistentTestServerWithVelocity(t *testing.T) (*Server, func()) {
 		_ = os.Remove(dbPath)
 		t.Fatalf("failed to create engine: %v", err)
 	}
-	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID string, windowSecs int, _ time.Time) (rules.VelocityAggregates, error) {
-		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, windowSecs)
+	engine.SetAggregatesGetter(func(ctx context.Context, tenantID, entityID, currency string, windowSecs int, _ time.Time) (rules.VelocityAggregates, error) {
+		a, err := velocitySvc.GetAggregates(ctx, tenantID, entityID, currency, windowSecs)
 		if err != nil {
 			return rules.VelocityAggregates{}, err
 		}
@@ -1203,6 +1204,110 @@ func TestTypologyMutationValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("CreateRequiresEnabled", func(t *testing.T) {
+		// Omitting enabled must not silently create a disabled typology.
+		payload := map[string]any{
+			"id":             "silent-typology",
+			"name":           "Silent Typology",
+			"alertThreshold": 0.5,
+			"rules": []map[string]any{
+				{"ruleId": "loaded-rule", "weight": 1.0},
+			},
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/typologies", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusBadRequest || !strings.Contains(resp.Body.String(), "enabled is required") {
+			t.Fatalf("expected 400 'enabled is required', got %d: %s", resp.Code, resp.Body.String())
+		}
+
+		// The rejected request must not have changed the active engine count.
+		listReq := httptest.NewRequest(http.MethodGet, "/typologies", nil)
+		listReq.Header.Set("X-Tenant-ID", "tenant-001")
+		listResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(listResp, listReq)
+		if listResp.Code != http.StatusOK {
+			t.Fatalf("expected typology list 200, got %d: %s", listResp.Code, listResp.Body.String())
+		}
+		var listed struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("failed to decode typology list: %v", err)
+		}
+		if listed.Count != 1 {
+			t.Fatalf("rejected create must not change active count, got %d", listed.Count)
+		}
+
+		// GET on the would-be-created typology must be 404 (not persisted-disabled).
+		getReq := httptest.NewRequest(http.MethodGet, "/typologies/silent-typology", nil)
+		getReq.Header.Set("X-Tenant-ID", "tenant-001")
+		getResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(getResp, getReq)
+		if getResp.Code != http.StatusNotFound {
+			t.Fatalf("expected GET for rejected typology to be 404, got %d: %s", getResp.Code, getResp.Body.String())
+		}
+	})
+
+	t.Run("CreateAcceptsExplicitEnabledFalse", func(t *testing.T) {
+		// An explicit enabled:false is an intentional disable and is accepted,
+		// persisted, but not loaded into the active engine.
+		payload := map[string]any{
+			"id":             "disabled-typology",
+			"name":           "Disabled Typology",
+			"alertThreshold": 0.5,
+			"enabled":        false,
+			"rules": []map[string]any{
+				{"ruleId": "loaded-rule", "weight": 1.0},
+			},
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/typologies", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-001")
+		setAdminAuth(req)
+		resp := httptest.NewRecorder()
+		server.Router().ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("expected explicit enabled:false to return 201, got %d: %s", resp.Code, resp.Body.String())
+		}
+		var created struct {
+			Typology struct {
+				Enabled bool `json:"enabled"`
+			} `json:"typology"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
+			t.Fatalf("failed to decode created typology: %v", err)
+		}
+		if created.Typology.Enabled {
+			t.Fatalf("expected typology enabled=false, got true")
+		}
+
+		// A disabled typology is not loaded into the active engine.
+		listReq := httptest.NewRequest(http.MethodGet, "/typologies", nil)
+		listReq.Header.Set("X-Tenant-ID", "tenant-001")
+		listResp := httptest.NewRecorder()
+		server.Router().ServeHTTP(listResp, listReq)
+		if listResp.Code != http.StatusOK {
+			t.Fatalf("expected typology list 200, got %d: %s", listResp.Code, listResp.Body.String())
+		}
+		var listed struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("failed to decode typology list: %v", err)
+		}
+		if listed.Count != 1 {
+			t.Fatalf("expected disabled typology to leave active count at 1, got %d", listed.Count)
+		}
+	})
+
 	t.Run("UpdateRequiresEnabled", func(t *testing.T) {
 		// Omitting enabled must not silently disable the typology.
 		payload := map[string]any{
@@ -1457,6 +1562,21 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("HealthCheckHEAD", func(t *testing.T) {
+		// HEAD must not fall through into the tenant-gated catch-all subrouter
+		// (regression for HEAD probes returning 400 without X-Tenant-ID or 405
+		// with it). RFC 9110 §9.3.2 defines HEAD as identical to GET except that
+		// the server must not send a body.
+		req := httptest.NewRequest(http.MethodHead, "/health", nil)
+
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected HEAD /health 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
 	t.Run("ReadyCheck", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 
@@ -1473,6 +1593,60 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 		if resp["ready"] != "true" {
 			t.Fatalf("expected ready=true, got %q", resp["ready"])
+		}
+	})
+
+	t.Run("ReadyCheckHEAD", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodHead, "/ready", nil)
+
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected HEAD /ready 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("HealthAndReadyHEADIgnoreTenantHeader", func(t *testing.T) {
+		// A spurious X-Tenant-ID must not change the behavior of the
+		// tenant-free endpoints when probed with HEAD.
+		for _, path := range []string{"/health", "/ready"} {
+			req := httptest.NewRequest(http.MethodHead, path, nil)
+			req.Header.Set("X-Tenant-ID", "some-tenant")
+
+			rr := httptest.NewRecorder()
+			server.Router().ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("HEAD %s with tenant header: expected 200, got %d: %s", path, rr.Code, rr.Body.String())
+			}
+		}
+	})
+
+	t.Run("HealthAndReadyHEADSuppressBodyOverWire", func(t *testing.T) {
+		// RFC 9110 §9.3.2: a HEAD response must not carry a body. Go's
+		// net/http server enforces this at the transport level, so verify it
+		// against a real (httptest) server rather than the ResponseRecorder,
+		// which records writes regardless of method.
+		ts := httptest.NewServer(server.Router())
+		defer ts.Close()
+
+		for _, path := range []string{"/health", "/ready"} {
+			resp, err := http.Head(ts.URL + path)
+			if err != nil {
+				t.Fatalf("HEAD %s: %v", path, err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected HEAD %s 200 over the wire, got %d", path, resp.StatusCode)
+			}
+			if len(body) != 0 {
+				t.Errorf("expected HEAD %s to have no body over the wire, got %d bytes", path, len(body))
+			}
+			if resp.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("expected HEAD %s to keep GET headers (Content-Type), got %q", path, resp.Header.Get("Content-Type"))
+			}
 		}
 	})
 

@@ -80,6 +80,16 @@
         {"ruleId": "account-drain-001", "weight": 0.25},
         {"ruleId": "velocity-001", "weight": 0.25}
       ]
+    },
+    {
+      "id": "typology-sanctions",
+      "name": "Sanctions Exposure",
+      "description": "Party name probably matches an OFAC SDN entry. FATF Recommendation 6.",
+      "alertThreshold": 0.88,
+      "enabled": true,
+      "rules": [
+        {"ruleId": "sanctions-001", "weight": 1.0}
+      ]
     }
   ]
 }

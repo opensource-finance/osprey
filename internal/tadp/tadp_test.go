@@ -134,11 +134,22 @@ func TestProcessor(t *testing.T) {
 
 		eval := proc.Process(ctx, input)
 
-		if eval.Status != domain.StatusNoAlert {
-			t.Errorf("expected NALT for empty results, got %s", eval.Status)
+		// Empty rule results mean the engine evaluated zero rules. Fail
+		// closed to ALRT with the no-rules marker, not a clean NALT pass.
+		if eval.Status != domain.StatusAlert {
+			t.Errorf("expected ALRT (fail closed) for empty results, got %s", eval.Status)
+		}
+		if len(eval.TypologyResults) != 1 || eval.TypologyResults[0].TypologyID != NoRulesID {
+			t.Fatalf("expected one %q typology result, got %+v", NoRulesID, eval.TypologyResults)
+		}
+		if !eval.TypologyResults[0].Triggered {
+			t.Error("expected the no-rules marker result to be triggered")
 		}
 		if eval.Score != 0 {
 			t.Errorf("expected score 0, got %.2f", eval.Score)
+		}
+		if eval.Metadata.RulesEvaluated != 0 {
+			t.Errorf("expected RulesEvaluated 0, got %d", eval.Metadata.RulesEvaluated)
 		}
 	})
 
@@ -748,5 +759,93 @@ func TestAggregateZeroWeightIgnoredByUnweightedPath(t *testing.T) {
 	}
 	if agg.AggregateScore < 0.799 || agg.AggregateScore > 0.801 {
 		t.Errorf("expected AggregateScore ~0.8, got %v", agg.AggregateScore)
+
+// TestEmptyRuleResultsFailsClosed covers the zero-rules fail-open bug. When
+// the rule engine evaluates zero rules (empty RuleResults), both detection
+// mode and compliance mode used to score the empty set to zero and return
+// NALT. A deployment with an empty rule set silently stopped generating
+// alerts. Now the processor fails closed to ALRT with the no-rules marker.
+func TestEmptyRuleResultsFailsClosed(t *testing.T) {
+	// One compliance sub-case passes real typology results. With zero rule
+	// results the typology rule-score map is empty, every typology scores 0,
+	// and compliance mode would otherwise return NALT. This is the case the
+	// changelog calls out: compliance mode with typologies loaded still fails
+	// open when the rule set is empty.
+	typologies := []domain.TypologyResult{
+		{
+			TypologyID: "typo-structuring",
+			Score:      0.0,
+			Threshold:  0.4,
+			Triggered:  false,
+		},
+	}
+
+	procedures := map[string]*Processor{
+		"detection":  NewProcessor(),
+		"compliance": NewComplianceProcessor(),
+	}
+
+	for mode, proc := range procedures {
+		t.Run(mode, func(t *testing.T) {
+			for name, rules := range map[string][]domain.RuleResult{
+				"nil":   nil,
+				"empty": {},
+			} {
+				t.Run(name, func(t *testing.T) {
+					input := &DecisionInput{
+						TenantID:        "tenant-001",
+						TxID:            "tx-no-rules",
+						TraceID:         "trace-no-rules",
+						StartTime:       time.Now(),
+						RuleResults:     rules,
+						TypologyResults: typologies,
+					}
+
+					eval := proc.Process(context.Background(), input)
+
+					if eval.Status != domain.StatusAlert {
+						t.Fatalf("expected ALRT (fail closed) for empty rule results, got %s", eval.Status)
+					}
+					if len(eval.TypologyResults) != 1 || eval.TypologyResults[0].TypologyID != NoRulesID {
+						t.Fatalf("expected one %q typology result, got %+v", NoRulesID, eval.TypologyResults)
+					}
+					if !eval.TypologyResults[0].Triggered {
+						t.Error("expected the no-rules marker result to be triggered")
+					}
+					if eval.Score != 0 {
+						t.Errorf("expected aggregate score 0, got %.2f", eval.Score)
+					}
+					if eval.Metadata.RulesEvaluated != 0 {
+						t.Errorf("expected RulesEvaluated 0, got %d", eval.Metadata.RulesEvaluated)
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestEmptyRuleResultsTakePrecedenceOverNoTypologies checks that when both
+// the rule set and the typology set are empty, the no-rules marker wins. The
+// empty rule set is the root cause: typology scoring cannot run without rule
+// results, so the more specific compliance-no-typologies marker is not the
+// right signal.
+func TestEmptyRuleResultsTakePrecedenceOverNoTypologies(t *testing.T) {
+	proc := NewComplianceProcessor()
+
+	eval := proc.Process(context.Background(), &DecisionInput{
+		TenantID:    "tenant-001",
+		TxID:        "tx-both-empty",
+		StartTime:   time.Now(),
+		RuleResults: []domain.RuleResult{},
+		// Nil typologies: the compliance-no-typologies branch would also
+		// fire. The no-rules branch must take precedence.
+		TypologyResults: nil,
+	})
+
+	if eval.Status != domain.StatusAlert {
+		t.Fatalf("expected ALRT, got %s", eval.Status)
+	}
+	if len(eval.TypologyResults) != 1 || eval.TypologyResults[0].TypologyID != NoRulesID {
+		t.Fatalf("expected the no-rules marker to win over %q, got %+v", NoTypologiesID, eval.TypologyResults)
 	}
 }

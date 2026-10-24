@@ -64,6 +64,12 @@ func NewComplianceProcessor() *Processor {
 // loaded. The decision fails closed to ALRT.
 const NoTypologiesID = "compliance-no-typologies"
 
+// NoRulesID marks an evaluation that the rule engine ran with no rules
+// loaded. EvaluateAll returns one result per loaded rule, so empty rule
+// results mean zero rules were loaded. The decision fails closed to ALRT
+// in both detection and compliance mode.
+const NoRulesID = "no-rules"
+
 // DecisionInput contains all data needed for a decision.
 type DecisionInput struct {
 	TenantID        string
@@ -89,8 +95,29 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 	// Aggregate rule results
 	aggResult := p.aggregate(input.RuleResults)
 
-	// Compliance Mode: Use typology results for FATF-inspired evaluation
-	if p.Mode == "compliance" && len(input.TypologyResults) == 0 {
+	// Fail closed when the rule engine evaluated zero rules. EvaluateAll
+	// returns one result per loaded rule, so empty rule results mean no
+	// rules were loaded. Without this guard, both evaluation modes score
+	// the empty set to zero and return NALT, so a deployment with an empty
+	// rule set silently stops generating alerts. Alert for review and mark
+	// the evaluation so the stored and published record shows the cause.
+	if len(input.RuleResults) == 0 {
+		slog.Warn("rule engine evaluated zero rules, failing closed to ALRT",
+			"tenant_id", input.TenantID,
+			"tx_id", input.TxID,
+			"trace_id", input.TraceID,
+			"mode", p.Mode,
+		)
+		eval.Status = domain.StatusAlert
+		eval.Score = aggResult.AggregateScore
+		eval.TypologyResults = []domain.TypologyResult{{
+			TypologyID:   NoRulesID,
+			TypologyName: "Rule engine evaluated zero rules",
+			Score:        aggResult.AggregateScore,
+			Triggered:    true,
+			Rules:        input.RuleResults,
+		}}
+	} else if p.Mode == "compliance" && len(input.TypologyResults) == 0 {
 		// The handler and worker reject compliance requests when no typology is
 		// loaded, but a concurrent delete or disable of the last typology can
 		// empty the set after that check. Detection scoring is not a compliance

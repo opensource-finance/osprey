@@ -58,13 +58,16 @@ File: `configs/rules/fatf-rules.json`
 | `micro-transaction-001` | Amounts of less than 10. |
 | `pass-through-001` | A payment that sends on 80% to 120% of the money that the account received in the last hour. |
 | `fan-out-001` | 5 or more different payees in the last hour. |
+| `sanctions-001` | Debtor or creditor name matches the OFAC SDN list: `.fail` from 0.88, `.review` from 0.80. Weight `0.1`. Needs `OSPREY_SANCTIONS_DIR` and party `name` fields. |
 
-All rules use `.review`. No rule causes an alert alone.
+All rules except `sanctions-001` use `.review`. Only a probable sanctions match causes an alert alone.
 
 - Context rules (amount size, round amount, transaction type, cash, micro amounts) have weights from `0.05` to `0.1`.
 - Behaviour rules (drain, structuring, same party, velocity, pass-through, fan-out) have weights from `0.2` to `0.4`.
 - One behaviour rule plus all the context rules that can match together gives less than `0.7`.
   Thus, an alert needs two behaviour signals.
+- A possible sanctions match from `sanctions-001` adds up to `0.088`.
+  With it, one behaviour rule and the context rules can reach `0.7`.
 
 ## FATF-Inspired Typologies
 
@@ -78,6 +81,7 @@ File: `configs/typologies/fatf-typologies.json`
 | `typology-rapid-movement` | Rapid movement of funds. |
 | `typology-cash-intensive` | Cash-intensive activity. |
 | `typology-fraud-basic` | Basic fraud pattern. |
+| `typology-sanctions` | Probable OFAC SDN match. |
 
 Each typology has the threshold `0.75`.
 Its core rule has the weight `0.5`, and the other rules have `0.25` or `0.125`.

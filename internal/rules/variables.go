@@ -43,10 +43,14 @@ var Catalog = []VariableDoc{
 
 	// Velocity aggregates (engine-computed over Osprey's own transaction store)
 	{Name: "velocity_count", Type: "int", Group: "velocity", Note: "includes the current transaction", Description: "Transactions in the window where the debtor sent or received money", celType: cel.IntType},
-	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Note: "includes the current transaction", Description: "Sum of the amounts of those transactions, sent and received", celType: cel.DoubleType},
+	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Note: "includes the current transaction; per-currency: sums only transactions in the same currency as the evaluated transaction", Description: "Sum of the amounts of those transactions, sent and received", celType: cel.DoubleType},
 	{Name: "velocity_distinct_creditors", Type: "int", Group: "velocity", Note: "includes the current payee", Description: "Distinct payees the debtor sent money to in the window", celType: cel.IntType},
 	{Name: "velocity_inbound_count", Type: "int", Group: "velocity", Description: "Transactions in the window where the debtor received money", celType: cel.IntType},
-	{Name: "velocity_inbound_amount_sum", Type: "double", Group: "velocity", Description: "Sum of the amounts the debtor received in the window", celType: cel.DoubleType},
+	{Name: "velocity_inbound_amount_sum", Type: "double", Group: "velocity", Note: "per-currency: sums only transactions in the same currency as the evaluated transaction", Description: "Sum of the amounts the debtor received in the window", celType: cel.DoubleType},
+
+	// Sanctions screening (engine-computed against the local OFAC SDN list; 0 / "" when no list is loaded)
+	{Name: "sanctions_score", Type: "double", Group: "sanctions", Note: "needs debtor.name / creditor.name and OSPREY_SANCTIONS_DIR", Description: "Best OFAC SDN name-match score (0..1) across debtor and creditor", celType: cel.DoubleType},
+	{Name: "sanctions_match", Type: "string", Group: "sanctions", Description: "Matched party and listed SDN entry, e.g. creditor matches NAME (OFAC ent N, PROGRAM); empty when no candidate", celType: cel.StringType},
 
 	// Open-ended bags — no per-field declaration needed
 	{Name: "meta", Type: "map(string, dyn)", Group: "metadata", Access: "meta.<key>", Note: "open-ended; guard optional keys with has(meta.<key>)", Description: "Caller-supplied request metadata (country, mcc, device, ...)", celType: dynMap},

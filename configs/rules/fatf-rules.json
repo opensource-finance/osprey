@@ -170,6 +170,19 @@
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Paid 5 or more different payees in the last hour"},
         {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal number of payees"}
       ]
+    },
+    {
+      "id": "sanctions-001",
+      "name": "OFAC SDN Name Match",
+      "description": "Screens debtor and creditor names against the OFAC SDN list (OSPREY_SANCTIONS_DIR). FATF Recommendation 6. A probable match gives .fail, which causes an alert alone. The low weight keeps a review-level match from adding much to the score.",
+      "expression": "sanctions_score >= 0.80 ? sanctions_score : 0.0",
+      "weight": 0.1,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 0.88, "subRuleRef": ".fail", "reason": "Probable OFAC SDN match - block and review"},
+        {"lowerLimit": 0.80, "upperLimit": 0.88, "subRuleRef": ".review", "reason": "Possible OFAC SDN match - review"},
+        {"lowerLimit": 0.0, "upperLimit": 0.80, "subRuleRef": ".pass", "reason": "No SDN match, or not screened (party names or OSPREY_SANCTIONS_DIR missing)"}
+      ]
     }
   ],
   "_scoring": "Detection mode adds score x weight over the rules that match and alerts at 0.7. Context signals (amount size, transaction type, round amounts) weigh 0.05 to 0.1, so together they stay below 0.4. Behaviour signals (drain, structuring, velocity, pass-through, fan-out) weigh 0.2 to 0.4. One behaviour signal with context does not alert. Two behaviour signals do."
