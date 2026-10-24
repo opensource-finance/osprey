@@ -681,6 +681,9 @@ components:
           type: string
         accountId:
           type: string
+        name:
+          type: string
+          description: The name of the party. If OSPREY_SANCTIONS_DIR is set, Osprey screens this name against the OFAC SDN list. Osprey does not store it.
     AmountInfo:
       type: object
       additionalProperties: false
@@ -706,6 +709,7 @@ components:
           type: number
         reasons:
           type: array
+          description: The reason of each rule that gave `.review`, `.fail`, or `.err`. A sanctions rule reason ends with the matched SDN entry.
           items:
             type: string
         metadata:

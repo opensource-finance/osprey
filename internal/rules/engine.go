@@ -54,7 +54,7 @@ type AggregatesGetter func(ctx context.Context, tenantID, entityID string, windo
 
 // SanctionsScreener returns the best sanctions-list match for a party name.
 // listedEntry identifies the matched list entry for analysts, e.g.
-// "PUTIN, Vladimir Vladimirovich (OFAC ent 12345, RUSSIA-EO14024)".
+// "SAMPLE, Jonathan Quill (OFAC ent 1002, PROGRAM-A)".
 type SanctionsScreener func(name string) (score float64, listedEntry string)
 
 // SetSanctionsScreener wires sanctions screening. Optional: if unset,

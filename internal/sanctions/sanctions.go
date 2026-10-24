@@ -21,7 +21,7 @@ import (
 type Match struct {
 	EntryID string  // OFAC ent_num
 	Name    string  // primary SDN name of the matched entry
-	Program string  // sanctions program(s), e.g. "SDGT] [IRAN"
+	Program string  // sanctions program(s), e.g. "PROGRAM-A] [PROGRAM-B"
 	Score   float64 // 0..1, token-level name similarity (see score)
 }
 
@@ -44,7 +44,7 @@ var noise = map[string]bool{
 }
 
 // tokenize lowercases, splits on punctuation and drops noise tokens, so
-// "SMITH, John" and "john smith" carry the same tokens in any order.
+// "SAMPLE, Jonathan" and "jonathan sample" carry the same tokens in any order.
 // ponytail: no diacritic folding (needs x/text); add when non-Latin lists matter.
 func tokenize(s string) [][]rune {
 	var toks [][]rune
@@ -59,9 +59,9 @@ func tokenize(s string) [][]rune {
 }
 
 // indexKey buckets a token by its first three letters (the whole token when
-// shorter), so spellings that differ later ("mohamed"/"mohammad",
-// "vladmir"/"vladimir") still meet as candidates. Initials never retrieve.
-// ponytail: first-letter variants (Usama/Osama) rely on ALT.CSV aliases; add
+// shorter), so spellings that differ later ("maximilian"/"maximillian",
+// "jonathon"/"jonathan") still meet as candidates. Initials never retrieve.
+// ponytail: first-letter variants (Katrin/Catrin) rely on ALT.CSV aliases; add
 // phonetic keys if that misses real hits.
 func indexKey(t []rune) (string, bool) {
 	if len(t) < 2 {
@@ -164,7 +164,7 @@ func (l *List) Len() int { return len(l.entries) }
 // Screen returns the best match for name, or a zero Match when no listed name
 // shares a token prefix with it.
 // ponytail: scores every entry in the query's prefix buckets; common prefixes
-// ("moh", "ali") mean thousands of comparisons per name. Add a tighter
+// (the most frequent name starts) mean thousands of comparisons per name. Add a tighter
 // index if p99 suffers.
 func (l *List) Screen(name string) Match {
 	q := tokenize(name)
@@ -201,20 +201,20 @@ func (l *List) Screen(name string) Match {
 	return best
 }
 
-// Token pairs below tokenFloor count as no match, so "hassan" never earns
-// partial credit against "kazan". Tokens of four letters or fewer need
-// shortFloor: one changed letter in "ali" ("mali") is a different name.
+// Token pairs below tokenFloor count as no match, so "kestrel" never earns
+// partial credit against "brannock". Tokens of four letters or fewer need
+// shortFloor: one added letter in "ora" ("lora") is a different name.
 const (
 	tokenFloor = 0.85
 	shortFloor = 0.93
 	// minLenRatio rejects pairs of very different length, where Jaro-Winkler
-	// over-rewards a shared prefix ("khan" vs "khamenei" is 0.88).
+	// over-rewards a shared prefix ("brant" vs "brannock" is 0.86).
 	minLenRatio = 0.75
 )
 
 // partialCap holds a name to review level (below the starter kit's 0.88 hit
 // band) when fewer than two of its listed tokens matched, so "Ali" or
-// "J. Smith" alone never reads as a probable hit against a longer name.
+// "J. Sample" alone never reads as a probable hit against a longer name.
 const partialCap = 0.85
 
 // score weights how fully the query is covered by the listed name (0.7) over
@@ -254,7 +254,7 @@ func coverage(a, b [][]rune) (float64, int) {
 }
 
 // initialSim is what an initial ("v") earns against a name starting with it:
-// enough to keep "Vladimir V. Putin" a hit, never a full-name match.
+// enough to keep "Jonathan Q. Sample" a hit, never a full-name match.
 const initialSim = 0.9
 
 // tokenSim scores two name tokens, returning 0 for anything below the floor.
