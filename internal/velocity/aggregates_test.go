@@ -314,3 +314,14 @@ func TestGetAggregatesAtUsesEventTime(t *testing.T) {
 		t.Errorf("received window: want count 4, got %d", recv.Count)
 	}
 }
+
+func TestAggregateCurrencyIgnoresCase(t *testing.T) {
+	now := time.Now().UTC()
+	txs := []*domain.Transaction{
+		{ID: "in", DebtorID: "other", CreditorID: "E", Amount: 100, Currency: "USD", Timestamp: now, CreatedAt: now},
+	}
+	// The async path can pass the currency as the producer sent it.
+	if got := aggregate("E", "usd", txs).InboundAmountSum; got != 100 {
+		t.Errorf("lower-case currency: InboundAmountSum = %f, want 100", got)
+	}
+}

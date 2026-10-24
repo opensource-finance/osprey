@@ -4,6 +4,7 @@ package velocity
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/opensource-finance/osprey/internal/domain"
@@ -124,6 +125,13 @@ func (s *Service) GetAggregatesAt(ctx context.Context, tenantID, entityID, curre
 	return aggregate(entityID, currency, txs), nil
 }
 
+// sameCurrency reports whether a stored row counts toward the sums for the
+// evaluated currency. Codes compare without case, because the async path
+// receives currency as the producer sent it. An empty currency matches every row.
+func sameCurrency(evaluated, row string) bool {
+	return evaluated == "" || strings.EqualFold(strings.TrimSpace(evaluated), strings.TrimSpace(row))
+}
+
 // aggregate computes the metrics in Go from the repository result set.
 //
 // The dimensionless counters (Count, DistinctCreditors, InboundCount) cover every
@@ -135,7 +143,7 @@ func aggregate(entityID, currency string, txs []*domain.Transaction) Aggregates 
 	a := Aggregates{Count: int64(len(txs))}
 	creditors := make(map[string]struct{}, len(txs))
 	for _, tx := range txs {
-		if currency == "" || tx.Currency == currency {
+		if sameCurrency(currency, tx.Currency) {
 			a.AmountSum += tx.Amount
 		}
 		if tx.DebtorID == entityID {
@@ -145,7 +153,7 @@ func aggregate(entityID, currency string, txs []*domain.Transaction) Aggregates 
 			continue
 		}
 		a.InboundCount++
-		if currency == "" || tx.Currency == currency {
+		if sameCurrency(currency, tx.Currency) {
 			a.InboundAmountSum += tx.Amount
 		}
 	}
