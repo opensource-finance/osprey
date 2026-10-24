@@ -2,6 +2,7 @@ package tadp
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -109,9 +110,11 @@ func TestProcessor(t *testing.T) {
 			},
 		}
 
-		eval := proc.Process(ctx, input)
+		avg := NewProcessor()
+		avg.Scoring = ScoringAverage
+		eval := avg.Process(ctx, input)
 
-		// Weighted: (1.0*1.0 + 0.1*5.0) / (1.0 + 5.0) = 1.5/6 = 0.25
+		// Weighted average: (1.0*1.0 + 0.1*5.0) / (1.0 + 5.0) = 1.5/6 = 0.25
 		if eval.Score > 0.3 {
 			t.Errorf("expected weighted score ~0.25, got %.2f", eval.Score)
 		}
@@ -281,6 +284,7 @@ func TestUnweightedScoring(t *testing.T) {
 	proc := &Processor{
 		AlertThreshold:     0.7,
 		UseWeightedScoring: false, // Disable weighted scoring
+		Scoring:            ScoringAverage,
 	}
 
 	ctx := context.Background()
@@ -458,5 +462,113 @@ func TestDetectionModeIgnoresTypologyResults(t *testing.T) {
 	}
 	if eval.Status != domain.StatusNoAlert {
 		t.Errorf("detection mode should be NALT with low rule score, got %s", eval.Status)
+	}
+}
+
+// TestComplianceModeWithoutTypologyResultsFailsClosed covers issue #54. A
+// compliance evaluation with no typology results used to fall back to
+// detection scoring. A low aggregate score then gave NALT, a missed alert.
+func TestComplianceModeWithoutTypologyResultsFailsClosed(t *testing.T) {
+	proc := NewComplianceProcessor()
+
+	for name, typologies := range map[string][]domain.TypologyResult{
+		"nil":   nil,
+		"empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			eval := proc.Process(context.Background(), &DecisionInput{
+				TenantID:  "tenant-001",
+				TxID:      "tx-054",
+				StartTime: time.Now(),
+				RuleResults: []domain.RuleResult{
+					{RuleID: "rule-1", Score: 0.3, SubRuleRef: domain.RuleOutcomePass, Weight: 1.0},
+				},
+				TypologyResults: typologies,
+			})
+
+			if eval.Status != domain.StatusAlert {
+				t.Errorf("expected ALRT (fail closed), got %s", eval.Status)
+			}
+			if len(eval.TypologyResults) != 1 || eval.TypologyResults[0].TypologyID != NoTypologiesID {
+				t.Fatalf("expected one %q typology result, got %+v", NoTypologiesID, eval.TypologyResults)
+			}
+			if !eval.TypologyResults[0].Triggered {
+				t.Error("expected the marker typology result to be triggered")
+			}
+			if eval.Metadata.TypologiesEvaluated != 0 {
+				t.Errorf("expected TypologiesEvaluated 0, got %d", eval.Metadata.TypologiesEvaluated)
+			}
+		})
+	}
+}
+
+// TestSumScoringDoesNotDilute checks that, with sum scoring, rules that do not
+// match add nothing: a rule's weight is its contribution, whatever other rules exist.
+func TestSumScoringDoesNotDilute(t *testing.T) {
+	ctx := context.Background()
+	results := func(matchedWeight float64, quiet int) []domain.RuleResult {
+		rr := []domain.RuleResult{{RuleID: "signal", Score: 1, SubRuleRef: domain.RuleOutcomeReview, Weight: matchedWeight}}
+		for i := range quiet {
+			rr = append(rr, domain.RuleResult{RuleID: fmt.Sprintf("quiet-%d", i), Score: 0, SubRuleRef: domain.RuleOutcomePass, Weight: 1})
+		}
+		return rr
+	}
+
+	for _, quiet := range []int{0, 1, 20} {
+		sum := NewProcessor()
+		if got := sum.Process(ctx, &DecisionInput{RuleResults: results(0.8, quiet)}); got.Status != domain.StatusAlert || got.Score != 0.8 {
+			t.Errorf("sum, %d quiet rules: want ALRT 0.8, got %s %.2f", quiet, got.Status, got.Score)
+		}
+		if got := sum.Process(ctx, &DecisionInput{RuleResults: results(0.6, quiet)}); got.Status != domain.StatusNoAlert || got.Score != 0.6 {
+			t.Errorf("sum, %d quiet rules: want NALT 0.6, got %s %.2f", quiet, got.Status, got.Score)
+		}
+	}
+
+	// The average dilutes: the same 0.8 signal next to 3 quiet rules scores 0.8/3.8, about 0.21.
+	avg := NewProcessor()
+	avg.Scoring = ScoringAverage
+	if got := avg.Process(ctx, &DecisionInput{RuleResults: results(0.8, 3)}); got.Status != domain.StatusNoAlert || got.Score > 0.25 {
+		t.Errorf("average: want NALT about 0.21, got %s %.2f", got.Status, got.Score)
+	}
+}
+
+func TestSumScoringCapsAtOne(t *testing.T) {
+	rr := []domain.RuleResult{
+		{RuleID: "a", Score: 1, SubRuleRef: domain.RuleOutcomeReview, Weight: 0.9},
+		{RuleID: "b", Score: 1, SubRuleRef: domain.RuleOutcomeReview, Weight: 0.9},
+	}
+	if got := NewProcessor().Process(context.Background(), &DecisionInput{RuleResults: rr}); got.Score != 1.0 {
+		t.Errorf("want score capped at 1.0, got %.2f", got.Score)
+	}
+}
+
+// TestSumScoringReachesThresholdInAnyOrder checks that weights which add up to
+// the threshold on paper trigger an alert whatever order the rules finish in.
+func TestSumScoringReachesThresholdInAnyOrder(t *testing.T) {
+	p := NewProcessor()
+	orders := [][]float64{{0.1, 0.2, 0.4}, {0.4, 0.2, 0.1}, {0.2, 0.1, 0.4}, {0.3, 0.4}, {0.4, 0.3}, {0.1, 0.6}}
+	for _, weights := range orders {
+		var results []domain.RuleResult
+		for i, w := range weights {
+			results = append(results, domain.RuleResult{RuleID: fmt.Sprintf("r%d", i), Score: 1, Weight: w, SubRuleRef: domain.RuleOutcomeReview})
+		}
+		eval := p.Process(context.Background(), &DecisionInput{RuleResults: results})
+		if eval.Status != domain.StatusAlert || eval.Score != 0.7 {
+			t.Errorf("weights %v: got %s score %v, want ALRT 0.7", weights, eval.Status, eval.Score)
+		}
+	}
+}
+
+// TestSumScoringBelowThresholdByFloatNoise covers 0.1+0.7, which is
+// 0.7999999999999999 in float64 and must still reach a threshold of 0.8.
+func TestSumScoringBelowThresholdByFloatNoise(t *testing.T) {
+	p := NewProcessor()
+	p.AlertThreshold = 0.8
+	eval := p.Process(context.Background(), &DecisionInput{RuleResults: []domain.RuleResult{
+		{RuleID: "a", Score: 1, Weight: 0.1, SubRuleRef: domain.RuleOutcomeReview},
+		{RuleID: "b", Score: 1, Weight: 0.7, SubRuleRef: domain.RuleOutcomeReview},
+	}})
+	if eval.Status != domain.StatusAlert || eval.Score != 0.8 {
+		t.Fatalf("got %s score %v, want ALRT 0.8", eval.Status, eval.Score)
 	}
 }

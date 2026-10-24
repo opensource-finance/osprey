@@ -1,0 +1,74 @@
+[
+  {
+    "note": "Eve sends money to her family. This is a normal transfer.",
+    "expect": "NALT",
+    "tx": {
+      "id": "rem-001", "type": "TRANSFER",
+      "debtor": {"id": "cust-eve", "accountId": "us-eve"},
+      "creditor": {"id": "rcp-eve-family", "accountId": "ph-eve-family"},
+      "amount": {"value": 450, "currency": "USD"},
+      "metadata": {"funding": "card"},
+      "enrichment": {"sanctions_hit": false}
+    }
+  },
+  {
+    "note": "Frank sends one large house deposit. A large amount alone is not structuring.",
+    "expect": "NALT",
+    "tx": {
+      "id": "rem-002", "type": "TRANSFER",
+      "debtor": {"id": "cust-frank", "accountId": "us-frank"},
+      "creditor": {"id": "rcp-notary", "accountId": "pt-notary"},
+      "amount": {"value": 15000, "currency": "USD"},
+      "metadata": {"funding": "bank"},
+      "enrichment": {"sanctions_hit": false}
+    }
+  },
+  {
+    "note": "Dana sends 9,500 in cash. The amount is just below the threshold.",
+    "expect": "NALT",
+    "tx": {
+      "id": "rem-003", "type": "TRANSFER",
+      "debtor": {"id": "cust-dana", "accountId": "us-dana"},
+      "creditor": {"id": "rcp-dana-1", "accountId": "mx-dana-1"},
+      "amount": {"value": 9500, "currency": "USD"},
+      "metadata": {"funding": "cash"},
+      "enrichment": {"sanctions_hit": false}
+    }
+  },
+  {
+    "note": "Dana sends 9,400 more in cash to the same recipient.",
+    "expect": "NALT",
+    "tx": {
+      "id": "rem-004", "type": "TRANSFER",
+      "debtor": {"id": "cust-dana", "accountId": "us-dana"},
+      "creditor": {"id": "rcp-dana-1", "accountId": "mx-dana-1"},
+      "amount": {"value": 9400, "currency": "USD"},
+      "metadata": {"funding": "cash"},
+      "enrichment": {"sanctions_hit": false}
+    }
+  },
+  {
+    "note": "Dana sends a third cash transfer of 9,700. The pattern is now complete.",
+    "expect": "ALRT",
+    "tx": {
+      "id": "rem-005", "type": "TRANSFER",
+      "debtor": {"id": "cust-dana", "accountId": "us-dana"},
+      "creditor": {"id": "rcp-dana-1", "accountId": "mx-dana-1"},
+      "amount": {"value": 9700, "currency": "USD"},
+      "metadata": {"funding": "cash"},
+      "enrichment": {"sanctions_hit": false}
+    }
+  },
+  {
+    "note": "Gus sends a small amount, but the screening system flags the recipient.",
+    "expect": "ALRT",
+    "tx": {
+      "id": "rem-006", "type": "TRANSFER",
+      "debtor": {"id": "cust-gus", "accountId": "us-gus"},
+      "creditor": {"id": "rcp-flagged", "accountId": "xx-flagged"},
+      "amount": {"value": 200, "currency": "USD"},
+      "metadata": {"funding": "card"},
+      "enrichment": {"sanctions_hit": true}
+    }
+  }
+]

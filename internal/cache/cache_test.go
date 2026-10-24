@@ -152,32 +152,6 @@ func TestLRUCache(t *testing.T) {
 		}
 	})
 
-	t.Run("TransactionCache", func(t *testing.T) {
-		data := &domain.DataCache{
-			DebtorID:   "debtor-001",
-			CreditorID: "creditor-001",
-			Amount:     1000.50,
-			Currency:   "USD",
-		}
-
-		err := cache.SetTransaction(ctx, tenantID, "tx-001", data, time.Minute)
-		if err != nil {
-			t.Fatalf("SetTransaction failed: %v", err)
-		}
-
-		retrieved, err := cache.GetTransaction(ctx, tenantID, "tx-001")
-		if err != nil {
-			t.Fatalf("GetTransaction failed: %v", err)
-		}
-
-		if retrieved.DebtorID != data.DebtorID {
-			t.Errorf("expected DebtorID %s, got %s", data.DebtorID, retrieved.DebtorID)
-		}
-		if retrieved.Amount != data.Amount {
-			t.Errorf("expected Amount %.2f, got %.2f", data.Amount, retrieved.Amount)
-		}
-	})
-
 	t.Run("Stats", func(t *testing.T) {
 		statsCache := NewLRUCache(50)
 		_ = statsCache.Set(ctx, tenantID, "k1", []byte("v1"), time.Minute)

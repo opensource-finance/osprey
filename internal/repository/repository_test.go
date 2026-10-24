@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -587,6 +589,65 @@ func TestGetTransactionsByEntityWindowsOnCreatedAt(t *testing.T) {
 	})
 }
 
+// TestEntityWindowQueryUsesEntityIndexes guards velocity cost. With
+// (debtor_id = ? OR creditor_id = ?), or with an ORDER BY on the window column,
+// SQLite picked the (tenant_id, timestamp) index and read every transaction of
+// the tenant in the window, so each evaluation got slower as traffic grew.
+func TestEntityWindowQueryUsesEntityIndexes(t *testing.T) {
+	s := newWindowSuite(t)
+	defer func() { _ = s.repo.Close() }()
+	db := s.repo.(*SQLRepository).db
+	now := time.Now().UTC()
+	for _, tc := range []struct {
+		window string
+		args   []any
+	}{
+		{"created_at >= ?", []any{now}},
+		{"timestamp >= ? AND timestamp <= ?", []any{now, now}},
+	} {
+		args := append([]any{s.tenantID, "e"}, tc.args...)
+		args = append(append(args, s.tenantID, "e", "e"), tc.args...)
+		rows, err := db.Query("EXPLAIN QUERY PLAN "+entityWindowQuery(tc.window), args...)
+		if err != nil {
+			t.Fatalf("explain: %v", err)
+		}
+		var plan []string
+		for rows.Next() {
+			var id, parent, notUsed int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			plan = append(plan, detail)
+		}
+		_ = rows.Close()
+		joined := strings.Join(plan, "\n")
+		for _, want := range []string{"(tenant_id=? AND debtor_id=?", "(tenant_id=? AND creditor_id=?"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("window %q: plan does not seek on %s:\n%s", tc.window, want, joined)
+			}
+		}
+	}
+}
+
+func TestEntityWindowCountsSelfTransferOnce(t *testing.T) {
+	s := newWindowSuite(t)
+	defer func() { _ = s.repo.Close() }()
+	now := time.Now().UTC()
+	saveWindowTx(t, s.repo, s.ctx, s.tenantID, "self-1", "acct-self", "acct-self", now, now)
+
+	if txs := s.fetch(t, "acct-self", -1*time.Hour); len(txs) != 1 {
+		t.Fatalf("received clock: want 1 row for a self-transfer, got %d", len(txs))
+	}
+	txs, err := s.repo.GetTransactionsByEntityInEventWindow(s.ctx, s.tenantID, "acct-self", now.Add(-time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(txs) != 1 {
+		t.Fatalf("event clock: want 1 row for a self-transfer, got %d", len(txs))
+	}
+}
+
 // newWindowSuite builds a fresh file-backed SQLite repo for the windowing tests.
 func newWindowSuite(t *testing.T) *windowSuite {
 	t.Helper()
@@ -618,4 +679,46 @@ func (s *windowSuite) fetch(t *testing.T, entityID string, offset time.Duration)
 		t.Fatalf("GetTransactionsByEntity(%s) failed: %v", entityID, err)
 	}
 	return txs
+}
+
+// TestSQLitePathWithURICharacters covers issue #33. A '?' in the path used to
+// start the DSN query, so SQLite opened a file at the truncated path and
+// dropped the pragmas, including journal_mode(WAL).
+func TestSQLitePathWithURICharacters(t *testing.T) {
+	for _, name := range []string{"osprey?prod.db", "osprey%3F.db", "osprey#1.db", "osprey 100%.db"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, name)
+
+			db, err := openSQLite(domain.RepositoryConfig{SQLitePath: path})
+			if err != nil {
+				t.Fatalf("openSQLite(%q): %v", path, err)
+			}
+			defer func() { _ = db.Close() }()
+
+			var mode string
+			if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+				t.Fatalf("PRAGMA journal_mode: %v", err)
+			}
+			if mode != "wal" {
+				t.Errorf("journal_mode = %q, want wal", mode)
+			}
+			var fk int
+			if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+				t.Fatalf("PRAGMA foreign_keys: %v", err)
+			}
+			if fk != 1 {
+				t.Errorf("foreign_keys = %d, want 1", fk)
+			}
+
+			if _, err := os.Stat(path); err != nil {
+				entries, _ := os.ReadDir(dir)
+				var names []string
+				for _, e := range entries {
+					names = append(names, e.Name())
+				}
+				t.Errorf("database file not at %q: %v (directory has %v)", path, err, names)
+			}
+		})
+	}
 }

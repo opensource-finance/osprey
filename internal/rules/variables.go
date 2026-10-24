@@ -1,6 +1,12 @@
 package rules
 
-import "github.com/google/cel-go/cel"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/google/cel-go/cel"
+)
 
 // VariableDoc describes one variable available to CEL rule expressions.
 //
@@ -36,9 +42,11 @@ var Catalog = []VariableDoc{
 	{Name: "tx", Type: "map(string, dyn)", Group: "core", Access: "tx.<field>", Description: "Core transaction fields: id, type, debtor_id, creditor_id, amount, currency", celType: dynMap},
 
 	// Velocity aggregates (engine-computed over Osprey's own transaction store)
-	{Name: "velocity_count", Type: "int", Group: "velocity", Description: "Recent transaction count for the debtor in the window", celType: cel.IntType},
-	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Description: "Sum of recent transaction amounts for the debtor in the window", celType: cel.DoubleType},
-	{Name: "velocity_distinct_creditors", Type: "int", Group: "velocity", Description: "Distinct counterparties the debtor transacted with in the window", celType: cel.IntType},
+	{Name: "velocity_count", Type: "int", Group: "velocity", Note: "includes the current transaction", Description: "Transactions in the window where the debtor sent or received money", celType: cel.IntType},
+	{Name: "velocity_amount_sum", Type: "double", Group: "velocity", Note: "includes the current transaction", Description: "Sum of the amounts of those transactions, sent and received", celType: cel.DoubleType},
+	{Name: "velocity_distinct_creditors", Type: "int", Group: "velocity", Note: "includes the current payee", Description: "Distinct payees the debtor sent money to in the window", celType: cel.IntType},
+	{Name: "velocity_inbound_count", Type: "int", Group: "velocity", Description: "Transactions in the window where the debtor received money", celType: cel.IntType},
+	{Name: "velocity_inbound_amount_sum", Type: "double", Group: "velocity", Description: "Sum of the amounts the debtor received in the window", celType: cel.DoubleType},
 
 	// Sanctions screening (engine-computed against the local OFAC SDN list; 0 / "" when no list is loaded)
 	{Name: "sanctions_score", Type: "double", Group: "sanctions", Note: "needs debtor.name / creditor.name and OSPREY_SANCTIONS_DIR", Description: "Best OFAC SDN name-match score (0..1) across debtor and creditor", celType: cel.DoubleType},
@@ -77,3 +85,53 @@ var metadataOverridable = func() map[string]struct{} {
 	}
 	return allow
 }()
+
+// ErrInvalidMetadata reports a metadata-sourced variable with a value that is
+// not a number.
+var ErrInvalidMetadata = errors.New("invalid metadata")
+
+// metadataNumber converts a metadata value for a double variable such as
+// old_balance. A JSON null means "not provided", the same as an absent key, so
+// ok is false and the caller keeps the 0.0 default. Any other value that is not
+// a number is an error. Without this check a string or null replaced the
+// float64 default, and CEL's cross-type == returned false, so
+// `new_balance == 0.0` did not match and a drain rule passed (issue #52).
+func metadataNumber(key string, v any) (f float64, ok bool, err error) {
+	switch n := v.(type) {
+	case nil:
+		return 0, false, nil
+	case float64:
+		return n, true, nil
+	case float32:
+		return float64(n), true, nil
+	case int:
+		return float64(n), true, nil
+	case int32:
+		return float64(n), true, nil
+	case int64:
+		return float64(n), true, nil
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return 0, false, fmt.Errorf("%w: metadata.%s must be a number or null", ErrInvalidMetadata, key)
+		}
+		return f, true, nil
+	default:
+		return 0, false, fmt.Errorf("%w: metadata.%s must be a number or null, got %T", ErrInvalidMetadata, key, v)
+	}
+}
+
+// ValidateMetadata checks that every metadata-sourced variable in md is a
+// number or null. Call it before the transaction is stored, so a bad request
+// gets a 400 instead of a failed evaluation.
+func ValidateMetadata(md map[string]any) error {
+	for k, v := range md {
+		if _, ok := metadataOverridable[k]; !ok {
+			continue
+		}
+		if _, _, err := metadataNumber(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}

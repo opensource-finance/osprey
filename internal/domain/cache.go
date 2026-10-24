@@ -19,12 +19,6 @@ type Cache interface {
 	// Delete removes a value from cache.
 	Delete(ctx context.Context, tenantID string, key string) error
 
-	// GetTransaction retrieves cached transaction data.
-	GetTransaction(ctx context.Context, tenantID string, txID string) (*DataCache, error)
-
-	// SetTransaction caches transaction data for pipeline processing.
-	SetTransaction(ctx context.Context, tenantID string, txID string, data *DataCache, ttl time.Duration) error
-
 	// IncrementCounter atomically increments a counter and returns new value.
 	// Used for velocity checks (e.g., transaction count in time window).
 	IncrementCounter(ctx context.Context, tenantID string, key string, window time.Duration) (int64, error)
@@ -34,17 +28,6 @@ type Cache interface {
 
 	// Lifecycle
 	Close() error
-}
-
-// DataCache holds cached transaction data passed through the pipeline.
-type DataCache struct {
-	DebtorID        string  `json:"dbtrId"`
-	CreditorID      string  `json:"cdtrId"`
-	DebtorAccountID string  `json:"dbtrAcctId"`
-	CreditorAcctID  string  `json:"cdtrAcctId"`
-	Amount          float64 `json:"amt"`
-	Currency        string  `json:"ccy"`
-	Timestamp       string  `json:"timestamp"`
 }
 
 // CacheConfig holds configuration for cache initialization.

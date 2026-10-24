@@ -4,6 +4,7 @@ package tadp
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,11 +19,24 @@ type Processor struct {
 	// Weight configuration for rule aggregation
 	UseWeightedScoring bool
 
+	// Scoring selects how Detection mode combines rule scores:
+	// - ScoringSum (default, also ""): sum of score x weight, capped at 1.
+	//   A rule's weight is its contribution, whatever other rules exist.
+	// - ScoringAverage: weighted average over all rules (before v0.2). Each new
+	//   rule dilutes the others, including rules that did not match.
+	Scoring string
+
 	// Mode determines evaluation strategy:
 	// - "detection": Rules → Weighted Score → Alert (fast, no typologies)
 	// - "compliance": Rules → Typologies → FATF patterns (requires typologies)
 	Mode string
 }
+
+// Scoring methods for Detection mode.
+const (
+	ScoringSum     = "sum"
+	ScoringAverage = "average"
+)
 
 // NewProcessor creates a new TADP processor with default settings.
 // Defaults to Detection mode - fast, weighted rule scoring.
@@ -30,6 +44,7 @@ func NewProcessor() *Processor {
 	return &Processor{
 		AlertThreshold:     0.7,         // Default threshold
 		UseWeightedScoring: true,        // Use rule weights in scoring
+		Scoring:            ScoringSum,  // Weights add up; no dilution
 		Mode:               "detection", // Default: fast fraud detection
 	}
 }
@@ -40,9 +55,14 @@ func NewComplianceProcessor() *Processor {
 	return &Processor{
 		AlertThreshold:     0.7,
 		UseWeightedScoring: true,
+		Scoring:            ScoringSum,
 		Mode:               "compliance",
 	}
 }
+
+// NoTypologiesID marks a compliance evaluation that ran with no typologies
+// loaded. The decision fails closed to ALRT.
+const NoTypologiesID = "compliance-no-typologies"
 
 // DecisionInput contains all data needed for a decision.
 type DecisionInput struct {
@@ -70,7 +90,26 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 	aggResult := p.aggregate(input.RuleResults)
 
 	// Compliance Mode: Use typology results for FATF-inspired evaluation
-	if p.Mode == "compliance" && len(input.TypologyResults) > 0 {
+	if p.Mode == "compliance" && len(input.TypologyResults) == 0 {
+		// The handler and worker reject compliance requests when no typology is
+		// loaded, but a concurrent delete or disable of the last typology can
+		// empty the set after that check. Detection scoring is not a compliance
+		// decision, so fail closed: alert for review and mark the evaluation.
+		slog.Warn("compliance evaluation without typologies, failing closed to ALRT",
+			"tenant_id", input.TenantID,
+			"tx_id", input.TxID,
+			"trace_id", input.TraceID,
+		)
+		eval.Status = domain.StatusAlert
+		eval.Score = aggResult.AggregateScore
+		eval.TypologyResults = []domain.TypologyResult{{
+			TypologyID:   NoTypologiesID,
+			TypologyName: "Compliance evaluation without typologies",
+			Score:        aggResult.AggregateScore,
+			Triggered:    true,
+			Rules:        input.RuleResults,
+		}}
+	} else if p.Mode == "compliance" {
 		eval.TypologyResults = input.TypologyResults
 
 		// Check if any typology triggered
@@ -167,10 +206,14 @@ func (p *Processor) aggregate(results []domain.RuleResult) *AggregateResult {
 		}
 	}
 
-	// Normalize score
-	if agg.TotalWeight > 0 {
-		agg.AggregateScore = agg.AggregateScore / agg.TotalWeight
+	if p.Scoring == ScoringAverage {
+		if agg.TotalWeight > 0 {
+			agg.AggregateScore = agg.AggregateScore / agg.TotalWeight
+		}
+	} else {
+		agg.AggregateScore = min(agg.AggregateScore, 1.0)
 	}
+	agg.AggregateScore = domain.RoundScore(agg.AggregateScore)
 
 	return agg
 }

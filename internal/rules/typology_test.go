@@ -316,3 +316,17 @@ func TestTypologyEngine_ReloadTypologies(t *testing.T) {
 		t.Error("typology-1 should not exist after reload")
 	}
 }
+
+// TestTypologyEngine_ThresholdIgnoresFloatNoise covers weights 0.1 and 0.7,
+// which sum to 0.7999999999999999 in float64 and must still trigger at 0.8.
+func TestTypologyEngine_ThresholdIgnoresFloatNoise(t *testing.T) {
+	engine := NewTypologyEngine()
+	engine.LoadTypologies([]*domain.Typology{{
+		ID: "t", AlertThreshold: 0.8, Enabled: true,
+		Rules: []domain.TypologyRuleWeight{{RuleID: "a", Weight: 0.1}, {RuleID: "b", Weight: 0.7}},
+	}})
+	res := engine.EvaluateTypologies([]domain.RuleResult{{RuleID: "a", Score: 1}, {RuleID: "b", Score: 1}})
+	if len(res) != 1 || !res[0].Triggered || res[0].Score != 0.8 {
+		t.Fatalf("got %+v, want triggered with score 0.8", res)
+	}
+}

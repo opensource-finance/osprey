@@ -122,8 +122,8 @@ func (e *TypologyEngine) evaluateTypology(typology *domain.Typology, ruleScores 
 		})
 	}
 
-	result.Score = totalScore
-	result.Triggered = totalScore >= typology.AlertThreshold
+	result.Score = domain.RoundScore(totalScore)
+	result.Triggered = result.Score >= typology.AlertThreshold
 
 	return result
 }

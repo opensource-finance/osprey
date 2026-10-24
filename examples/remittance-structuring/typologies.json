@@ -1,0 +1,24 @@
+[
+  {
+    "id": "rem-typology-structuring",
+    "name": "Structuring",
+    "description": "One large amount split into transfers just below the reporting threshold.",
+    "alertThreshold": 0.75,
+    "enabled": true,
+    "rules": [
+      {"ruleId": "rem-near-threshold", "weight": 0.5},
+      {"ruleId": "rem-repeat-sender", "weight": 0.25},
+      {"ruleId": "rem-hour-total", "weight": 0.25}
+    ]
+  },
+  {
+    "id": "rem-typology-sanctions",
+    "name": "Sanctions Exposure",
+    "description": "A transfer to a party that matches a sanctions list entry.",
+    "alertThreshold": 1.0,
+    "enabled": true,
+    "rules": [
+      {"ruleId": "rem-sanctions-hit", "weight": 1.0}
+    ]
+  }
+]

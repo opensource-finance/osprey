@@ -1,68 +1,56 @@
 {
-  "_description": "Rules optimized for PaySim fraud detection benchmark",
+  "_description": "Rules for the PaySim mobile-money simulator (Lopez-Rojas et al., 2016). Use them to try Osprey on PaySim, not as evidence of quality on real traffic.",
   "_source": "PaySim dataset (Lopez-Rojas et al., 2016)",
   "_dataset": "https://www.kaggle.com/datasets/ealaxi/paysim1",
-  "_version": "1.0.0",
-  "_note": "These rules achieve ~96% recall on PaySim fraud detection",
+  "_version": "2.0.0",
+  "_note": "Measured with cmd/qualitybench on all 6,362,620 PaySim rows, detection mode, sum scoring, threshold 0.7: 8,018 alerts, recall 97.6%, precision 100%. PaySim makes each fraud send the whole balance of the account, and paysim-whole-balance matches exactly that, so this result shows how the simulator works. Without paysim-whole-balance, no rule set we tried got more than 4% precision. See docs/STARTER_KIT.md.",
   "rules": [
     {
-      "id": "paysim-account-drain",
-      "name": "PaySim Account Drain",
-      "description": "Primary fraud indicator: account balance drained to zero",
-      "expression": "old_balance > 0.0 && new_balance == 0.0",
-      "weight": 0.8,
+      "id": "paysim-whole-balance",
+      "name": "Whole Balance Sent",
+      "description": "The payment sends the exact balance of the account. Moving all available funds at once is a common account-takeover signal.",
+      "expression": "old_balance > 0.0 && amount == old_balance",
+      "weight": 0.5,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Account drained to zero"},
-        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "No drain"}
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Payment sends the whole account balance"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Payment does not send the whole balance"}
       ]
     },
     {
       "id": "paysim-high-risk-type",
-      "name": "PaySim High Risk Type",
-      "description": "Fraud only occurs in CASH_OUT and TRANSFER types in PaySim",
+      "name": "High-Risk Transaction Type",
+      "description": "TRANSFER and CASH_OUT are the only PaySim types that move money out of the platform.",
       "expression": "tx_type == \"CASH_OUT\" || tx_type == \"TRANSFER\"",
-      "weight": 0.3,
+      "weight": 0.25,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High risk transaction type"},
-        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Low risk type"}
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Money leaves the platform"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Lower-risk transaction type"}
       ]
     },
     {
-      "id": "paysim-fraud-pattern",
-      "name": "PaySim Fraud Pattern",
-      "description": "Combined: account drain + high risk type = definitive fraud",
-      "expression": "(old_balance > 0.0 && new_balance == 0.0) && (tx_type == \"CASH_OUT\" || tx_type == \"TRANSFER\")",
-      "weight": 1.0,
+      "id": "paysim-account-drain",
+      "name": "Account Drained",
+      "description": "The account balance is zero after the payment.",
+      "expression": "old_balance > 0.0 && new_balance == 0.0",
+      "weight": 0.1,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "PaySim fraud pattern detected"},
-        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Pattern not matched"}
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Account drained to zero"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Balance remains"}
       ]
     },
     {
       "id": "paysim-large-amount",
-      "name": "PaySim Large Amount",
-      "description": "Large transactions in PaySim (over 200K)",
-      "expression": "amount > 200000.0",
-      "weight": 0.4,
+      "name": "Large Amount",
+      "description": "The amount is more than 1,000,000.",
+      "expression": "amount > 1000000.0",
+      "weight": 0.1,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Large transaction amount"},
-        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal amount"}
-      ]
-    },
-    {
-      "id": "paysim-partial-drain",
-      "name": "PaySim Partial Drain",
-      "description": "Catches fraud cases without full drain (>90% balance reduction)",
-      "expression": "old_balance > 0.0 && new_balance < old_balance * 0.1 && amount > 100000.0 && (tx_type == \"CASH_OUT\" || tx_type == \"TRANSFER\")",
-      "weight": 0.7,
-      "enabled": true,
-      "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Significant balance reduction with high risk type"},
-        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal transaction"}
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Amount above 1,000,000"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Amount at or below 1,000,000"}
       ]
     }
   ]

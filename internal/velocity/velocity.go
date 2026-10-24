@@ -9,6 +9,18 @@ import (
 	"github.com/opensource-finance/osprey/internal/domain"
 )
 
+// MaxWindowSecs is the longest velocity window, 30 days. A larger window is
+// clamped to it. Without the clamp, a window above about 9.2e9 seconds
+// overflows time.Duration, wraps negative, and puts the window start in the
+// future, so every velocity metric reads 0 and velocity rules never fire.
+const MaxWindowSecs = 30 * 24 * 60 * 60
+
+// windowStart returns the start of a velocity window that ends now.
+func windowStart(windowSecs int) time.Time {
+	windowSecs = min(windowSecs, MaxWindowSecs)
+	return time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
+}
+
 // Service calculates transaction velocity for entities.
 type Service struct {
 	repo  domain.Repository
@@ -31,7 +43,7 @@ func (s *Service) GetTransactionCount(ctx context.Context, tenantID, entityID st
 	}
 
 	// Query the repository for the actual count (caching would require careful TTL management)
-	since := time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
+	since := windowStart(windowSecs)
 
 	if s.repo != nil {
 		return s.countFromRepo(ctx, tenantID, entityID, since)
@@ -55,41 +67,68 @@ func (s *Service) GetVelocityGetter() func(ctx context.Context, tenantID, entity
 }
 
 // Aggregates holds windowed velocity metrics for an entity.
+// Count and AmountSum cover every transaction where the entity is the debtor or
+// the creditor. DistinctCreditors counts payees of outgoing transactions only.
+// The Inbound fields cover transactions where the entity is only the creditor.
 type Aggregates struct {
 	Count             int64
 	AmountSum         float64
 	DistinctCreditors int64
+	InboundCount      int64
+	InboundAmountSum  float64
 }
 
-// GetAggregates returns count, amount-sum, and distinct-creditor metrics for an
-// entity within a time window. Richer companion to GetTransactionCount.
+// GetAggregates returns velocity metrics for an entity in a window that ends now,
+// keyed on the time Osprey received each transaction (the "received" clock).
 func (s *Service) GetAggregates(ctx context.Context, tenantID, entityID string, windowSecs int) (Aggregates, error) {
 	if tenantID == "" || entityID == "" {
 		return Aggregates{}, fmt.Errorf("tenantID and entityID are required")
 	}
-
-	since := time.Now().UTC().Add(-time.Duration(windowSecs) * time.Second)
-
-	if s.repo != nil {
-		return s.aggregatesFromRepo(ctx, tenantID, entityID, since)
+	if s.repo == nil {
+		return Aggregates{}, fmt.Errorf("no data source available")
 	}
-	return Aggregates{}, fmt.Errorf("no data source available")
-}
-
-// aggregatesFromRepo computes the metrics in Go from the repository result set.
-func (s *Service) aggregatesFromRepo(ctx context.Context, tenantID, entityID string, since time.Time) (Aggregates, error) {
-	txs, err := s.repo.GetTransactionsByEntity(ctx, tenantID, entityID, since)
+	txs, err := s.repo.GetTransactionsByEntity(ctx, tenantID, entityID, windowStart(windowSecs))
 	if err != nil {
 		return Aggregates{}, fmt.Errorf("failed to get transactions: %w", err)
 	}
+	return aggregate(entityID, txs), nil
+}
+
+// GetAggregatesAt returns velocity metrics for an entity in the window that ends at
+// the event time at, keyed on each transaction's own timestamp (the "event" clock).
+// Replays of historical data need this clock: with the received clock, a replay
+// puts months of activity into a few minutes.
+func (s *Service) GetAggregatesAt(ctx context.Context, tenantID, entityID string, windowSecs int, at time.Time) (Aggregates, error) {
+	if tenantID == "" || entityID == "" {
+		return Aggregates{}, fmt.Errorf("tenantID and entityID are required")
+	}
+	if s.repo == nil {
+		return Aggregates{}, fmt.Errorf("no data source available")
+	}
+	windowSecs = min(windowSecs, MaxWindowSecs)
+	from := at.Add(-time.Duration(windowSecs) * time.Second)
+	txs, err := s.repo.GetTransactionsByEntityInEventWindow(ctx, tenantID, entityID, from, at)
+	if err != nil {
+		return Aggregates{}, fmt.Errorf("failed to get transactions: %w", err)
+	}
+	return aggregate(entityID, txs), nil
+}
+
+// aggregate computes the metrics in Go from the repository result set.
+func aggregate(entityID string, txs []*domain.Transaction) Aggregates {
 	a := Aggregates{Count: int64(len(txs))}
 	creditors := make(map[string]struct{}, len(txs))
 	for _, tx := range txs {
 		a.AmountSum += tx.Amount
-		if tx.CreditorID != "" {
-			creditors[tx.CreditorID] = struct{}{}
+		if tx.DebtorID == entityID {
+			if tx.CreditorID != "" {
+				creditors[tx.CreditorID] = struct{}{}
+			}
+			continue
 		}
+		a.InboundCount++
+		a.InboundAmountSum += tx.Amount
 	}
 	a.DistinctCreditors = int64(len(creditors))
-	return a, nil
+	return a
 }

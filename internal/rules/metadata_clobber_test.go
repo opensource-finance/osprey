@@ -2,7 +2,10 @@ package rules
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/opensource-finance/osprey/internal/domain"
 )
@@ -178,7 +181,7 @@ func TestMetadataClobberRepro(t *testing.T) {
 	t.Run("velocity aggregates from getter win over metadata", func(t *testing.T) {
 		eng, _ := NewEngine(nil, 5)
 		defer func() { _ = eng.Close() }()
-		eng.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int) (VelocityAggregates, error) {
+		eng.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, _ time.Time) (VelocityAggregates, error) {
 			return VelocityAggregates{Count: 15, AmountSum: 5000.0, DistinctCreditors: 4}, nil
 		})
 		loadClobberRule(t, eng, "vel-from-getter", "velocity_amount_sum > 1000.0 && velocity_distinct_creditors >= 3 ? 1.0 : 0.0")
@@ -350,4 +353,75 @@ func TestMetadataOverridableDerivedFromCatalog(t *testing.T) {
 			t.Errorf("engine-authoritative variable %q must NOT be metadata-overridable", name)
 		}
 	}
+}
+
+// TestMetadataBalanceTypes covers issue #52. A null balance must behave like an
+// absent one (0.0), and a value that is not a number must fail the evaluation
+// instead of silently making `new_balance == 0.0` false.
+func TestMetadataBalanceTypes(t *testing.T) {
+	const drain = "old_balance > 0.0 && new_balance == 0.0 ? 1.0 : 0.0"
+
+	t.Run("null new_balance is treated as 0.0 and the drain fires", func(t *testing.T) {
+		eng, _ := NewEngine(nil, 5)
+		defer func() { _ = eng.Close() }()
+		loadClobberRule(t, eng, "drain-null", drain)
+
+		got := evalClobber(t, eng, map[string]any{"old_balance": 15000.0, "new_balance": nil})
+		if got.Score != 1.0 || got.SubRuleRef != domain.RuleOutcomeFail {
+			t.Errorf("expected score 1.0 and .fail, got %.2f and %s", got.Score, got.SubRuleRef)
+		}
+	})
+
+	t.Run("integer balances are accepted", func(t *testing.T) {
+		eng, _ := NewEngine(nil, 5)
+		defer func() { _ = eng.Close() }()
+		loadClobberRule(t, eng, "drain-int", drain)
+
+		got := evalClobber(t, eng, map[string]any{"old_balance": 15000, "new_balance": int64(0)})
+		if got.Score != 1.0 {
+			t.Errorf("expected score 1.0 for integer balances, got %.2f", got.Score)
+		}
+	})
+
+	t.Run("json.Number balances are accepted", func(t *testing.T) {
+		eng, _ := NewEngine(nil, 5)
+		defer func() { _ = eng.Close() }()
+		loadClobberRule(t, eng, "drain-number", drain)
+
+		got := evalClobber(t, eng, map[string]any{"old_balance": json.Number("15000.5"), "new_balance": json.Number("0")})
+		if got.Score != 1.0 {
+			t.Errorf("expected score 1.0 for json.Number balances, got %.2f", got.Score)
+		}
+	})
+
+	for name, v := range map[string]any{
+		"string": "0",
+		"bool":   false,
+		"object": map[string]any{"value": 0.0},
+		"array":  []any{0.0},
+	} {
+		t.Run(name+" new_balance fails the evaluation", func(t *testing.T) {
+			eng, _ := NewEngine(nil, 5)
+			defer func() { _ = eng.Close() }()
+			loadClobberRule(t, eng, "drain-"+name, drain)
+
+			md := map[string]any{"old_balance": 15000.0, "new_balance": v}
+			_, err := eng.EvaluateAll(context.Background(), &EvaluateInput{
+				TenantID: "tenant-1", TxID: "tx-1", Type: "PAYMENT", DebtorID: "d-1", CreditorID: "c-1",
+				Amount: 500000.0, Currency: "USD", AdditionalData: md,
+			})
+			if !errors.Is(err, ErrInvalidMetadata) {
+				t.Errorf("EvaluateAll error = %v, want ErrInvalidMetadata", err)
+			}
+			if err := ValidateMetadata(md); !errors.Is(err, ErrInvalidMetadata) {
+				t.Errorf("ValidateMetadata error = %v, want ErrInvalidMetadata", err)
+			}
+		})
+	}
+
+	t.Run("other metadata keys may hold any type", func(t *testing.T) {
+		if err := ValidateMetadata(map[string]any{"channel": "web", "flags": []any{"a"}, "old_balance": nil}); err != nil {
+			t.Errorf("ValidateMetadata error = %v, want nil", err)
+		}
+	})
 }

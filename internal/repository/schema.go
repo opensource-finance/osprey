@@ -1,7 +1,8 @@
 package repository
 
 // Schema definitions for Osprey database.
-// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA for PostgreSQL.
+// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA and
+// REAL → DOUBLE PRECISION for PostgreSQL.
 
 const schemaTransactions = `
 CREATE TABLE IF NOT EXISTS transactions (
@@ -26,6 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_transactions_debtor ON transactions(tenant_id, de
 CREATE INDEX IF NOT EXISTS idx_transactions_creditor ON transactions(tenant_id, creditor_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(tenant_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_debtor_created_at ON transactions(tenant_id, debtor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_creditor_created_at ON transactions(tenant_id, creditor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_debtor_timestamp ON transactions(tenant_id, debtor_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_transactions_creditor_timestamp ON transactions(tenant_id, creditor_id, timestamp);
 `
 
 const schemaRuleConfigs = `
@@ -69,7 +74,8 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_timestamp ON evaluations(tenant_id, t
 
 // schemaTypologies defines the typologies table.
 // Typologies group multiple rules with weights to calculate composite risk scores.
-// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA for PostgreSQL.
+// Authored in SQLite dialect; migrate() rewrites BLOB → BYTEA and
+// REAL → DOUBLE PRECISION for PostgreSQL.
 const schemaTypologies = `
 CREATE TABLE IF NOT EXISTS typologies (
     id TEXT NOT NULL,

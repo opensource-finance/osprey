@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opensource-finance/osprey/internal/domain"
 )
@@ -96,7 +97,7 @@ func TestExtensibleVariables(t *testing.T) {
 	t.Run("VelocityAggregates", func(t *testing.T) {
 		engine, _ := NewEngine(nil, 5)
 		defer func() { _ = engine.Close() }()
-		engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int) (VelocityAggregates, error) {
+		engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, _ time.Time) (VelocityAggregates, error) {
 			return VelocityAggregates{Count: 7, AmountSum: 5000.0, DistinctCreditors: 3}, nil
 		})
 		_ = engine.LoadRule(&domain.RuleConfig{
@@ -111,4 +112,42 @@ func TestExtensibleVariables(t *testing.T) {
 			t.Errorf("expected score 1.0, got %.2f", res[0].Score)
 		}
 	})
+}
+
+// TestEventClockPassesEventTime checks that the engine hands the transaction time
+// to the velocity source only when the event clock is on.
+func TestEventClockPassesEventTime(t *testing.T) {
+	engine, err := NewEngine(nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotAt time.Time
+	engine.SetAggregatesGetter(func(_ context.Context, _, _ string, _ int, at time.Time) (VelocityAggregates, error) {
+		gotAt = at
+		return VelocityAggregates{InboundCount: 2, InboundAmountSum: 300}, nil
+	})
+	if err := engine.LoadRule(&domain.RuleConfig{ID: "in", Expression: "velocity_inbound_count == 2 && velocity_inbound_amount_sum == 300.0", Weight: 1, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	eventTime := time.Date(2017, 3, 1, 5, 0, 0, 0, time.UTC)
+	in := &EvaluateInput{TenantID: "t", TxID: "x", DebtorID: "d", VelocityWindow: 3600, EventTime: eventTime}
+
+	res, err := engine.EvaluateAll(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotAt.IsZero() {
+		t.Errorf("received clock: want zero time, got %s", gotAt)
+	}
+	if res[0].Score != 1 {
+		t.Errorf("velocity_inbound_* not set: score %.0f", res[0].Score)
+	}
+
+	engine.SetEventClock(true)
+	if _, err := engine.EvaluateAll(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if !gotAt.Equal(eventTime) {
+		t.Errorf("event clock: want %s, got %s", eventTime, gotAt)
+	}
 }

@@ -137,6 +137,13 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := rules.ValidateMetadata(req.Metadata); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": err.Error(),
+		})
+		return
+	}
+
 	txID := strings.TrimSpace(req.ID)
 	if txID == "" {
 		txID = uuid.New().String()
@@ -208,6 +215,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Amount:         tx.Amount,
 		Currency:       tx.Currency,
 		VelocityWindow: 3600, // Default 1 hour window
+		EventTime:      txTimestamp,
 		AdditionalData: tx.Metadata,
 		Enrichment:     tx.Enrichment,
 	}
@@ -224,7 +232,10 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Evaluate typologies ONLY in Compliance mode
 	var typologyResults []domain.TypologyResult
-	if h.mode == domain.ModeCompliance && h.typologyEngine != nil && h.typologyEngine.TypologyCount() > 0 {
+	// EvaluateTypologies checks for an empty set under the same lock as the
+	// evaluation. If the set was emptied after the entry check, it returns no
+	// results and the processor fails closed.
+	if h.mode == domain.ModeCompliance && h.typologyEngine != nil {
 		typologyResults = h.typologyEngine.EvaluateTypologies(ruleResults)
 	}
 
@@ -396,6 +407,39 @@ func (h *Handler) ListVariables(w http.ResponseWriter, r *http.Request) {
 		"variables": rules.Catalog,
 		"count":     len(rules.Catalog),
 	})
+}
+
+// ValidateExpressionRequest is the request body for POST /rules/validate.
+type ValidateExpressionRequest struct {
+	Expression string `json:"expression"`
+}
+
+// ValidateExpression compiles a CEL rule expression against the rule
+// environment and reports whether it is valid. It does not save or load
+// anything, so it needs no admin token. A compile error is a normal result
+// (200 with valid=false), not a request error.
+func (h *Handler) ValidateExpression(w http.ResponseWriter, r *http.Request) {
+	var req ValidateExpressionRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	expr := strings.TrimSpace(req.Expression)
+	if expr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "expression is required",
+		})
+		return
+	}
+
+	err := h.engine.ValidateRule(&domain.RuleConfig{ID: "expression", Expression: expr})
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"valid": false,
+			"error": err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true})
 }
 
 // ListRules returns the rules currently active in the evaluation engine.

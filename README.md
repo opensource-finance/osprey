@@ -57,14 +57,20 @@ curl -fsS -X POST http://localhost:8080/evaluate \
   -d @docs/examples/evaluate-alert.json
 ```
 
+5. To do the same steps in a browser, open Osprey Studio at `http://localhost:8080/studio/`.
+   Studio lets you write rules, send test transactions, and read each decision.
+   Refer to [Osprey Studio](docs/STUDIO.md).
+
 ## Docs
 
 Start here:
 
 - [Quickstart](docs/QUICKSTART.md)
+- [Osprey Studio](docs/STUDIO.md)
 - [Sandbox and API guide](docs/SANDBOX.md)
 - [Rule and typology authoring](docs/RULE_TYPOLOGY_AUTHORING.md)
 - [Starter kit rules](docs/STARTER_KIT.md)
+- [Examples](examples/README.md): small projects that use Osprey, with real output
 - [Architecture](docs/ARCHITECTURE.md)
 - [OpenAPI contract](docs/api/openapi.yaml)
 - [Documentation style](docs/STYLE.md): run `make docs-lint` before a pull request that changes docs.
@@ -129,6 +135,10 @@ The `community` profile is the default. It is the easiest profile for a local Os
 | `OSPREY_TENANTS` | unset | Optional. A comma-separated list of tenants for async workers. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` (off) | Requests per second for each tenant. `0` disables the rate limit. Set `0` for load tests. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant. |
+| `OSPREY_ALERT_THRESHOLD` | `0.7` | Detection mode: the score at or above which Osprey gives `ALRT`. A value more than `0` and not more than `1`. |
+| `OSPREY_SCORING` | `sum` | Detection mode: `sum` adds score x weight of each rule, with a maximum of `1`. `average` divides by the total weight of all rules (the behavior before v0.2). |
+| `OSPREY_VELOCITY_CLOCK` | `received` | `received` uses the time when Osprey received each transaction for velocity windows. `event` uses the `timestamp` field. Use `event` only to replay historical data, because the caller controls `timestamp`. |
+| `OSPREY_STUDIO` | `true` | Serves Osprey Studio at `/studio/`. Set `false` to turn it off. |
 | `OSPREY_SANCTIONS_DIR` | unset (off) | Folder with OFAC `SDN.CSV` and `ALT.CSV`, fetched by `scripts/fetch-ofac.sh`. A bad path stops startup. |
 
 ## API

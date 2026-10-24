@@ -1,14 +1,14 @@
 {
   "_description": "FATF-aligned AML/CFT detection rules based on public FATF guidance",
   "_source": "https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Fatf-recommendations.html",
-  "_version": "1.0.0",
+  "_version": "2.0.0",
   "rules": [
     {
       "id": "structuring-001",
       "name": "Structuring Detection",
       "description": "Detects transactions just below reporting thresholds (smurfing). FATF Recommendation 20.",
       "expression": "amount >= 9000.0 && amount < 10000.0",
-      "weight": 0.6,
+      "weight": 0.4,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Amount just below reporting threshold"},
@@ -20,7 +20,7 @@
       "name": "High Value Transaction",
       "description": "Flags transactions above standard monitoring threshold. FATF Recommendation 19.",
       "expression": "amount > 10000.0",
-      "weight": 0.3,
+      "weight": 0.1,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High value transaction"},
@@ -32,7 +32,7 @@
       "name": "Very High Value Transaction",
       "description": "Flags unusually large transactions requiring enhanced due diligence.",
       "expression": "amount > 50000.0",
-      "weight": 0.5,
+      "weight": 0.1,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Very high value - enhanced due diligence required"},
@@ -44,7 +44,7 @@
       "name": "Round Amount Detection",
       "description": "Detects suspiciously round transaction amounts often associated with structuring.",
       "expression": "amount >= 1000.0 && amount == double(int(amount / 1000.0)) * 1000.0",
-      "weight": 0.2,
+      "weight": 0.05,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Suspiciously round amount"},
@@ -56,19 +56,19 @@
       "name": "Account Drain Detection",
       "description": "Detects accounts being emptied - common in account takeover and fraud.",
       "expression": "old_balance > 0.0 && new_balance == 0.0",
-      "weight": 0.8,
+      "weight": 0.3,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Account drained to zero"},
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Account drained to zero"},
         {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal balance change"}
       ]
     },
     {
       "id": "partial-drain-001",
       "name": "Significant Balance Reduction",
-      "description": "Detects large withdrawals relative to account balance.",
-      "expression": "old_balance > 0.0 && new_balance < old_balance * 0.1 && amount > 5000.0",
-      "weight": 0.5,
+      "description": "Detects accounts left with less than 10% of their balance after a large payment. A full drain to zero is account-drain-001, so the two rules do not count the same payment twice.",
+      "expression": "old_balance > 0.0 && new_balance > 0.0 && new_balance < old_balance * 0.1 && amount > 5000.0",
+      "weight": 0.2,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Significant balance reduction (>90%)"},
@@ -80,10 +80,10 @@
       "name": "Same Party Transfer",
       "description": "Detects transfers where sender and receiver are the same entity - potential layering.",
       "expression": "debtor_id == creditor_id",
-      "weight": 1.0,
+      "weight": 0.3,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Same party transfer detected"},
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Same party transfer detected"},
         {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Different parties"}
       ]
     },
@@ -92,7 +92,7 @@
       "name": "High Transaction Velocity",
       "description": "Detects rapid succession of transactions from same account. FATF rapid movement indicator.",
       "expression": "velocity_count > 5",
-      "weight": 0.6,
+      "weight": 0.3,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High transaction velocity detected"},
@@ -104,10 +104,10 @@
       "name": "Extreme Transaction Velocity",
       "description": "Detects unusually high transaction frequency indicating automated/fraudulent activity.",
       "expression": "velocity_count > 10",
-      "weight": 0.8,
+      "weight": 0.3,
       "enabled": true,
       "bands": [
-        {"lowerLimit": 1.0, "subRuleRef": ".fail", "reason": "Extreme transaction velocity - potential automation"},
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Extreme transaction velocity - potential automation"},
         {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal velocity"}
       ]
     },
@@ -116,7 +116,7 @@
       "name": "High Risk Transaction Type",
       "description": "Flags transaction types commonly associated with fraud (CASH_OUT, TRANSFER).",
       "expression": "tx_type == \"CASH_OUT\" || tx_type == \"TRANSFER\"",
-      "weight": 0.2,
+      "weight": 0.05,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "High risk transaction type"},
@@ -128,7 +128,7 @@
       "name": "Cash Intensive Transaction",
       "description": "Flags cash-based transactions requiring enhanced monitoring. FATF Recommendation 22.",
       "expression": "tx_type == \"CASH_IN\" || tx_type == \"CASH_OUT\"",
-      "weight": 0.3,
+      "weight": 0.05,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Cash intensive transaction"},
@@ -140,7 +140,7 @@
       "name": "Micro Transaction Detection",
       "description": "Flags very small transactions that may be testing stolen credentials.",
       "expression": "amount < 10.0",
-      "weight": 0.3,
+      "weight": 0.05,
       "enabled": true,
       "bands": [
         {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Micro transaction - potential card testing"},
@@ -148,9 +148,33 @@
       ]
     },
     {
+      "id": "pass-through-001",
+      "name": "Pass-Through Payment",
+      "description": "Detects an account that sends on most of what it received in the last hour. Money in, money out is the core pattern of a money mule account.",
+      "expression": "velocity_inbound_count >= 1 && amount >= 1000.0 && amount >= velocity_inbound_amount_sum * 0.8 && amount <= velocity_inbound_amount_sum * 1.2",
+      "weight": 0.4,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Sends on most of the money received in the last hour"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "No pass-through pattern"}
+      ]
+    },
+    {
+      "id": "fan-out-001",
+      "name": "Fan-Out to Many Payees",
+      "description": "Detects an account that paid 5 or more different payees in the last hour. FATF layering indicator.",
+      "expression": "velocity_distinct_creditors >= 5",
+      "weight": 0.3,
+      "enabled": true,
+      "bands": [
+        {"lowerLimit": 1.0, "subRuleRef": ".review", "reason": "Paid 5 or more different payees in the last hour"},
+        {"lowerLimit": 0.0, "upperLimit": 1.0, "subRuleRef": ".pass", "reason": "Normal number of payees"}
+      ]
+    },
+    {
       "id": "sanctions-001",
       "name": "OFAC SDN Name Match",
-      "description": "Screens debtor and creditor names against the OFAC SDN list (OSPREY_SANCTIONS_DIR). FATF Recommendation 6. Weight is low on purpose: .fail forces ALRT by itself, so the weight only keeps this rule from diluting the detection average.",
+      "description": "Screens debtor and creditor names against the OFAC SDN list (OSPREY_SANCTIONS_DIR). FATF Recommendation 6. A probable match gives .fail, which causes an alert alone. The low weight keeps a review-level match from adding much to the score.",
       "expression": "sanctions_score >= 0.80 ? sanctions_score : 0.0",
       "weight": 0.1,
       "enabled": true,
@@ -160,5 +184,6 @@
         {"lowerLimit": 0.0, "upperLimit": 0.80, "subRuleRef": ".pass", "reason": "No SDN match, or not screened (party names or OSPREY_SANCTIONS_DIR missing)"}
       ]
     }
-  ]
+  ],
+  "_scoring": "Detection mode adds score x weight over the rules that match and alerts at 0.7. Context signals (amount size, transaction type, round amounts) weigh 0.05 to 0.1, so together they stay below 0.4. Behaviour signals (drain, structuring, velocity, pass-through, fan-out) weigh 0.2 to 0.4. One behaviour signal with context does not alert. Two behaviour signals do."
 }

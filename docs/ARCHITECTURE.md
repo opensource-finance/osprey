@@ -40,6 +40,9 @@ Transaction -> Rules -> Typologies -> Threshold -> ALRT/NALT
   - `POST /evaluate` returns `503`
   - `GET /health` returns `status: "degraded"`
   - `GET /ready` returns `503`
+- If an operator deletes or disables the last typology while a request is in progress, that request gets `ALRT`.
+  The stored evaluation has one typology result with the ID `compliance-no-typologies`.
+  Osprey does not use detection scoring for a compliance decision.
 
 ## Mode Enforcement
 
@@ -117,6 +120,9 @@ Core variables:
 | `OSPREY_ASYNC_WORKER` | `false` | `true` enables the async workers. The Pro tier always enables them. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` | Requests per second for each tenant. `0` disables the rate limit. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant |
+| `OSPREY_ALERT_THRESHOLD` | `0.7` | Detection-mode alert threshold, more than `0` and not more than `1` |
+| `OSPREY_SCORING` | `sum` | Detection-mode scoring: `sum` or `average` |
+| `OSPREY_VELOCITY_CLOCK` | `received` | Velocity window clock: `received` (server time) or `event` (the `timestamp` field, for replays) |
 | `OSPREY_SANCTIONS_DIR` | _(unset)_ | OFAC SDN list folder for sanctions screening (`scripts/fetch-ofac.sh`) |
 
 Pro tier backends:
@@ -227,16 +233,24 @@ The full contract is in [`api/openapi.yaml`](api/openapi.yaml).
 ### Detection
 
 ```
-score = sum(rule_score * rule_weight) / sum(rule_weight)
-alert if score >= threshold OR any rule returns .fail
+score = min(1, sum(rule_score * rule_weight))      # OSPREY_SCORING=sum (default)
+score = sum(rule_score * rule_weight) / sum(rule_weight)   # OSPREY_SCORING=average
+alert if score >= threshold OR any rule returns .fail or .err
 ```
+
+- The default threshold is `0.7`. Set `OSPREY_ALERT_THRESHOLD` to change it.
+- With `sum`, a rule that does not match adds `0`. Thus, a new rule does not lower the score of the other rules.
+- With `average`, each new rule lowers the score of a transaction that it does not match.
+- Osprey rounds the score to 9 decimal places before it compares the score with the threshold.
 
 ### Compliance
 
 ```
 typology_score = sum(rule_score * typology_rule_weight)
-alert if any typology is triggered OR any rule returns .fail
+alert if any typology is triggered OR any rule returns .fail or .err
 ```
+
+A typology triggers when its score is equal to or more than its `alertThreshold`.
 
 ## Extensibility
 
