@@ -759,6 +759,8 @@ func TestAggregateZeroWeightIgnoredByUnweightedPath(t *testing.T) {
 	}
 	if agg.AggregateScore < 0.799 || agg.AggregateScore > 0.801 {
 		t.Errorf("expected AggregateScore ~0.8, got %v", agg.AggregateScore)
+	}
+}
 
 // TestEmptyRuleResultsFailsClosed covers the zero-rules fail-open bug. When
 // the rule engine evaluates zero rules (empty RuleResults), both detection
