@@ -29,6 +29,10 @@ Transaction -> Rules -> Weighted Score -> Threshold -> ALRT/NALT
 - Detection is the default mode.
 - Detection mode does not require typologies.
 - The decision uses the aggregate score of the rules and the `.fail` outcomes.
+- If the rule engine has zero rules loaded, the evaluation gets `ALRT`.
+  The stored evaluation has one typology result with the ID `no-rules`.
+  Osprey does not return `NALT` for a transaction when the engine evaluated no rules.
+  This rule applies in compliance mode too, before the typology check.
 
 ### Compliance Mode
 
