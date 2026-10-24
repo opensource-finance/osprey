@@ -139,7 +139,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 <script type="application/json" id="ontology">
 {
   "updated": "2026-10-24",
-  "source": "osprey feat/ofac-sanctions-screening after a111445 (includes main up to b58cb79)",
+  "source": "osprey main at e61de81",
   "verified_by": "read of internal/api/server.go routes + middleware, internal/domain/bus.go topics, internal/repository/schema.go tables, cmd/osprey/main.go env vars, grep for Publish/Subscribe/Save* call sites",
   "types": {
     "actor": {"label": "Actor", "color": "--t-actor"},
@@ -175,27 +175,27 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     {"id": "mw-tenant", "type": "guard", "layer": "edge", "label": "Tenant middleware", "file": "internal/api/middleware.go", "props": {"requires": "X-Tenant-ID", "propagates to": "DB queries, cache keys, bus subjects"}},
     {"id": "mw-rate", "type": "guard", "layer": "edge", "label": "Rate limit", "file": "internal/api/middleware.go", "props": {"scope": "per tenant", "env": "OSPREY_RATE_LIMIT_RPS, OSPREY_RATE_LIMIT_BURST", "default": "off"}},
     {"id": "mw-admin", "type": "guard", "layer": "edge", "label": "Admin token", "file": "internal/api/server.go", "props": {"guards": "rule and typology writes and reloads", "env": "OSPREY_ADMIN_TOKEN (required at startup)"}},
-    {"id": "r-health", "type": "edge", "layer": "edge", "label": "GET /health, /ready", "file": "internal/api/handler.go", "props": {"ready checks": "repository and cache ping", "tenant": "not required"}},
+    {"id": "r-health", "type": "edge", "layer": "edge", "label": "GET, HEAD /health, /ready", "file": "internal/api/handler.go", "props": {"ready checks": "repository and cache ping", "tenant": "not required", "HEAD": "served for load balancer probes"}},
     {"id": "r-evaluate", "type": "edge", "layer": "edge", "label": "POST /evaluate", "file": "internal/api/handler.go", "props": {"body": "id, type, debtor{id, accountId, name}, creditor{...}, amount{value, currency}, timestamp, metadata, enrichment", "returns": "evaluationId, status, score, reasons, metadata", "contract": "docs/api/openapi.yaml"}},
     {"id": "r-read", "type": "edge", "layer": "edge", "label": "GET /evaluations/{id}, /transactions/{id}", "file": "internal/api/handler.go", "props": {"reads": "stored evaluation or transaction"}},
-    {"id": "r-rules", "type": "edge", "layer": "edge", "label": "/rules", "file": "internal/api/handler.go", "props": {"read": "GET /rules, /rules/{id}, /rules/variables", "check": "POST /rules/validate (compile only, no admin)", "write (admin)": "POST, PUT, DELETE /rules, POST /rules/reload"}},
-    {"id": "r-typologies", "type": "edge", "layer": "edge", "label": "/typologies", "file": "internal/api/handler.go", "props": {"read": "GET /typologies, /typologies/{id}", "write (admin)": "POST, PUT, DELETE, POST /typologies/reload"}},
-    {"id": "studio", "type": "edge", "layer": "edge", "label": "Studio /studio/", "file": "studio/studio.go", "props": {"what": "static rule and typology editor served from the binary", "reads variables from": "GET /rules/variables", "env": "OSPREY_STUDIO (default true)"}},
+    {"id": "r-rules", "type": "edge", "layer": "edge", "label": "/rules", "file": "internal/api/handler.go", "props": {"read": "GET /rules, /rules/{id}, /rules/variables", "check": "POST /rules/validate (compile only, no admin)", "write (admin)": "POST, PUT, DELETE /rules, POST /rules/reload", "POST body": "enabled is required"}},
+    {"id": "r-typologies", "type": "edge", "layer": "edge", "label": "/typologies", "file": "internal/api/handler.go", "props": {"read": "GET /typologies, /typologies/{id}", "write (admin)": "POST, PUT, DELETE, POST /typologies/reload", "POST body": "enabled is required"}},
+    {"id": "studio", "type": "edge", "layer": "edge", "label": "Studio /studio/", "file": "studio/studio.go", "props": {"what": "static rule and typology editor served from the binary", "reads variables from": "GET /rules/variables", "env": "OSPREY_STUDIO (default true)", "HEAD": "served on /studio/"}},
 
     {"id": "bus", "type": "transport", "layer": "async", "label": "Event bus", "file": "internal/bus", "tier": {"community": "Go channels (in process)", "pro": "NATS"}, "props": {"env": "OSPREY_BUS_TYPE, OSPREY_NATS_URL", "subjects": "tenant-scoped"}},
     {"id": "t-ingested", "type": "transport", "layer": "async", "label": "osprey.transaction.ingested", "file": "internal/domain/bus.go", "props": {"published by": "external producers only", "subscribed by": "worker (_global and per tenant)"}},
-    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS", "persists": "evaluations only"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
+    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS", "persists": "evaluations only", "normalizes": "type and currency to upper case", "clock": "carries the message timestamp, so OSPREY_VELOCITY_CLOCK=event applies"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
     {"id": "t-decision", "type": "transport", "layer": "async", "label": "osprey.decision", "file": "internal/domain/bus.go", "props": {"published by": "worker, every evaluation", "consumed by": "nothing in this repo"}},
     {"id": "t-alert", "type": "transport", "layer": "async", "label": "osprey.alert", "file": "internal/domain/bus.go", "props": {"published by": "worker, on ALRT", "consumed by": "nothing in this repo"}},
     {"id": "t-unused", "type": "transport", "layer": "async", "label": "rule.* / typology.* topics", "file": "internal/domain/bus.go", "props": {"topics": "osprey.rule.evaluate, osprey.rule.result, osprey.typology.evaluate, osprey.typology.result"}, "gap": "Declared, never published or subscribed. Left over from the Tazama microservice split."},
 
     {"id": "handler", "type": "engine", "layer": "engine", "label": "Evaluate handler", "file": "internal/api/handler.go", "props": {"steps": "validate, save transaction, build input, rules, typologies, TADP, save evaluation, respond", "velocity window": "3600 s"}},
-    {"id": "engine", "type": "engine", "layer": "engine", "label": "CEL rule engine", "file": "internal/rules/engine.go", "props": {"runs": "all compiled (enabled) rules in parallel, semaphore of 100", "cost limit": "1,000,000 CEL units per rule", "outcomes": ".pass, .review, .fail, .err via ordered bands"}},
+    {"id": "engine", "type": "engine", "layer": "engine", "label": "CEL rule engine", "file": "internal/rules/engine.go", "props": {"runs": "all compiled (enabled) rules in parallel, semaphore of 100", "cost limit": "1,000,000 CEL units per rule", "outcomes": ".pass, .review, .fail, .err via ordered bands", "bands": "score rounded before band matching"}},
     {"id": "catalog", "type": "engine", "layer": "engine", "label": "CEL variable catalog", "file": "internal/rules/variables.go", "props": {"core": "amount, currency, tx_type, debtor_id, creditor_id, old_balance, new_balance, tx", "velocity": "velocity_count, velocity_amount_sum, velocity_distinct_creditors, velocity_inbound_count, velocity_inbound_amount_sum", "sanctions": "sanctions_score, sanctions_match (party and entry)", "open maps": "meta.*, enrichment.*", "single source for": "CEL env, /rules/variables, authoring docs"}},
-    {"id": "velocity", "type": "engine", "layer": "engine", "label": "Velocity service", "file": "internal/velocity/velocity.go", "props": {"scope": "debtor only", "source": "repository query per evaluation", "clock": "OSPREY_VELOCITY_CLOCK received (default) or event", "fails": "closed: lookup error fails the evaluation"}},
+    {"id": "velocity", "type": "engine", "layer": "engine", "label": "Velocity service", "file": "internal/velocity/velocity.go", "props": {"scope": "debtor only", "source": "repository query per evaluation", "clock": "OSPREY_VELOCITY_CLOCK received (default) or event", "fails": "closed: lookup error fails the evaluation", "amount sums": "only rows in the evaluated currency, case-insensitive"}},
     {"id": "sanctions", "type": "engine", "layer": "engine", "label": "Sanctions screener", "file": "internal/sanctions/sanctions.go", "props": {"list": "OFAC SDN + aliases, in memory", "match": "token Jaro-Winkler over a 3-letter prefix index", "runs when": "a loaded rule reads sanctions_*", "reports": "which party matched, debtor or creditor", "cost": "about 0.6 ms worst case per name"}},
     {"id": "typo-engine", "type": "decision", "layer": "decision", "label": "Typology engine", "file": "internal/rules/typology.go", "props": {"mode": "compliance", "score": "sum of rule score x typology weight", "trigger": "score at or above alertThreshold"}},
-    {"id": "tadp", "type": "decision", "layer": "decision", "label": "TADP decision processor", "file": "internal/tadp/tadp.go", "props": {"detection": "sum of score x weight, capped at 1 (OSPREY_SCORING=sum) or weighted average", "threshold": "OSPREY_ALERT_THRESHOLD, default 0.7", "forces ALRT": "any .fail or .err", "output": "ALRT or NALT, score, reasons"}},
+    {"id": "tadp", "type": "decision", "layer": "decision", "label": "TADP decision processor", "file": "internal/tadp/tadp.go", "props": {"detection": "sum of score x weight, capped at 1 (OSPREY_SCORING=sum) or weighted average", "threshold": "OSPREY_ALERT_THRESHOLD, default 0.7", "forces ALRT": "any .fail or .err, or zero rules loaded", "output": "ALRT or NALT, score, reasons", "weight 0": "adds nothing to the score. Startup logs each enabled rule with weight 0"}},
 
     {"id": "repo", "type": "store", "layer": "data", "label": "Repository", "file": "internal/repository", "tier": {"community": "SQLite (OSPREY_SQLITE_PATH)", "pro": "PostgreSQL (OSPREY_POSTGRES_*)"}, "props": {"interface": "internal/domain/repository.go", "migrations": "same schema, BLOB rewritten to BYTEA on Postgres"}},
     {"id": "tbl-tx", "type": "store", "layer": "data", "label": "transactions", "file": "internal/repository/schema.go", "props": {"key": "(id, tenant_id)", "indexes": "debtor, creditor, timestamp, created_at", "not stored": "party names, enrichment"}},
@@ -301,9 +301,9 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["tbl-tx", "save the transaction first, 409 on a duplicate id"],
       ["velocity", "query the debtor's transactions in the window"],
       ["sanctions", "screen debtor and creditor names, only if a rule reads sanctions_*"],
-      ["engine", "run every enabled rule in parallel, map each score to a band"],
+      ["engine", "run every enabled rule in parallel, round each score, map it to a band"],
       ["typo-engine", "compliance mode only: sum weighted rule scores per typology"],
-      ["tadp", "ALRT if score at or above threshold, or any .fail or .err"],
+      ["tadp", "ALRT if score at or above threshold, any .fail or .err, or zero rules"],
       ["tbl-eval", "save the evaluation with rule and typology results"],
       ["caller", "respond with status, score, reasons, timings"]
     ]},
@@ -311,7 +311,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["producer", "publish TransactionMessage to osprey.transaction.ingested"],
       ["bus", "NATS (Pro) or Go channels, with tenant-scoped subjects"],
       ["worker", "subscription tenant wins over the payload tenant, except on the global worker"],
-      ["velocity", "query the debtor's transactions", "Bus-only transactions are never saved, so they never count here."],
+      ["velocity", "query the debtor's transactions, with the event clock when set", "Bus-only transactions are never saved, so they never count here."],
       ["engine", "same rule evaluation as the sync path"],
       ["tadp", "same decision step"],
       ["tbl-eval", "save the evaluation"],
@@ -322,7 +322,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["analyst", "write a CEL expression in Studio"],
       ["catalog", "Studio lists variables from GET /rules/variables"],
       ["r-rules", "POST /rules/validate compiles without saving"],
-      ["mw-admin", "POST /rules needs OSPREY_ADMIN_TOKEN"],
+      ["mw-admin", "POST /rules needs OSPREY_ADMIN_TOKEN and the enabled field"],
       ["tbl-rules", "save the rule config"],
       ["engine", "compile and load. POST /rules/reload reloads all rules"]
     ]},
@@ -356,7 +356,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
   ],
   "changelog": [
     "2026-10-24: first map, from osprey e28c4dd.",
-    "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md."
+    "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md.",
+    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization."
   ]
 }
 </script>
