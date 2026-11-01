@@ -52,6 +52,16 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- Detection rule scores are now clamped to the documented `[0, 1]` range when the CEL expression is evaluated.
+  Before this change, a rule expression returning a negative number passed through `toScore` verbatim.
+  Examples include `sanctions_score - 0.5` or a negative external value read through `double(enrichment.trust_score)`.
+  The negative score matched no band, so the rule was labeled `.pass` ("no matching band"), but the negative value stayed on the rule result.
+  That value was then subtracted from the weighted aggregate.
+  One negative-scoring rule could cancel matching rules, push the aggregate below the alert threshold, and flip an `ALRT` into a `NALT` (fail-open).
+
+  The below-zero score was also persisted in `rule_results` and published as the evaluation and detection-summary score.
+  A non-matching rule now adds `0` to the aggregate, matching `docs/ARCHITECTURE.md`: "With `sum`, a rule that does not match adds `0`".
+  Every rule score stays within `docs/QUICKSTART.md`'s "Risk score from `0` to `1`".
 - `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
   Before this change, they added raw amounts across every currency the entity touched in the window.
   A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).

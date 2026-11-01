@@ -343,6 +343,16 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 	// persist a noisy score in rule_results. Mirrors the rounding applied at the
 	// typology and aggregate threshold checks. No-op for boolean 0.0/1.0 rules.
 	score := domain.RoundScore(toScore(out))
+	// Clamp to the documented [0, 1] score range. A CEL expression may return a
+	// signed numeric (e.g. `sanctions_score - 0.5`, or a negative enrichment
+	// value via `double(enrichment.trust_score)`). Without this, a negative
+	// result passes through toScore verbatim, matches no band (defaults to
+	// .pass) yet is retained on the rule result, and is then subtracted from
+	// the weighted aggregate. That cancels genuinely matching rules and flips
+	// an ALRT to NALT (fail-open), and publishes a below-zero score. The clamp
+	// enforces docs/QUICKSTART.md ("Risk score from 0 to 1") and
+	// docs/ARCHITECTURE.md ("With sum, a rule that does not match adds 0").
+	score = max(0.0, min(1.0, score))
 	result.Score = score
 
 	// Determine outcome based on bands
