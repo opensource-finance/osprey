@@ -132,7 +132,7 @@ The `community` profile is the default. It is the easiest profile for a local Os
 | `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite path. |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis`. |
 | `OSPREY_BUS_TYPE` | `channel` | `channel` or `nats`. |
-| `OSPREY_TENANTS` | unset | Optional. A comma-separated list of tenants for async workers. |
+| `OSPREY_TENANTS` | unset | A comma-separated list of tenant IDs for the async workers. Required when the async worker is on (`OSPREY_TIER=pro` or `OSPREY_ASYNC_WORKER=true`). Osprey does not start without it. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` (off) | Requests per second for each tenant. `0` disables the rate limit. Set `0` for load tests. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant. |
 | `OSPREY_ALERT_THRESHOLD` | `0.7` | Detection mode: the score at or above which Osprey gives `ALRT`. A value more than `0` and not more than `1`. |

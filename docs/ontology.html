@@ -138,8 +138,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 
 <script type="application/json" id="ontology">
 {
-  "updated": "2026-10-24",
-  "source": "osprey main at e61de81",
+  "updated": "2026-11-01",
+  "source": "osprey main at dd09a19",
   "verified_by": "read of internal/api/server.go routes + middleware, internal/domain/bus.go topics, internal/repository/schema.go tables, cmd/osprey/main.go env vars, grep for Publish/Subscribe/Save* call sites",
   "types": {
     "actor": {"label": "Actor", "color": "--t-actor"},
@@ -183,8 +183,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     {"id": "studio", "type": "edge", "layer": "edge", "label": "Studio /studio/", "file": "studio/studio.go", "props": {"what": "static rule and typology editor served from the binary", "reads variables from": "GET /rules/variables", "env": "OSPREY_STUDIO (default true)", "HEAD": "served on /studio/"}},
 
     {"id": "bus", "type": "transport", "layer": "async", "label": "Event bus", "file": "internal/bus", "tier": {"community": "Go channels (in process)", "pro": "NATS"}, "props": {"env": "OSPREY_BUS_TYPE, OSPREY_NATS_URL", "subjects": "tenant-scoped"}},
-    {"id": "t-ingested", "type": "transport", "layer": "async", "label": "osprey.transaction.ingested", "file": "internal/domain/bus.go", "props": {"published by": "external producers only", "subscribed by": "worker (_global and per tenant)"}},
-    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS", "persists": "evaluations only", "normalizes": "type and currency to upper case", "clock": "carries the message timestamp, so OSPREY_VELOCITY_CLOCK=event applies"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
+    {"id": "t-ingested", "type": "transport", "layer": "async", "label": "osprey.transaction.ingested", "file": "internal/domain/bus.go", "props": {"published by": "external producers only", "subscribed by": "worker (wildcard tenant and per tenant)", "wildcard": "the channel bus and the NATS bus treat domain.GlobalTenantID (*) as a wildcard, so a global subscription receives every tenant"}},
+    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS, required when async on; empty fails startup", "persists": "evaluations only", "normalizes": "type and currency to upper case", "clock": "carries the message timestamp, so OSPREY_VELOCITY_CLOCK=event applies"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
     {"id": "t-decision", "type": "transport", "layer": "async", "label": "osprey.decision", "file": "internal/domain/bus.go", "props": {"published by": "worker, every evaluation", "consumed by": "nothing in this repo"}},
     {"id": "t-alert", "type": "transport", "layer": "async", "label": "osprey.alert", "file": "internal/domain/bus.go", "props": {"published by": "worker, on ALRT", "consumed by": "nothing in this repo"}},
     {"id": "t-unused", "type": "transport", "layer": "async", "label": "rule.* / typology.* topics", "file": "internal/domain/bus.go", "props": {"topics": "osprey.rule.evaluate, osprey.rule.result, osprey.typology.evaluate, osprey.typology.result"}, "gap": "Declared, never published or subscribed. Left over from the Tazama microservice split."},
@@ -209,7 +209,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     {"id": "paysim-rules", "type": "content", "layer": "content", "label": "PaySim rules", "file": "configs/rules/paysim-rules.json", "props": {"use": "benchmark on the labelled PaySim dataset"}},
     {"id": "fatf-typos", "type": "content", "layer": "content", "label": "FATF typologies", "file": "configs/typologies/fatf-typologies.json", "props": {"includes": "structuring, account takeover, mule, rapid movement, cash intensive, fraud basic, sanctions"}},
     {"id": "seed", "type": "tool", "layer": "content", "label": "Seed scripts", "file": "scripts/seed-starter-kit.sh", "props": {"loads": "rules, plus typologies with --compliance", "via": "the admin API"}},
-    {"id": "env", "type": "config", "layer": "content", "label": "OSPREY_* environment", "file": "cmd/osprey/main.go", "props": {"tier": "OSPREY_TIER community | pro", "parsed in": "applyEnvOverrides into domain.Config", "mode": "OSPREY_MODE detection | compliance", "scoring": "OSPREY_SCORING, OSPREY_ALERT_THRESHOLD", "velocity": "OSPREY_VELOCITY_CLOCK", "sanctions": "OSPREY_SANCTIONS_DIR", "server": "OSPREY_HOST, OSPREY_PORT, OSPREY_STUDIO, OSPREY_DEBUG"}},
+    {"id": "env", "type": "config", "layer": "content", "label": "OSPREY_* environment", "file": "cmd/osprey/main.go", "props": {"tier": "OSPREY_TIER community | pro", "parsed in": "applyEnvOverrides into domain.Config", "mode": "OSPREY_MODE detection | compliance", "scoring": "OSPREY_SCORING, OSPREY_ALERT_THRESHOLD", "velocity": "OSPREY_VELOCITY_CLOCK", "sanctions": "OSPREY_SANCTIONS_DIR", "server": "OSPREY_HOST, OSPREY_PORT, OSPREY_STUDIO, OSPREY_DEBUG", "async": "OSPREY_ASYNC_WORKER, OSPREY_TENANTS (required when async on; empty fails startup)"}},
 
     {"id": "benchmark", "type": "tool", "layer": "tools", "label": "cmd/benchmark", "file": "cmd/benchmark", "props": {"measures": "throughput on PaySim CSV"}},
     {"id": "qualitybench", "type": "tool", "layer": "tools", "label": "cmd/qualitybench", "file": "cmd/qualitybench", "props": {"measures": "precision and recall of a rule set on labelled PaySim", "flag": "-velocity replays in event time"}},
@@ -343,7 +343,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["sanctions", "load the list if OSPREY_SANCTIONS_DIR is set"],
       ["tbl-rules", "load rules. There are no hard-coded defaults"],
       ["tbl-typo", "load typologies"],
-      ["worker", "start workers when Pro or OSPREY_ASYNC_WORKER=true"],
+      ["worker", "start workers when Pro or OSPREY_ASYNC_WORKER=true; fail if OSPREY_TENANTS is empty"],
       ["router", "serve HTTP, and Studio unless OSPREY_STUDIO=false"]
     ]}
   ],
@@ -357,7 +357,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
   "changelog": [
     "2026-10-24: first map, from osprey e28c4dd.",
     "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md.",
-    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization."
+    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization.",
+    "2026-11-01: async worker fails loudly on empty OSPREY_TENANTS. The global path now uses the bus wildcard tenant (*). channel bus and NATS bus deliver a wildcard subscription to every tenant publish. docker-compose sets a default tenant."
   ]
 }
 </script>

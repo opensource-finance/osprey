@@ -204,7 +204,17 @@ func (b *NATSBus) Close() error {
 }
 
 // makeSubject creates a NATS subject with tenant prefix.
+//
+// The normal subject is osprey.<tenantID>.<topic>, and a publish for tenant T
+// is delivered to a subscriber on osprey.T.<topic>. When tenantID is
+// domain.GlobalTenantID ("*"), the subject uses the single-token NATS wildcard
+// osprey.*.<topic>, which matches a publish for any tenant on that topic. The
+// published message envelope keeps the real tenant, so the handler can
+// attribute the work even though the subscription was wildcarded.
 func (b *NATSBus) makeSubject(tenantID, topic string) string {
+	if tenantID == domain.GlobalTenantID {
+		return fmt.Sprintf("osprey.*.%s", topic)
+	}
 	return fmt.Sprintf("osprey.%s.%s", tenantID, topic)
 }
 

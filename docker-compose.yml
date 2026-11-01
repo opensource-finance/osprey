@@ -69,6 +69,12 @@ services:
       OSPREY_DEBUG: "false"
       OSPREY_ADMIN_TOKEN: ${OSPREY_ADMIN_TOKEN:-local-admin-token}
 
+      # Async worker tenants. Required when the async worker is on (the Pro
+      # tier always enables it). Override with the real tenant list in
+      # production; the default keeps the shipped stack functional out of the
+      # box.
+      OSPREY_TENANTS: ${OSPREY_TENANTS:-default}
+
       # PostgreSQL
       OSPREY_DB_DRIVER: postgres
       OSPREY_POSTGRES_HOST: postgres

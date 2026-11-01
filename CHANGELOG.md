@@ -171,6 +171,20 @@ This file records all notable changes to this project. The format follows
   The handlers now return `400 enabled is required`, the same guard the `PUT` handlers have.
   An explicit `enabled: false` is still an accepted, intentional disable.
 
+- The async worker no longer starts in a silent inert state when `OSPREY_TENANTS` is unset.
+  Before this change, the Pro tier (and `OSPREY_ASYNC_WORKER=true`) started the worker with an empty tenant list.
+  The worker subscribed as the exact tenant `_global`.
+  Both buses route by the exact tenant, so no publish for a real tenant reached it.
+  The worker logged `async worker started` at info level and processed zero transactions.
+  The shipped `docker-compose.yml` enables Pro and NATS without `OSPREY_TENANTS`, so it hit this path.
+
+  Now Osprey fails to start with a clear error when the async worker is on and `OSPREY_TENANTS` is empty or unset.
+  Set `OSPREY_TENANTS` to a comma-separated list of tenant IDs.
+  The global path that an empty list used to select now subscribes with the bus wildcard tenant (`*`).
+  The channel bus delivers every publish on the topic to the wildcard subscriber.
+  The NATS bus uses the subject `osprey.*.<topic>`.
+  Both deliver the real tenant in the message, so the global path is no longer dead for tests and development.
+
 ### Security
 
 - Account-drain rules now fire when `metadata.new_balance` is `null`.

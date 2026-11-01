@@ -20,6 +20,59 @@ func TestParseTenantIDs(t *testing.T) {
 	}
 }
 
+// TestResolveAsyncTenantIDs covers the validation main() runs before it
+// starts the async worker. An unset or empty OSPREY_TENANTS must return an
+// error so main() fails loudly instead of starting an inert worker.
+func TestResolveAsyncTenantIDs(t *testing.T) {
+	t.Run("UnsetReturnsError", func(t *testing.T) {
+		t.Setenv("OSPREY_TENANTS", "")
+		_, err := resolveAsyncTenantIDs()
+		if err == nil {
+			t.Fatal("expected an error when OSPREY_TENANTS is unset, got nil")
+		}
+		if !strings.Contains(err.Error(), "OSPREY_TENANTS") {
+			t.Fatalf("expected the error to name OSPREY_TENANTS, got %v", err)
+		}
+	})
+
+	t.Run("OnlyEmptiesReturnsError", func(t *testing.T) {
+		// A value that trims to nothing (for example ", ,") is the same as
+		// unset: no real tenant is configured.
+		t.Setenv("OSPREY_TENANTS", " , , , ")
+		_, err := resolveAsyncTenantIDs()
+		if err == nil {
+			t.Fatal("expected an error when OSPREY_TENANTS has only empty values, got nil")
+		}
+		if !strings.Contains(err.Error(), "OSPREY_TENANTS") {
+			t.Fatalf("expected the error to name OSPREY_TENANTS, got %v", err)
+		}
+	})
+
+	t.Run("ValidListReturnsTenants", func(t *testing.T) {
+		t.Setenv("OSPREY_TENANTS", " tenant-a , tenant-b ,,tenant-c ")
+		got, err := resolveAsyncTenantIDs()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"tenant-a", "tenant-b", "tenant-c"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("SingleTenantReturnsTenant", func(t *testing.T) {
+		t.Setenv("OSPREY_TENANTS", "tenant-a")
+		got, err := resolveAsyncTenantIDs()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"tenant-a"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+}
+
 func TestApplyModeOverride(t *testing.T) {
 	t.Run("AcceptsCaseInsensitiveCompliance", func(t *testing.T) {
 		t.Setenv("OSPREY_MODE", " Compliance ")
