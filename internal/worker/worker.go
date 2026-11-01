@@ -235,6 +235,35 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		Enrichment:     txMsg.Enrichment,
 	}
 
+	// Validate required fields, mirroring POST /evaluate so the async path
+	// rejects what the sync path rejects instead of silently degrading. An
+	// empty currency in particular would reach velocity with Currency == ""
+	// and, via the sameCurrency legacy fallback, sum amounts across every
+	// currency in the window, restoring exactly the mixed-currency totals
+	// the per-currency scoping was added to prevent.
+	if evalInput.Type == "" {
+		slog.Error("type is required",
+			"message_id", msg.ID,
+			"tx_id", txMsg.TxID,
+		)
+		return fmt.Errorf("type is required")
+	}
+	if evalInput.Amount <= 0 {
+		slog.Error("amount must be positive",
+			"message_id", msg.ID,
+			"tx_id", txMsg.TxID,
+			"amount", evalInput.Amount,
+		)
+		return fmt.Errorf("amount must be positive")
+	}
+	if evalInput.Currency == "" {
+		slog.Error("currency is required",
+			"message_id", msg.ID,
+			"tx_id", txMsg.TxID,
+		)
+		return fmt.Errorf("currency is required")
+	}
+
 	if evalInput.VelocityWindow <= 0 {
 		evalInput.VelocityWindow = 3600 // Default 1 hour
 	} else if evalInput.VelocityWindow > velocity.MaxWindowSecs {
