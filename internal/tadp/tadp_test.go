@@ -851,3 +851,42 @@ func TestEmptyRuleResultsTakePrecedenceOverNoTypologies(t *testing.T) {
 		t.Fatalf("expected the no-rules marker to win over %q, got %+v", NoTypologiesID, eval.TypologyResults)
 	}
 }
+
+// TestComplianceModeCapsEvaluationScoreAtOne guards the documented 0.0-1.0
+// score range on the compliance path. The TypologyEngine now caps each
+// typology score at 1.0, but the TADP compliance branch takes its evaluation
+// score straight from the max typology score. A caller can build typology
+// results outside the engine (tests do, and so can any future producer) with
+// a score above 1.0. The processor must clamp the final evaluation score at
+// 1.0 so the stored and published record stays in range.
+func TestComplianceModeCapsEvaluationScoreAtOne(t *testing.T) {
+	proc := NewComplianceProcessor()
+
+	input := &DecisionInput{
+		TenantID:  "tenant-001",
+		TxID:      "tx-cap",
+		TraceID:   "trace-cap",
+		StartTime: time.Now(),
+		RuleResults: []domain.RuleResult{
+			{RuleID: "rule-1", Score: 1.0, SubRuleRef: domain.RuleOutcomeReview, Weight: 1.0},
+		},
+		TypologyResults: []domain.TypologyResult{
+			{
+				TypologyID:   "typology-mule-account",
+				TypologyName: "Mule Account Activity",
+				Score:        1.5, // uncapped, as if built outside the engine
+				Threshold:    0.75,
+				Triggered:    true,
+			},
+		},
+	}
+
+	eval := proc.Process(context.Background(), input)
+
+	if eval.Status != domain.StatusAlert {
+		t.Errorf("expected ALRT (typology triggered), got %s", eval.Status)
+	}
+	if eval.Score != 1.0 {
+		t.Errorf("expected evaluation score capped at 1.0, got %v", eval.Score)
+	}
+}

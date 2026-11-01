@@ -65,8 +65,9 @@ func (e *TypologyEngine) TypologyCount() int {
 // Algorithm:
 // 1. Build a map of ruleID -> score from rule results
 // 2. For each typology, sum (rule_score * weight) for matching rules
-// 3. Compare against alert threshold
-// 4. Return triggered typologies
+// 3. Cap the sum at 1.0 so the score stays in the documented 0.0-1.0 range
+// 4. Compare against alert threshold
+// 5. Return triggered typologies
 func (e *TypologyEngine) EvaluateTypologies(ruleResults []domain.RuleResult) []domain.TypologyResult {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -122,7 +123,14 @@ func (e *TypologyEngine) evaluateTypology(typology *domain.Typology, ruleScores 
 		})
 	}
 
-	result.Score = domain.RoundScore(totalScore)
+	// Cap the weighted sum at 1.0. Typologies whose rule weights sum above
+	// 1.0 are accepted (the API only warns, it does not reject), so the
+	// raw sum can exceed 1.0. The documented score range is 0.0-1.0
+	// (docs/QUICKSTART.md), and the detection path caps its aggregate the
+	// same way (internal/tadp/tadp.go). Clamp here, at the source, so every
+	// consumer of TypologyResult.Score (the compliance evaluation score,
+	// the stored evaluation, the published event) stays in range.
+	result.Score = domain.RoundScore(min(totalScore, 1.0))
 	result.Triggered = result.Score >= typology.AlertThreshold
 
 	return result
