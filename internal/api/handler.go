@@ -298,6 +298,17 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check event bus health. The Pro tier depends on the bus for the async
+	// pipeline (transaction consumption, decision and alert publishing); a
+	// terminal NATS CLOSED state would otherwise leave event processing
+	// permanently dead with /health still reporting "healthy", since the bus
+	// is not exercised on the synchronous path. Ping surfaces that.
+	if h.bus != nil {
+		if err := h.bus.Ping(r.Context()); err != nil {
+			status = "degraded"
+		}
+	}
+
 	if h.mode == domain.ModeCompliance && !h.hasLoadedTypologies() {
 		status = "degraded"
 	}
