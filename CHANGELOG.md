@@ -170,6 +170,11 @@ This file records all notable changes to this project. The format follows
 
   The handlers now return `400 enabled is required`, the same guard the `PUT` handlers have.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- `docs/api/openapi.yaml` no longer documents fields that `GET /evaluations/{id}` never returns.
+  Before this change, the `EvaluationMetadata` schema listed `ingestMs` and `rulesMs`, and the `RuleContribution` schema listed `triggered`.
+  The Go structs for stored evaluations never serialized these keys.
+  Clients that built from the spec read `undefined` for fields the contract promised.
+  The spec now matches the actual payload. The `ingestMs` field on the `POST /evaluate` response schema is unchanged.
 
 ### Security
 
