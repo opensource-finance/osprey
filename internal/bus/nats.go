@@ -38,21 +38,38 @@ func natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
 	slog.Error("NATS error", args...)
 }
 
+// resolveMaxReconnects maps the configured NATSMaxReconnects to the nats.go
+// reconnect budget. A non-positive value (the zero-value default) means
+// unbounded reconnects: with nats.MaxReconnects(-1) nats.go keeps retrying
+// forever, so a recovering NATS server automatically revives the connection
+// and resubscribes instead of exhausting attempts and entering the terminal
+// CLOSED state, after which nats.go never reconnects. A positive value is
+// honored as a bounded budget for operators who want fail-fast wiring.
+func resolveMaxReconnects(configured int) int {
+	if configured <= 0 {
+		return -1
+	}
+	return configured
+}
+
 // NewNATSBus creates a new NATS-based event bus with resilience.
 func NewNATSBus(cfg domain.EventBusConfig) (*NATSBus, error) {
 	if cfg.NATSUrl == "" {
 		cfg.NATSUrl = nats.DefaultURL
 	}
-	if cfg.NATSMaxReconnects == 0 {
-		cfg.NATSMaxReconnects = 10
-	}
 	if cfg.NATSReconnectWait == 0 {
 		cfg.NATSReconnectWait = 5
 	}
 
+	// Unbounded reconnects by default so a temporary NATS outage (longer
+	// than the old bounded budget) no longer drives the connection into the
+	// terminal CLOSED state. nats.go buffers publishes in the 8MB reconnect
+	// buffer while disconnected and resubscribes on reconnect.
+	maxReconnects := resolveMaxReconnects(cfg.NATSMaxReconnects)
+
 	// Configure NATS connection with resilience
 	opts := []nats.Option{
-		nats.MaxReconnects(cfg.NATSMaxReconnects),
+		nats.MaxReconnects(maxReconnects),
 		nats.ReconnectWait(time.Duration(cfg.NATSReconnectWait) * time.Second),
 		nats.ReconnectBufSize(8 * 1024 * 1024), // 8MB buffer during reconnect
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
@@ -76,24 +93,31 @@ func NewNATSBus(cfg domain.EventBusConfig) (*NATSBus, error) {
 		opts = append(opts, nats.Token(cfg.NATSToken))
 	}
 
-	// Connect with retry
+	// The initial connection uses a bounded retry loop so startup fails fast
+	// when NATS is unreachable. Runtime reconnects (after a disconnect) use
+	// the resolved budget, which is unbounded by default.
+	initialAttempts := maxReconnects
+	if initialAttempts < 0 {
+		initialAttempts = 10
+	}
+
 	var conn *nats.Conn
 	var err error
-	for i := 0; i < cfg.NATSMaxReconnects; i++ {
+	for i := 0; i < initialAttempts; i++ {
 		conn, err = nats.Connect(cfg.NATSUrl, opts...)
 		if err == nil {
 			break
 		}
 		slog.Warn("NATS connection attempt failed",
 			"attempt", i+1,
-			"max_attempts", cfg.NATSMaxReconnects,
+			"max_attempts", initialAttempts,
 			"error", err,
 		)
 		time.Sleep(time.Duration(cfg.NATSReconnectWait) * time.Second)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS after %d attempts: %w", cfg.NATSMaxReconnects, err)
+		return nil, fmt.Errorf("failed to connect to NATS after %d attempts: %w", initialAttempts, err)
 	}
 
 	slog.Info("NATS connected",
@@ -179,10 +203,19 @@ func (b *NATSBus) Subscribe(ctx context.Context, tenantID string, topic string, 
 	return sub, nil
 }
 
-// Ping checks NATS connectivity.
+// Ping checks NATS connectivity. A caller may pass a deadline-less context
+// (for example an HTTP request context); nats.go's FlushWithContext requires a
+// deadline, so Ping supplies a short one when none is present rather than
+// returning ErrNoDeadline. The IsConnected check still surfaces a terminal
+// CLOSED or disconnected connection as an error.
 func (b *NATSBus) Ping(ctx context.Context) error {
 	if !b.conn.IsConnected() {
 		return fmt.Errorf("NATS not connected")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 	}
 	return b.conn.FlushWithContext(ctx)
 }

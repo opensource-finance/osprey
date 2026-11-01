@@ -52,6 +52,18 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- The Pro tier event bus now reconnects to NATS without a limit.
+  Before this change, the bus made only 10 reconnect attempts.
+  A NATS outage of about one minute left the connection in the closed state forever.
+  The async event pipeline stopped, and `/health` stayed green.
+  The orchestrator did not restart the service.
+
+  Now the bus uses unbounded reconnects.
+  When the NATS server returns, the connection and the subscriptions recover automatically.
+  The `/health` endpoint also pings the event bus.
+  A closed bus now reports `degraded`, so the orchestrator can restart the service.
+  A positive `NATSMaxReconnects` value still sets a bounded budget for operators who want fail-fast wiring.
+
 - `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
   Before this change, they added raw amounts across every currency the entity touched in the window.
   A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).
