@@ -11,6 +11,13 @@ import (
 type Repository interface {
 	// Transaction operations
 	SaveTransaction(ctx context.Context, tenantID string, tx *Transaction) error
+	// DeleteTransaction removes a transaction by (tenantID, txID). It is the
+	// rollback counterpart to SaveTransaction: the synchronous evaluator inserts
+	// the transaction before it runs the rules (so velocity_count includes the
+	// current transaction), and if a later step fails it calls this to remove the
+	// orphan so a client retry with the same id is not hard-blocked by a 409.
+	// A missing row is not an error, so cleanup is idempotent.
+	DeleteTransaction(ctx context.Context, tenantID string, txID string) error
 	GetTransaction(ctx context.Context, tenantID string, txID string) (*Transaction, error)
 	GetTransactionsByEntity(ctx context.Context, tenantID string, entityID string, since time.Time) ([]*Transaction, error)
 	// GetTransactionsByEntityInEventWindow filters on the caller-supplied event timestamp, from and to inclusive.

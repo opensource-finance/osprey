@@ -183,14 +183,19 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		Enrichment:      req.Enrichment,
 	}
 
-	// Save transaction if repository is available
+	// Save transaction if repository is available. The transaction is persisted
+	// before evaluation so velocity_count includes the current transaction (see
+	// docs/RULE_TYPOLOGY_AUTHORING.md). If a later step fails, the inserted row is
+	// removed so a client retry with the same id is not hard-blocked by a 409:
+	// the only durable state for an id is a fully evaluated transaction.
 	if h.repo != nil {
-		if err := h.repo.SaveTransaction(ctx, tenantID, tx); errors.Is(err, repository.ErrDuplicateTransaction) {
-			writeJSON(w, http.StatusConflict, map[string]string{
-				"error": "transaction id already exists",
-			})
-			return
-		} else if err != nil {
+		if err := h.repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+			if errors.Is(err, repository.ErrDuplicateTransaction) {
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error": "transaction id already exists",
+				})
+				return
+			}
 			slog.Error("failed to save transaction", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "failed to persist transaction",
@@ -224,6 +229,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	ruleResults, err := h.engine.EvaluateAll(ctx, evalInput)
 	if err != nil {
 		slog.Error("rule evaluation failed", "error", err)
+		h.rollbackOrphanedTransaction(ctx, tenantID, txID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "rule evaluation failed",
 		})
@@ -255,6 +261,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	if h.repo != nil {
 		if err := h.repo.SaveEvaluation(ctx, tenantID, evaluation); err != nil {
 			slog.Error("failed to save evaluation", "error", err)
+			h.rollbackOrphanedTransaction(ctx, tenantID, txID)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "failed to persist evaluation",
 			})
@@ -874,6 +881,28 @@ func (h *Handler) requireRepository(w http.ResponseWriter) bool {
 		"error": "repository not available",
 	})
 	return false
+}
+
+// rollbackOrphanedTransaction removes a transaction the handler persisted but
+// will not pair with an evaluation, so a client retry with the same id is not
+// hard-blocked by a 409 ErrDuplicateTransaction.
+//
+// Best-effort and decoupled from the request: a client disconnect cancels
+// r.Context() and is the realistic cause of a SaveEvaluation failure (the second
+// write happens after the first on the same context), so the rollback runs on a
+// fresh context with a short timeout. A delete failure is only logged; the
+// caller has already returned 5xx, and an orphan that survives a double failure
+// is the same stuck state this cleanup prevents, just rarer.
+func (h *Handler) rollbackOrphanedTransaction(ctx context.Context, tenantID, txID string) {
+	if h.repo == nil || txID == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := h.repo.DeleteTransaction(cleanupCtx, tenantID, txID); err != nil {
+		slog.Error("failed to roll back orphaned transaction after evaluation failure",
+			"tx_id", txID, "tenant_id", tenantID, "error", err)
+	}
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
