@@ -166,6 +166,82 @@ func TestDistinctCreditorsCountsOutgoingOnly(t *testing.T) {
 	}
 }
 
+// TestDistinctCreditorsExcludesSelfTransfer is the regression test for a
+// self-transfer (DebtorID == CreditorID == entityID). The corridor between an
+// entity and itself is not a payee relationship, so such a row must not add the
+// entity to its own creditor set and inflate velocity_distinct_creditors.
+// GetAggregates and GetAggregatesAt both funnel into aggregate, so the
+// table-driven cases exercise that shared path directly, and the service
+// subtest confirms the classification through the repository (the path the
+// rule engine uses).
+func TestDistinctCreditorsExcludesSelfTransfer(t *testing.T) {
+	entity := "E"
+	now := time.Now().UTC()
+	self := &domain.Transaction{ID: "self", Type: "TRANSFER", DebtorID: entity, CreditorID: entity, Amount: 100, Currency: "USD", Timestamp: now, CreatedAt: now}
+	out := func(id, to string, amount float64) *domain.Transaction {
+		return &domain.Transaction{ID: id, Type: "TRANSFER", DebtorID: entity, CreditorID: to, Amount: amount, Currency: "USD", Timestamp: now, CreatedAt: now}
+	}
+	in := func(id, from string, amount float64) *domain.Transaction {
+		return &domain.Transaction{ID: id, Type: "TRANSFER", DebtorID: from, CreditorID: entity, Amount: amount, Currency: "USD", Timestamp: now, CreatedAt: now}
+	}
+
+	cases := []struct {
+		name string
+		txs  []*domain.Transaction
+		want Aggregates
+	}{
+		{
+			name: "single self-transfer has no distinct payee",
+			txs:  []*domain.Transaction{self},
+			want: Aggregates{Count: 1, AmountSum: 100, DistinctCreditors: 0},
+		},
+		{
+			name: "self-transfer plus one outgoing payee counts only the payee",
+			txs:  []*domain.Transaction{self, out("out-1", "P1", 50)},
+			want: Aggregates{Count: 2, AmountSum: 150, DistinctCreditors: 1},
+		},
+		{
+			name: "inbound plus self-transfer counts neither as a payee",
+			txs:  []*domain.Transaction{in("in-1", "P9", 200), self},
+			want: Aggregates{Count: 2, AmountSum: 300, DistinctCreditors: 0, InboundCount: 1, InboundAmountSum: 200},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := aggregate(entity, "USD", tc.txs)
+			if got != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+
+	// End-to-end through the repository on the received clock, the path the
+	// rule engine uses. A self-transfer plus one real payee must yield
+	// DistinctCreditors 1 (not 2), so fan-out-001 does not fire for an account
+	// whose only "extra" payee is itself.
+	t.Run("service received clock", func(t *testing.T) {
+		svc, repo := newAggRepo(t)
+		ctx := context.Background()
+		save := func(tx *domain.Transaction) {
+			t.Helper()
+			if err := repo.SaveTransaction(ctx, "t", tx); err != nil {
+				t.Fatalf("save: %v", err)
+			}
+		}
+		save(&domain.Transaction{ID: "self", Type: "TRANSFER", DebtorID: entity, CreditorID: entity, Amount: 100, Currency: "USD", Timestamp: now, CreatedAt: now})
+		save(&domain.Transaction{ID: "out-1", Type: "TRANSFER", DebtorID: entity, CreditorID: "P1", Amount: 50, Currency: "USD", Timestamp: now, CreatedAt: now})
+
+		agg, err := svc.GetAggregates(ctx, "t", entity, "USD", 3600)
+		if err != nil {
+			t.Fatalf("GetAggregates: %v", err)
+		}
+		if want := (Aggregates{Count: 2, AmountSum: 150, DistinctCreditors: 1}); agg != want {
+			t.Errorf("got %+v, want %+v", agg, want)
+		}
+	})
+}
+
 // TestAggregateSumsPerCurrency is the regression test for currency-incoherent
 // velocity sums. Before the fix, aggregate added raw amounts across every
 // currency in the window, so one 100 EUR outbound tx and one 100 USD inbound tx
