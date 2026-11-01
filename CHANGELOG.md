@@ -60,6 +60,18 @@ This file records all notable changes to this project. The format follows
   The variable catalog (`GET /rules/variables`) and `docs/RULE_TYPOLOGY_AUTHORING.md` now document the per-currency semantics.
 
   Currency codes match without case. The async worker now uppercases `currency` and `type` as `POST /evaluate` does.
+- The async worker now rejects a bus message whose `currency` is missing or empty, matching the `POST /evaluate` contract.
+  Before this change, the worker normalized `currency` but did not require it.
+  A message with no `currency` reached the rule engine with `Currency == ""`.
+  That triggered the velocity layer's empty-currency fallback and added raw amounts across every currency in the window.
+
+  The same transaction was rejected by `POST /evaluate` with HTTP 400 `amount.currency is required`, so the two paths disagreed.
+  The async path silently scored such a message with a currency-incoherent total, which flipped threshold and ratio AML rule outcomes.
+  The bad decision was persisted and published to the decision and alert topics with no error or log.
+
+  Now `processTransaction` returns `currency is required` before the rule engine runs.
+  The velocity layer's empty-currency fallback is no longer reachable from a producer on the bus.
+  The same parity pass also restores the sync path's `type is required` and `amount must be positive` checks on the async path.
 - The async worker now honors `OSPREY_VELOCITY_CLOCK=event`.
   Before this change, the worker message had no `timestamp` field and never set `EventTime` on its evaluation input.
   Under the event clock, every worker-processed transaction silently fell back to the received clock.
