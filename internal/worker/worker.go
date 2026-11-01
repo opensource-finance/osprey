@@ -78,11 +78,16 @@ func (w *Worker) Start(cfg Config) error {
 	return nil
 }
 
-// startGlobalWorker starts a worker that processes all tenants (for testing/dev).
+// startGlobalWorker starts a worker that processes all tenants via a wildcard
+// subscription. The ChannelBus and the NATSBus treat domain.GlobalTenantID
+// ("*") as a wildcard: a publish for any tenant on the topic is delivered
+// here, and the handler recovers the real tenant from the message (see
+// handleMessage). This path is intended for testing and development.
+// Production deployments must list explicit tenants through OSPREY_TENANTS,
+// and main() now fails loudly when the async worker is on but that list is
+// empty, so the default Pro configuration can no longer select this path.
 func (w *Worker) startGlobalWorker() error {
-	// Subscribe using a special "global" tenant ID
-	// In production, you'd want to subscribe with wildcards or JetStream
-	sub, err := w.bus.Subscribe(w.ctx, "_global", domain.TopicTransactionIngested, w.track(w.handleMessage))
+	sub, err := w.bus.Subscribe(w.ctx, domain.GlobalTenantID, domain.TopicTransactionIngested, w.track(w.handleMessage))
 	if err != nil {
 		return err
 	}

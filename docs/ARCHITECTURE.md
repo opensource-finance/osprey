@@ -122,7 +122,7 @@ Core variables:
 | `OSPREY_SQLITE_PATH` | `./osprey.db` | SQLite file path (sqlite driver) |
 | `OSPREY_CACHE_TYPE` | `memory` | `memory` or `redis` |
 | `OSPREY_BUS_TYPE` | `channel` | `channel` or `nats` |
-| `OSPREY_TENANTS` | _(unset)_ | Comma-separated tenant IDs for the async workers |
+| `OSPREY_TENANTS` | _(unset)_ | Comma-separated tenant IDs for the async workers. Required when the async worker is on. Osprey does not start without it. |
 | `OSPREY_ASYNC_WORKER` | `false` | `true` enables the async workers. The Pro tier always enables them. |
 | `OSPREY_RATE_LIMIT_RPS` | `0` | Requests per second for each tenant. `0` disables the rate limit. |
 | `OSPREY_RATE_LIMIT_BURST` | `= RPS` | Burst size for each tenant |
