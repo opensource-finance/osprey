@@ -138,8 +138,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 
 <script type="application/json" id="ontology">
 {
-  "updated": "2026-10-24",
-  "source": "osprey main at e61de81",
+  "updated": "2026-11-01",
+  "source": "osprey main at 8d15a4b",
   "verified_by": "read of internal/api/server.go routes + middleware, internal/domain/bus.go topics, internal/repository/schema.go tables, cmd/osprey/main.go env vars, grep for Publish/Subscribe/Save* call sites",
   "types": {
     "actor": {"label": "Actor", "color": "--t-actor"},
@@ -189,7 +189,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
     {"id": "t-alert", "type": "transport", "layer": "async", "label": "osprey.alert", "file": "internal/domain/bus.go", "props": {"published by": "worker, on ALRT", "consumed by": "nothing in this repo"}},
     {"id": "t-unused", "type": "transport", "layer": "async", "label": "rule.* / typology.* topics", "file": "internal/domain/bus.go", "props": {"topics": "osprey.rule.evaluate, osprey.rule.result, osprey.typology.evaluate, osprey.typology.result"}, "gap": "Declared, never published or subscribed. Left over from the Tazama microservice split."},
 
-    {"id": "handler", "type": "engine", "layer": "engine", "label": "Evaluate handler", "file": "internal/api/handler.go", "props": {"steps": "validate, save transaction, build input, rules, typologies, TADP, save evaluation, respond", "velocity window": "3600 s"}},
+    {"id": "handler", "type": "engine", "layer": "engine", "label": "Evaluate handler", "file": "internal/api/handler.go", "props": {"steps": "validate, save transaction, build input, rules, typologies, TADP, save evaluation, respond", "velocity window": "3600 s", "rollback": "on rule or save-evaluation failure, delete the saved transaction so a retry with the same id is not 409-blocked"}},
     {"id": "engine", "type": "engine", "layer": "engine", "label": "CEL rule engine", "file": "internal/rules/engine.go", "props": {"runs": "all compiled (enabled) rules in parallel, semaphore of 100", "cost limit": "1,000,000 CEL units per rule", "outcomes": ".pass, .review, .fail, .err via ordered bands", "bands": "score rounded before band matching"}},
     {"id": "catalog", "type": "engine", "layer": "engine", "label": "CEL variable catalog", "file": "internal/rules/variables.go", "props": {"core": "amount, currency, tx_type, debtor_id, creditor_id, old_balance, new_balance, tx", "velocity": "velocity_count, velocity_amount_sum, velocity_distinct_creditors, velocity_inbound_count, velocity_inbound_amount_sum", "sanctions": "sanctions_score, sanctions_match (party and entry)", "open maps": "meta.*, enrichment.*", "single source for": "CEL env, /rules/variables, authoring docs"}},
     {"id": "velocity", "type": "engine", "layer": "engine", "label": "Velocity service", "file": "internal/velocity/velocity.go", "props": {"scope": "debtor only", "source": "repository query per evaluation", "clock": "OSPREY_VELOCITY_CLOCK received (default) or event", "fails": "closed: lookup error fails the evaluation", "amount sums": "only rows in the evaluated currency, case-insensitive"}},
@@ -357,7 +357,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
   "changelog": [
     "2026-10-24: first map, from osprey e28c4dd.",
     "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md.",
-    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization."
+    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization.",
+    "2026-11-01: evaluate handler rolls back the saved transaction when rule evaluation or evaluation storage fails, so a retry with the same id is not 409-blocked. Repository gained DeleteTransaction."
   ]
 }
 </script>
