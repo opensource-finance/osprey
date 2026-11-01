@@ -170,6 +170,15 @@ This file records all notable changes to this project. The format follows
 
   The handlers now return `400 enabled is required`, the same guard the `PUT` handlers have.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- A CEL rule whose double division returns a non-finite value now fails secure to `.err`.
+  Double division by zero returns `NaN` or `Inf` with no evaluation error.
+  Before this change, the value passed through and band matching treated `NaN` as no match.
+  The rule became `.pass` with `no matching band`, a silent false-negative.
+  The non-finite `Score` then broke `SaveEvaluation` because `encoding/json` rejects `NaN` and `Inf`.
+  Now the rule gives `.err`, the `Score` field stays `0.0`, and TADP forces `ALRT`.
+- The most common trigger is a ratio rule such as `new_balance / old_balance`.
+  Both variables default to `0.0` when the request omits them, so the rule runs `0.0 / 0.0`.
+  The result is `NaN`, which before this change silently passed and then failed to persist.
 
 ### Security
 

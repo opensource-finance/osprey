@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -343,6 +344,22 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 	// persist a noisy score in rule_results. Mirrors the rounding applied at the
 	// typology and aggregate threshold checks. No-op for boolean 0.0/1.0 rules.
 	score := domain.RoundScore(toScore(out))
+
+	// Fail-secure: a non-finite score (NaN or Inf) from a double expression
+	// such as `new_balance / old_balance` (both default to 0.0 when the caller
+	// omits them) must NOT become .pass. NaN matches no band comparison, so it
+	// falls through to the default .pass "no matching band" (a silent
+	// false-negative), and a non-finite Score later breaks evaluation
+	// persistence because encoding/json rejects NaN/Inf. Surface it as an
+	// evaluation error so downstream TADP forces ALRT, matching the .err
+	// contract in docs/RULE_TYPOLOGY_AUTHORING.md. Leave Score at its zero
+	// value so the result stays JSON-encodable.
+	if math.IsNaN(score) || math.IsInf(score, 0) {
+		result.SubRuleRef = domain.RuleOutcomeError
+		result.Reason = fmt.Sprintf("evaluation error: non-finite score %v", score)
+		result.ProcessMs = time.Since(start).Milliseconds()
+		return result
+	}
 	result.Score = score
 
 	// Determine outcome based on bands
