@@ -52,6 +52,17 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- The async worker now honors the documented `metadata` key on the bus message.
+  Before this change, the worker `TransactionMessage` had no `metadata` field.
+  A producer that sent `metadata` lost it on unmarshal, so the `meta` map was empty and `old_balance` and `new_balance` stayed at their `0.0` defaults.
+  The shipped account-drain rules never fired on the async path.
+  The same transaction alerted on `POST /evaluate` and passed on the bus.
+
+  Now `TransactionMessage` carries a `metadata` field with the same contract as `TransactionRequest.metadata`.
+  The legacy `additionalData` field stays as an alias, and `metadata` wins when a producer sends both keys.
+  The worker also runs `rules.ValidateMetadata` and drops a message with a non-numeric balance, the same gate `POST /evaluate` has.
+  The bus message schema is now documented in `docs/ASYNC_BUS.md`.
+
 - `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
   Before this change, they added raw amounts across every currency the entity touched in the window.
   A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).

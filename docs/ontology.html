@@ -138,8 +138,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 
 <script type="application/json" id="ontology">
 {
-  "updated": "2026-10-24",
-  "source": "osprey main at e61de81",
+  "updated": "2026-11-01",
+  "source": "osprey main at 9aed315",
   "verified_by": "read of internal/api/server.go routes + middleware, internal/domain/bus.go topics, internal/repository/schema.go tables, cmd/osprey/main.go env vars, grep for Publish/Subscribe/Save* call sites",
   "types": {
     "actor": {"label": "Actor", "color": "--t-actor"},
@@ -184,7 +184,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
 
     {"id": "bus", "type": "transport", "layer": "async", "label": "Event bus", "file": "internal/bus", "tier": {"community": "Go channels (in process)", "pro": "NATS"}, "props": {"env": "OSPREY_BUS_TYPE, OSPREY_NATS_URL", "subjects": "tenant-scoped"}},
     {"id": "t-ingested", "type": "transport", "layer": "async", "label": "osprey.transaction.ingested", "file": "internal/domain/bus.go", "props": {"published by": "external producers only", "subscribed by": "worker (_global and per tenant)"}},
-    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS", "persists": "evaluations only", "normalizes": "type and currency to upper case", "clock": "carries the message timestamp, so OSPREY_VELOCITY_CLOCK=event applies"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
+    {"id": "worker", "type": "engine", "layer": "async", "label": "Async worker", "file": "internal/worker/worker.go", "props": {"starts when": "Pro tier or OSPREY_ASYNC_WORKER=true", "tenants": "OSPREY_TENANTS", "persists": "evaluations only", "normalizes": "type and currency to upper case", "clock": "carries the message timestamp, so OSPREY_VELOCITY_CLOCK=event applies", "metadata": "accepts the documented metadata key, validates it like POST /evaluate", "additionalData": "legacy alias for metadata, kept for back-compat"}, "gap": "Never saves the transaction, so velocity never sees bus-only traffic."},
     {"id": "t-decision", "type": "transport", "layer": "async", "label": "osprey.decision", "file": "internal/domain/bus.go", "props": {"published by": "worker, every evaluation", "consumed by": "nothing in this repo"}},
     {"id": "t-alert", "type": "transport", "layer": "async", "label": "osprey.alert", "file": "internal/domain/bus.go", "props": {"published by": "worker, on ALRT", "consumed by": "nothing in this repo"}},
     {"id": "t-unused", "type": "transport", "layer": "async", "label": "rule.* / typology.* topics", "file": "internal/domain/bus.go", "props": {"topics": "osprey.rule.evaluate, osprey.rule.result, osprey.typology.evaluate, osprey.typology.result"}, "gap": "Declared, never published or subscribed. Left over from the Tazama microservice split."},
@@ -311,6 +311,7 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
       ["producer", "publish TransactionMessage to osprey.transaction.ingested"],
       ["bus", "NATS (Pro) or Go channels, with tenant-scoped subjects"],
       ["worker", "subscription tenant wins over the payload tenant, except on the global worker"],
+      ["worker", "validate the metadata key like POST /evaluate, drop the message on bad balance metadata"],
       ["velocity", "query the debtor's transactions, with the event clock when set", "Bus-only transactions are never saved, so they never count here."],
       ["engine", "same rule evaluation as the sync path"],
       ["tadp", "same decision step"],
@@ -357,7 +358,8 @@ tr { cursor: pointer; } tr:hover td { background: var(--hi); }
   "changelog": [
     "2026-10-24: first map, from osprey e28c4dd.",
     "2026-10-24: sanctions_match names the party, OSPREY_SANCTIONS_DIR parsed with the other env vars, punctuation follows docs/STYLE.md.",
-    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization."
+    "2026-10-24: synced with main e61de81. HEAD on health, ready, and Studio. Rounded band scores. Zero rules and weight 0 in TADP. enabled required on POST. Per-currency velocity sums. Worker timestamp and normalization.",
+    "2026-11-01: worker accepts the documented metadata key and validates it like POST /evaluate. additionalData is a back-compat alias."
   ]
 }
 </script>

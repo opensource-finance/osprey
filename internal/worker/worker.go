@@ -133,6 +133,12 @@ func (w *Worker) track(h domain.MessageHandler) domain.MessageHandler {
 }
 
 // TransactionMessage is the message payload for transaction processing.
+//
+// Metadata is the caller-supplied facts that rules read through the meta map
+// and the old_balance/new_balance variables. It mirrors TransactionRequest.
+// Metadata on POST /evaluate so the two ingestion paths accept the same key.
+// additionalData is an undocumented alias that loses to metadata when both
+// are present, kept so existing producers that already use it keep working.
 type TransactionMessage struct {
 	TxID           string         `json:"txId"`
 	TenantID       string         `json:"tenantId"`
@@ -147,7 +153,19 @@ type TransactionMessage struct {
 	Timestamp      string         `json:"timestamp,omitempty"`
 	VelocityWindow int            `json:"velocityWindow,omitempty"`
 	AdditionalData map[string]any `json:"additionalData,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
 	Enrichment     map[string]any `json:"enrichment,omitempty"`
+}
+
+// messageMetadata returns the caller-supplied facts for the rule engine. The
+// documented metadata key wins so the async path honors the same contract as
+// POST /evaluate. The legacy additionalData alias is the fallback so the
+// producers that already use it keep working.
+func messageMetadata(metadata, additionalData map[string]any) map[string]any {
+	if metadata != nil {
+		return metadata
+	}
+	return additionalData
 }
 
 // processTransaction evaluates a transaction through the pipeline.
@@ -231,8 +249,21 @@ func (w *Worker) processTransaction(ctx context.Context, tenantID string, msg *d
 		Currency:       strings.ToUpper(strings.TrimSpace(txMsg.Currency)), // same normalization as POST /evaluate
 		VelocityWindow: txMsg.VelocityWindow,
 		EventTime:      txTimestamp,
-		AdditionalData: txMsg.AdditionalData,
+		AdditionalData: messageMetadata(txMsg.Metadata, txMsg.AdditionalData),
 		Enrichment:     txMsg.Enrichment,
+	}
+
+	// Validate caller metadata the same way POST /evaluate does, so the two
+	// paths reject bad balance values at admission instead of silently flipping
+	// the evaluation to a fail-closed ALRT or a wrong default.
+	if err := rules.ValidateMetadata(evalInput.AdditionalData); err != nil {
+		slog.Error("invalid metadata",
+			"message_id", msg.ID,
+			"tx_id", txMsg.TxID,
+			"tenant_id", tenantID,
+			"error", err,
+		)
+		return err
 	}
 
 	if evalInput.VelocityWindow <= 0 {
