@@ -707,6 +707,9 @@ components:
           enum: [ALRT, NALT]
         score:
           type: number
+          minimum: 0
+          maximum: 1
+          description: Risk score from 0 to 1.
         reasons:
           type: array
           description: The reason of each rule that gave `.review`, `.fail`, or `.err`. A sanctions rule reason ends with the matched party and the SDN entry.
@@ -791,6 +794,9 @@ components:
           enum: [ALRT, NALT]
         score:
           type: number
+          minimum: 0
+          maximum: 1
+          description: Risk score from 0 to 1.
         timestamp:
           type: string
           format: date-time
@@ -864,6 +870,9 @@ components:
           type: string
         score:
           type: number
+          minimum: 0
+          maximum: 1
+          description: Typology risk score from 0 to 1. The weighted rule-score sum, capped at 1.
         threshold:
           type: number
         triggered:
