@@ -177,23 +177,21 @@ func (l *List) Screen(name string) Match {
 			keys[k] = true
 		}
 	}
-	// Count shared keys per entry first: an entry sharing one key with a
-	// multi-key query can only score at partialCap, so scoring it is wasted
-	// work unless the listed name is a single token.
+	// Collect every entry sharing at least one prefix key with the query.
+	// A typo inside the first three letters of a token shifts its indexKey
+	// while tokenSim still matches the whole token above the floor, so a
+	// one-key candidate can still score in the fail band; score caps
+	// genuinely partial matches at partialCap, so no shared-key prefilter.
 	hits := map[int]int{}
 	for k := range keys {
 		for _, pos := range l.index[k] {
 			hits[pos]++
 		}
 	}
-	need := min(2, len(keys))
 	var best Match
 	bestPos := -1 // lowest position wins ties, so map order never picks the match
-	for pos, n := range hits {
+	for pos := range hits {
 		e := l.entries[pos]
-		if n < need && e.full > 1 {
-			continue
-		}
 		if s := score(q, e); s > 0 && (s > best.Score || (s == best.Score && pos < bestPos)) {
 			best, bestPos = Match{EntryID: e.id, Name: e.name, Program: e.program, Score: s}, pos
 		}
