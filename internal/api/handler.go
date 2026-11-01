@@ -1161,6 +1161,7 @@ func (h *Handler) validateTypologyRequest(w http.ResponseWriter, req *CreateTypo
 	}
 
 	var totalWeight float64
+	seen := make(map[string]bool, len(req.Rules))
 	for i, rule := range req.Rules {
 		ruleID := strings.TrimSpace(rule.RuleID)
 		if ruleID == "" {
@@ -1175,6 +1176,13 @@ func (h *Handler) validateTypologyRequest(w http.ResponseWriter, req *CreateTypo
 			})
 			return false
 		}
+		if seen[ruleID] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("duplicate ruleId %q in rules", ruleID),
+			})
+			return false
+		}
+		seen[ruleID] = true
 		req.Rules[i].RuleID = ruleID
 		if rule.Weight < 0 || rule.Weight > 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
