@@ -809,10 +809,6 @@ components:
       properties:
         traceId:
           type: string
-        ingestMs:
-          type: integer
-        rulesMs:
-          type: integer
         decisionMs:
           type: integer
         totalMs:
@@ -853,8 +849,6 @@ components:
           type: number
         contribution:
           type: number
-        triggered:
-          type: boolean
     TypologyResult:
       type: object
       properties:
