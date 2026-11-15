@@ -144,6 +144,85 @@ func TestSQLiteRepository(t *testing.T) {
 		}
 	})
 
+	t.Run("DeleteTransactionRemovesRowAndFreesID", func(t *testing.T) {
+		// DeleteTransaction is the rollback counterpart to SaveTransaction. After it
+		// removes a row, the same id is free to save again (no ErrDuplicateTransaction),
+		// which is what makes a failed evaluate retryable.
+		const txID = "rollback-tx"
+		tx := &domain.Transaction{ //nolint:gosec // G101: synthetic test transaction IDs, not credentials
+			ID:              txID,
+			Type:            "transfer",
+			DebtorID:        "debtor-rollback",
+			DebtorAccountID: "acc-rb-1",
+			CreditorID:      "creditor-rollback",
+			CreditorAcctID:  "acc-rb-2",
+			Amount:          100,
+			Currency:        "USD",
+			Timestamp:       time.Now().UTC(),
+			CreatedAt:       time.Now().UTC(),
+		}
+		if err := repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+			t.Fatalf("SaveTransaction failed: %v", err)
+		}
+		if err := repo.DeleteTransaction(ctx, tenantID, txID); err != nil {
+			t.Fatalf("DeleteTransaction failed: %v", err)
+		}
+		if _, err := repo.GetTransaction(ctx, tenantID, txID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("after delete, GetTransaction: expected ErrNotFound, got %v", err)
+		}
+		// The id is free: a fresh save must not return ErrDuplicateTransaction.
+		tx.CreatedAt = time.Now().UTC()
+		if err := repo.SaveTransaction(ctx, tenantID, tx); err != nil {
+			t.Fatalf("re-save after delete: expected success, got %v", err)
+		}
+	})
+
+	t.Run("DeleteTransactionIsIdempotent", func(t *testing.T) {
+		// A missing row is not an error, so cleanup is best-effort and idempotent.
+		if err := repo.DeleteTransaction(ctx, tenantID, "never-saved"); err != nil {
+			t.Fatalf("delete of missing row: expected nil, got %v", err)
+		}
+	})
+
+	t.Run("DeleteTransactionRespectsTenantIsolation", func(t *testing.T) {
+		// A delete scoped to one tenant must not remove another tenant's row.
+		const txID = "shared-with-tenant-b"
+		tx := &domain.Transaction{ //nolint:gosec // G101: synthetic test transaction IDs, not credentials
+			ID:              txID,
+			Type:            "transfer",
+			DebtorID:        "debtor-shared",
+			DebtorAccountID: "acc-shared-1",
+			CreditorID:      "creditor-shared",
+			CreditorAcctID:  "acc-shared-2",
+			Amount:          100,
+			Currency:        "USD",
+			Timestamp:       time.Now().UTC(),
+			CreatedAt:       time.Now().UTC(),
+		}
+		if err := repo.SaveTransaction(ctx, "tenant-delete-a", tx); err != nil {
+			t.Fatalf("SaveTransaction tenant-delete-a: %v", err)
+		}
+		if err := repo.SaveTransaction(ctx, "tenant-delete-b", tx); err != nil {
+			t.Fatalf("SaveTransaction tenant-delete-b: %v", err)
+		}
+		// Delete in tenant a leaves the row in tenant b intact.
+		if err := repo.DeleteTransaction(ctx, "tenant-delete-a", txID); err != nil {
+			t.Fatalf("DeleteTransaction tenant-delete-a: %v", err)
+		}
+		if _, err := repo.GetTransaction(ctx, "tenant-delete-a", txID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("tenant-delete-a: expected ErrNotFound after delete, got %v", err)
+		}
+		if got, err := repo.GetTransaction(ctx, "tenant-delete-b", txID); err != nil || got == nil {
+			t.Fatalf("tenant-delete-b: expected row to survive, got err=%v tx=%v", err, got)
+		}
+	})
+
+	t.Run("DeleteTransactionRequiresTenantID", func(t *testing.T) {
+		if err := repo.DeleteTransaction(ctx, "", "anything"); err == nil {
+			t.Fatal("expected error for empty tenantID")
+		}
+	})
+
 	t.Run("RequiresTenantID", func(t *testing.T) {
 		tx := &domain.Transaction{ID: "tx-test"}
 

@@ -147,7 +147,7 @@ func ProConfig() *Config {
 	cfg.EventBus = EventBusConfig{
 		Type:              "nats",
 		NATSUrl:           "nats://localhost:4222",
-		NATSMaxReconnects: 10,
+		NATSMaxReconnects: -1, // unbounded: a recovering NATS server revives the connection and resubscribes instead of entering the terminal CLOSED state after a bounded budget
 		NATSReconnectWait: 5,
 	}
 	return cfg
