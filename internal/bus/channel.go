@@ -4,6 +4,7 @@ package bus
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -139,15 +140,19 @@ func (b *ChannelBus) Subscribe(ctx context.Context, tenantID string, topic strin
 	return sub, nil
 }
 
-// handleMessages processes messages for a subscription.
+// handleMessages processes messages for a subscription. When the
+// subscription's context ends, through Unsubscribe, Close, or the caller's
+// context, it removes the subscription from the bus, so a dead subscription
+// does not stay registered and fill its channel.
 func (b *ChannelBus) handleMessages(sub *channelSubscription) {
+	defer b.removeSubscription(sub)
 	for {
 		select {
 		case <-sub.ctx.Done():
 			return
 		case msg := <-sub.msgCh:
 			// select picks at random when both cases are ready, so check the
-			// context again: a cancelled subscription never runs its handler.
+			// context again: a message still queued at cancel is dropped.
 			if msg != nil && sub.ctx.Err() == nil {
 				_ = sub.handler(sub.ctx, msg)
 			}
@@ -196,34 +201,32 @@ func (b *ChannelBus) makeKey(tenantID, topic string) string {
 
 // Unsubscribe stops receiving messages. It removes the subscription from the
 // bus first, so a later Publish cannot reach it, then cancels it, so a message
-// already queued is dropped and the handler does not run again.
+// still queued is dropped. Unsubscribe does not wait for a handler call that
+// has already started: that call can finish after Unsubscribe returns.
 func (s *channelSubscription) Unsubscribe() error {
-	if s.bus != nil {
-		s.bus.removeSubscription(s)
-	}
+	s.bus.removeSubscription(s)
 	s.cancel()
 	return nil
 }
 
-// removeSubscription deletes sub from its topic's list. Publish reads the list
-// under the read lock and then sends without it, so the list is replaced, not
-// changed in place.
+// removeSubscription deletes sub from its topic's list. It does nothing when
+// sub is not in the list, for example after Close or a second call. Publish
+// reads the list under the read lock and then sends without it, so the list is
+// replaced, not changed in place.
 func (b *ChannelBus) removeSubscription(sub *channelSubscription) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	key := b.makeKey(sub.tenantID, sub.topic)
 	subs := b.subscriptions[key]
-	kept := make([]*channelSubscription, 0, len(subs))
-	for _, s := range subs {
-		if s != sub {
-			kept = append(kept, s)
-		}
+	i := slices.Index(subs, sub)
+	if i < 0 {
+		return
 	}
-	if len(kept) == 0 {
+	if len(subs) == 1 {
 		delete(b.subscriptions, key)
 		return
 	}
-	b.subscriptions[key] = kept
+	b.subscriptions[key] = slices.Concat(subs[:i], subs[i+1:])
 }
 
 // Topic returns the subscribed topic.

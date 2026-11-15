@@ -41,3 +41,29 @@ func TestSQLiteWindowsFindNonUTCTimestamps(t *testing.T) {
 		t.Errorf("received window (last hour): want 1 row, got %d", n)
 	}
 }
+
+// An evaluation saved with a non-UTC offset must read back. SQLite stored the
+// zone name "UTC+2", which the driver cannot parse, so GetEvaluation failed
+// with a scan error.
+func TestSaveEvaluationNonUTCTimestamp(t *testing.T) {
+	s := newWindowSuite(t)
+	defer func() { _ = s.repo.Close() }()
+
+	plus2 := time.FixedZone("UTC+2", 2*60*60)
+	at := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC).In(plus2)
+	eval := &domain.Evaluation{
+		ID: "eval-tz-1", TxID: "tz-1", Status: domain.StatusNoAlert,
+		Timestamp: at,
+		Metadata:  domain.EvaluationMetadata{TraceID: "trace-tz"},
+	}
+	if err := s.repo.SaveEvaluation(s.ctx, s.tenantID, eval); err != nil {
+		t.Fatalf("SaveEvaluation: %v", err)
+	}
+	got, err := s.repo.GetEvaluation(s.ctx, s.tenantID, eval.ID)
+	if err != nil {
+		t.Fatalf("GetEvaluation: %v", err)
+	}
+	if !got.Timestamp.Equal(at) {
+		t.Errorf("timestamp: want %s, got %s", at.UTC(), got.Timestamp)
+	}
+}

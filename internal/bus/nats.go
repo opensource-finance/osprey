@@ -27,6 +27,7 @@ type natsSubscription struct {
 	tenantID string
 	topic    string
 	sub      *nats.Subscription
+	bus      *NATSBus
 }
 
 // natsErrorHandler logs async NATS errors. sub is nil on some library error paths.
@@ -194,6 +195,7 @@ func (b *NATSBus) Subscribe(ctx context.Context, tenantID string, topic string, 
 		tenantID: tenantID,
 		topic:    topic,
 		sub:      natsSub,
+		bus:      b,
 	}
 
 	b.mu.Lock()
@@ -256,8 +258,12 @@ func (b *NATSBus) Stats() nats.Statistics {
 	return b.conn.Stats()
 }
 
-// Unsubscribe removes the subscription.
+// Unsubscribe removes the subscription from NATS and from the bus, so
+// repeated subscribe and unsubscribe do not keep old subscriptions in memory.
 func (s *natsSubscription) Unsubscribe() error {
+	s.bus.mu.Lock()
+	delete(s.bus.subscriptions, s.id)
+	s.bus.mu.Unlock()
 	return s.sub.Unsubscribe()
 }
 

@@ -615,8 +615,10 @@ func (r *SQLRepository) SaveEvaluation(ctx context.Context, tenantID string, eva
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
+	// Store UTC, like SaveTransaction: SQLite cannot read back some zone
+	// names, and PostgreSQL TIMESTAMP drops the offset.
 	_, err = r.db.ExecContext(ctx, r.rebind(query),
-		eval.ID, tenantID, eval.TxID, eval.Status, eval.Score, eval.Timestamp,
+		eval.ID, tenantID, eval.TxID, eval.Status, eval.Score, eval.Timestamp.UTC(),
 		string(ruleResults), string(typologyResults), string(metadata),
 	)
 	return err
