@@ -52,6 +52,15 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- Sanctions screening now scores candidates that share only one name-token prefix.
+  Before this change, `Screen` skipped a list entry that shared fewer than two 3-letter prefix keys with a multi-token query.
+  It assumed such an entry could only score at the partial-match cap.
+
+  That was false. A typo in the first three letters of one token changed that token's prefix key (for example "Simth" for "Smith").
+  The near-identical sanctioned name was dropped before scoring.
+  The probable match came back as `sanctions_score = 0` and the rule `sanctions-001` passed.
+  Now every entry in the query's prefix buckets is scored, as the `Screen` doc comment already stated.
+  The partial-match cap still holds one-token overlaps below the fail band.
 - `velocity_distinct_creditors` no longer counts a self-transfer as a payee.
   Before this change, a self-transfer added the entity to its own creditor set and inflated the count by 1.
   With 4 genuine payees plus one self-transfer, the count reached 5.
