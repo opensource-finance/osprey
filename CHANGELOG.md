@@ -6,6 +6,16 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `Unsubscribe` on the in-memory bus now stops delivery.
+  Before this change, the subscription stayed registered, so its handler could still run for later publishes.
+  Repeated subscribe and unsubscribe also kept every old subscription in memory.
+  Now `Unsubscribe` removes the subscription from the bus, and a cancelled subscription never runs its handler.
+- The repository stores transaction times in UTC.
+  Before this change, a transaction saved with a non-UTC offset fell outside the SQLite velocity windows, and the received-time window failed with a scan error.
+  The HTTP API and the worker already convert times to UTC, so this affected only direct callers of the repository.
+
 ## [0.1.2] - 2026-11-15
 
 ### Added
