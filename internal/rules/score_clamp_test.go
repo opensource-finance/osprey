@@ -102,6 +102,49 @@ func TestScoreClampAboveOneIsOne(t *testing.T) {
 	}
 }
 
+// TestScoreClampKeepsRawValueBands covers rules whose bands sit outside
+// [0, 1]: band matching uses the raw expression value, and only the stored
+// score is clamped.
+func TestScoreClampKeepsRawValueBands(t *testing.T) {
+	engine, _ := NewEngine(nil, 5)
+	defer func() { _ = engine.Close() }()
+
+	zero, limit := 0.0, 10000.0
+	if err := engine.LoadRule(&domain.RuleConfig{
+		ID:         "raw-amount",
+		Expression: "amount",
+		Bands: []domain.RuleBand{
+			{LowerLimit: &zero, UpperLimit: &limit, SubRuleRef: domain.RuleOutcomePass, Reason: "Below limit"},
+			{LowerLimit: &limit, SubRuleRef: domain.RuleOutcomeFail, Reason: "At or above limit"},
+		},
+		Weight:  1.0,
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	for _, tc := range []struct {
+		amount float64
+		want   string
+	}{
+		{amount: 5000, want: domain.RuleOutcomePass},
+		{amount: 25000, want: domain.RuleOutcomeFail},
+	} {
+		results, err := engine.EvaluateAll(context.Background(), &EvaluateInput{
+			TenantID: "t", TxID: "tx", Amount: tc.amount,
+		})
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		if results[0].SubRuleRef != tc.want {
+			t.Errorf("amount %.0f: want %s, got %s (%s)", tc.amount, tc.want, results[0].SubRuleRef, results[0].Reason)
+		}
+		if results[0].Score != 1.0 {
+			t.Errorf("amount %.0f: stored score must clamp to 1.0, got %v", tc.amount, results[0].Score)
+		}
+	}
+}
+
 // TestScoreClampNegativeEnrichmentValue reproduces the realistic production
 // trigger from the report: an externally-computed enrichment value flows in
 // via the open-ended `enrichment` map, and double(...) wraps it into a

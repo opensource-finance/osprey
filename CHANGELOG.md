@@ -62,6 +62,7 @@ This file records all notable changes to this project. The format follows
   The below-zero score was also persisted in `rule_results` and published as the evaluation and detection-summary score.
   A non-matching rule now adds `0` to the aggregate, matching `docs/ARCHITECTURE.md`: "With `sum`, a rule that does not match adds `0`".
   Every rule score stays within `docs/QUICKSTART.md`'s "Risk score from `0` to `1`".
+  Band matching still uses the raw expression value, so a band outside `0` to `1` (for example `amount` at `10000`) keeps working.
 - A failed `POST /evaluate` no longer leaves a stored transaction with no evaluation.
   Before this change, the handler stored the transaction before it ran the rules.
   If a later step failed, it returned `500` but kept the transaction row.
