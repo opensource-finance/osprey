@@ -26,17 +26,23 @@ The field names differ from `POST /evaluate` because the worker is a separate co
 | `txId` | string | yes | The transaction ID. |
 | `tenantId` | string | yes on the global worker | The subscription tenant wins on a per-tenant worker. |
 | `traceId` | string | no | The worker falls back to the message ID when this is empty. |
-| `type` | string | no | The worker uppercases the value. |
+| `type` | string | yes | The worker uppercases the value. |
 | `debtorId` | string | no | The debtor ID. |
 | `creditorId` | string | no | The creditor ID. |
 | `debtorName` | string | no | Used for sanctions screening. |
 | `creditorName` | string | no | Used for sanctions screening. |
-| `amount` | number | yes | The transaction amount as a flat number. |
-| `currency` | string | no | The worker uppercases the value. |
+| `amount` | number | yes | The transaction amount as a flat number. It must be more than `0`. |
+| `currency` | string | yes | The worker uppercases the value. |
 | `timestamp` | string | no | An RFC3339 timestamp. Empty defaults to the current time. |
 | `velocityWindow` | integer | no | The window in seconds. The default is `3600`. |
 | `metadata` | object | no | Caller facts. Rules get these in the `meta` map. |
 | `enrichment` | object | no | Externally-computed scores and flags. |
+
+## Validation
+
+The worker drops a message that has no `type`, no `currency`, or an `amount` that is not more than `0`.
+The worker does not publish a decision in that case.
+This matches the `400` response on the sync path.
 
 ## Metadata
 
