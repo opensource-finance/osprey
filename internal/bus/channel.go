@@ -28,6 +28,7 @@ type channelSubscription struct {
 	msgCh    chan *domain.Message
 	ctx      context.Context
 	cancel   context.CancelFunc
+	bus      *ChannelBus
 }
 
 // NewChannelBus creates a new channel-based event bus.
@@ -126,6 +127,7 @@ func (b *ChannelBus) Subscribe(ctx context.Context, tenantID string, topic strin
 		msgCh:    make(chan *domain.Message, b.bufferSize),
 		ctx:      subCtx,
 		cancel:   cancel,
+		bus:      b,
 	}
 
 	// Start message handler goroutine
@@ -144,7 +146,9 @@ func (b *ChannelBus) handleMessages(sub *channelSubscription) {
 		case <-sub.ctx.Done():
 			return
 		case msg := <-sub.msgCh:
-			if msg != nil {
+			// select picks at random when both cases are ready, so check the
+			// context again: a cancelled subscription never runs its handler.
+			if msg != nil && sub.ctx.Err() == nil {
 				_ = sub.handler(sub.ctx, msg)
 			}
 		}
@@ -190,10 +194,36 @@ func (b *ChannelBus) makeKey(tenantID, topic string) string {
 	return tenantID + ":" + topic
 }
 
-// Unsubscribe stops receiving messages.
+// Unsubscribe stops receiving messages. It removes the subscription from the
+// bus first, so a later Publish cannot reach it, then cancels it, so a message
+// already queued is dropped and the handler does not run again.
 func (s *channelSubscription) Unsubscribe() error {
+	if s.bus != nil {
+		s.bus.removeSubscription(s)
+	}
 	s.cancel()
 	return nil
+}
+
+// removeSubscription deletes sub from its topic's list. Publish reads the list
+// under the read lock and then sends without it, so the list is replaced, not
+// changed in place.
+func (b *ChannelBus) removeSubscription(sub *channelSubscription) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := b.makeKey(sub.tenantID, sub.topic)
+	subs := b.subscriptions[key]
+	kept := make([]*channelSubscription, 0, len(subs))
+	for _, s := range subs {
+		if s != sub {
+			kept = append(kept, s)
+		}
+	}
+	if len(kept) == 0 {
+		delete(b.subscriptions, key)
+		return
+	}
+	b.subscriptions[key] = kept
 }
 
 // Topic returns the subscribed topic.

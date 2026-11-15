@@ -287,7 +287,10 @@ func (r *SQLRepository) SaveTransaction(ctx context.Context, tenantID string, tx
 		tx.DebtorID, tx.DebtorAccountID,
 		tx.CreditorID, tx.CreditorAcctID,
 		tx.Amount, tx.Currency,
-		tx.Timestamp, tx.CreatedAt,
+		// Store UTC. SQLite keeps times as text and the velocity windows
+		// compare that text with UTC bounds, so an offset such as +0200 would
+		// put the row outside a window that holds it and break the scan.
+		tx.Timestamp.UTC(), tx.CreatedAt.UTC(),
 		string(metadata), tx.OriginalMessage,
 	)
 	if isDuplicateTransactionError(err) {
