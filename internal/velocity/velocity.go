@@ -147,7 +147,7 @@ func aggregate(entityID, currency string, txs []*domain.Transaction) Aggregates 
 			a.AmountSum += tx.Amount
 		}
 		if tx.DebtorID == entityID {
-			if tx.CreditorID != "" {
+			if tx.CreditorID != "" && tx.CreditorID != entityID {
 				creditors[tx.CreditorID] = struct{}{}
 			}
 			continue
