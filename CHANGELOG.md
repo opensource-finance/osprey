@@ -52,6 +52,17 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- Detection rule scores are now clamped to the documented `[0, 1]` range when the CEL expression is evaluated.
+  Before this change, a rule expression returning a negative number passed through `toScore` verbatim.
+  Examples include `sanctions_score - 0.5` or a negative external value read through `double(enrichment.trust_score)`.
+  The negative score matched no band, so the rule was labeled `.pass` ("no matching band"), but the negative value stayed on the rule result.
+  That value was then subtracted from the weighted aggregate.
+  One negative-scoring rule could cancel matching rules, push the aggregate below the alert threshold, and flip an `ALRT` into a `NALT` (fail-open).
+
+  The below-zero score was also persisted in `rule_results` and published as the evaluation and detection-summary score.
+  A non-matching rule now adds `0` to the aggregate, matching `docs/ARCHITECTURE.md`: "With `sum`, a rule that does not match adds `0`".
+  Every rule score stays within `docs/QUICKSTART.md`'s "Risk score from `0` to `1`".
+  Band matching still uses the raw expression value, so a band outside `0` to `1` (for example `amount` at `10000`) keeps working.
 - Compliance-mode typology scores are now capped at `1.0`.
   Before this change, the typology composite was a raw weighted sum with no cap.
   Typologies whose rule weights sum above `1.0` produced a score above `1.0`.
