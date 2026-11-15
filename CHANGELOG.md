@@ -64,6 +64,31 @@ This file records all notable changes to this project. The format follows
   A closed bus now reports `degraded`, so the orchestrator can restart the service.
   A positive `NATSMaxReconnects` value still sets a bounded budget for operators who want fail-fast wiring.
 
+- The async worker now honors the documented `metadata` key on the bus message.
+  Before this change, the worker `TransactionMessage` had no `metadata` field.
+  A producer that sent `metadata` lost it on unmarshal, so the `meta` map was empty and `old_balance` and `new_balance` stayed at their `0.0` defaults.
+  The shipped account-drain rules never fired on the async path.
+  The same transaction alerted on `POST /evaluate` and passed on the bus.
+
+  Now `TransactionMessage` carries a `metadata` field with the same contract as `TransactionRequest.metadata`.
+  The legacy `additionalData` field stays as an alias, and `metadata` wins when a producer sends both keys.
+  The worker also runs `rules.ValidateMetadata` and drops a message with a non-numeric balance, the same gate `POST /evaluate` has.
+  The bus message schema is now documented in `docs/ASYNC_BUS.md`.
+
+- Sanctions screening now scores candidates that share only one name-token prefix.
+  Before this change, `Screen` skipped a list entry that shared fewer than two 3-letter prefix keys with a multi-token query.
+  It assumed such an entry could only score at the partial-match cap.
+
+  That was false. A typo in the first three letters of one token changed that token's prefix key (for example "Simth" for "Smith").
+  The near-identical sanctioned name was dropped before scoring.
+  The probable match came back as `sanctions_score = 0` and the rule `sanctions-001` passed.
+  Now every entry in the query's prefix buckets is scored, as the `Screen` doc comment already stated.
+  The partial-match cap still holds one-token overlaps below the fail band.
+- `velocity_distinct_creditors` no longer counts a self-transfer as a payee.
+  Before this change, a self-transfer added the entity to its own creditor set and inflated the count by 1.
+  With 4 genuine payees plus one self-transfer, the count reached 5.
+  That fired the starter-kit `fan-out-001` rule and sent the entity to `.review` as a layering signal.
+  A window with only self-transfers now reports 0 distinct payees.
 - `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
   Before this change, they added raw amounts across every currency the entity touched in the window.
   A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).
@@ -72,6 +97,18 @@ This file records all notable changes to this project. The format follows
   The variable catalog (`GET /rules/variables`) and `docs/RULE_TYPOLOGY_AUTHORING.md` now document the per-currency semantics.
 
   Currency codes match without case. The async worker now uppercases `currency` and `type` as `POST /evaluate` does.
+- The async worker now rejects a bus message whose `currency` is missing or empty, matching the `POST /evaluate` contract.
+  Before this change, the worker normalized `currency` but did not require it.
+  A message with no `currency` reached the rule engine with `Currency == ""`.
+  That triggered the velocity layer's empty-currency fallback and added raw amounts across every currency in the window.
+
+  The same transaction was rejected by `POST /evaluate` with HTTP 400 `amount.currency is required`, so the two paths disagreed.
+  The async path silently scored such a message with a currency-incoherent total, which flipped threshold and ratio AML rule outcomes.
+  The bad decision was persisted and published to the decision and alert topics with no error or log.
+
+  Now `processTransaction` returns `currency is required` before the rule engine runs.
+  The velocity layer's empty-currency fallback is no longer reachable from a producer on the bus.
+  The same parity pass also restores the sync path's `type is required` and `amount must be positive` checks on the async path.
 - The async worker now honors `OSPREY_VELOCITY_CLOCK=event`.
   Before this change, the worker message had no `timestamp` field and never set `EventTime` on its evaluation input.
   Under the event clock, every worker-processed transaction silently fell back to the received clock.
@@ -182,6 +219,17 @@ This file records all notable changes to this project. The format follows
 
   The handlers now return `400 enabled is required`, the same guard the `PUT` handlers have.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- `docs/api/openapi.yaml` no longer documents fields that `GET /evaluations/{id}` never returns.
+  Before this change, the `EvaluationMetadata` schema listed `ingestMs` and `rulesMs`, and the `RuleContribution` schema listed `triggered`.
+  The Go structs for stored evaluations never serialized these keys.
+  Clients that built from the spec read `undefined` for fields the contract promised.
+  The spec now matches the actual payload. The `ingestMs` field on the `POST /evaluate` response schema is unchanged.
+
+- A typology no longer counts a duplicated rule more than once.
+  Before this change, a typology that listed the same `ruleId` twice added the rule score twice.
+  The typology score was too high, so a duplicate could trigger a false alert.
+  Now `POST /typologies` and `PUT /typologies/{id}` reject a request with a duplicate `ruleId` and return 400.
+  The typology engine also ignores the second and later entries for a repeated `ruleId`, so a file-loaded typology scores correctly.
 
 ### Security
 
