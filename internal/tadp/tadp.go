@@ -158,8 +158,12 @@ func (p *Processor) Process(ctx context.Context, input *DecisionInput) *domain.E
 			eval.Status = domain.StatusNoAlert
 		}
 
-		// Use highest typology score as the evaluation score
-		eval.Score = maxTypologyScore
+		// Use highest typology score as the evaluation score. Typology
+		// scores are capped to 1.0 by the TypologyEngine, so this stays in
+		// range. Clamp again here as a guard: the documented score range is
+		// 0.0-1.0 (docs/QUICKSTART.md), and a caller can hand in typology
+		// results built outside the engine.
+		eval.Score = min(maxTypologyScore, 1.0)
 	} else {
 		// Detection Mode: Fast, weighted rule aggregation (default)
 		// No typologies required - direct score-to-alert decision

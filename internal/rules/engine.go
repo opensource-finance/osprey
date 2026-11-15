@@ -360,10 +360,26 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 		result.ProcessMs = time.Since(start).Milliseconds()
 		return result
 	}
-	result.Score = score
 
-	// Determine outcome based on bands
+	// Clamp the score to the documented [0, 1] range. A CEL expression may
+	// return a signed numeric (e.g. `sanctions_score - 0.5`, or a negative
+	// enrichment value via `double(enrichment.trust_score)`). Without this, a
+	// negative score is subtracted from the weighted aggregate, cancels
+	// genuinely matching rules and can flip an ALRT to NALT (fail-open). The
+	// clamp enforces docs/QUICKSTART.md ("Risk score from 0 to 1") and
+	// docs/ARCHITECTURE.md ("With sum, a rule that does not match adds 0").
+	clamped := max(0.0, min(1.0, score))
+	result.Score = clamped
+
+	// Determine outcome based on bands. Bands match the raw expression value
+	// first, so a rule with bands outside [0, 1] (for example `amount` with a
+	// band at 10000) keeps working. When no band matches an out-of-range
+	// value, the clamped score is matched instead, so a 0-1 band set still
+	// catches a rule that returns more than 1.
 	result.SubRuleRef, result.Reason = matchBand(score, rule.Config.Bands)
+	if clamped != score && result.SubRuleRef == domain.RuleOutcomePass && result.Reason == noMatchingBand {
+		result.SubRuleRef, result.Reason = matchBand(clamped, rule.Config.Bands)
+	}
 	// Name the listed entry on a sanctions alert so it can be dispositioned
 	// from the stored evaluation alone.
 	if m, _ := activation["sanctions_match"].(string); rule.usesSanctions && m != "" && result.SubRuleRef != domain.RuleOutcomePass {
@@ -373,6 +389,9 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *CompiledRule, activatio
 
 	return result
 }
+
+// noMatchingBand is the reason matchBand gives when no band matches a score.
+const noMatchingBand = "no matching band"
 
 // toScore converts a CEL value to a numeric score.
 func toScore(val ref.Val) float64 {
@@ -429,7 +448,7 @@ func matchBand(score float64, bands []domain.RuleBand) (string, string) {
 	}
 
 	// Default to pass if no band matches
-	return domain.RuleOutcomePass, "no matching band"
+	return domain.RuleOutcomePass, noMatchingBand
 }
 
 // RulesCount returns the number of loaded rules.

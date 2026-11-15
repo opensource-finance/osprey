@@ -303,7 +303,7 @@ func TestFiniteDoubleScoreUnaffectedByNonFiniteGuard(t *testing.T) {
 	}{
 		{"250/1000 = 0.25 -> .pass", 250.0, 0.25, domain.RuleOutcomePass},
 		{"800/1000 = 0.8 -> .review", 800.0, 0.8, domain.RuleOutcomeReview},
-		{"2000/1000 = 2.0 -> .fail (open last band)", 2000.0, 2.0, domain.RuleOutcomeFail},
+		{"2000/1000 = 2.0 -> .fail (open last band), stored score clamped to 1", 2000.0, 1.0, domain.RuleOutcomeFail},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := engine.EvaluateAll(ctx, &EvaluateInput{
