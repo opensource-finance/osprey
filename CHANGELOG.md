@@ -52,6 +52,28 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- Detection rule scores are now clamped to the documented `[0, 1]` range when the CEL expression is evaluated.
+  Before this change, a rule expression returning a negative number passed through `toScore` verbatim.
+  Examples include `sanctions_score - 0.5` or a negative external value read through `double(enrichment.trust_score)`.
+  The negative score matched no band, so the rule was labeled `.pass` ("no matching band"), but the negative value stayed on the rule result.
+  That value was then subtracted from the weighted aggregate.
+  One negative-scoring rule could cancel matching rules, push the aggregate below the alert threshold, and flip an `ALRT` into a `NALT` (fail-open).
+
+  The below-zero score was also persisted in `rule_results` and published as the evaluation and detection-summary score.
+  A non-matching rule now adds `0` to the aggregate, matching `docs/ARCHITECTURE.md`: "With `sum`, a rule that does not match adds `0`".
+  Every rule score stays within `docs/QUICKSTART.md`'s "Risk score from `0` to `1`".
+  Band matching still uses the raw expression value, so a band outside `0` to `1` (for example `amount` at `10000`) keeps working.
+- Compliance-mode typology scores are now capped at `1.0`.
+  Before this change, the typology composite was a raw weighted sum with no cap.
+  Typologies whose rule weights sum above `1.0` produced a score above `1.0`.
+  A fully-firing mule-account evaluation reported `1.5`, while `docs/QUICKSTART.md` documents the score as `0` to `1`.
+  The detection path already capped its aggregate at `1.0`, so the two paths disagreed.
+  The decision itself was correct since any score at or above `1.0` already triggers, but the stored score was out of range.
+
+  Now the typology engine caps the weighted sum at `1.0` at the source.
+  The compliance evaluation score, the max typology score, inherits that cap.
+  The stored evaluation, `GET /evaluations/{id}`, and the published event stay in the `0.0` to `1.0` range.
+  The OpenAPI spec carries the range on each `score` field.
 - A failed `POST /evaluate` no longer leaves a stored transaction with no evaluation.
   Before this change, the handler stored the transaction before it ran the rules.
   If a later step failed, it returned `500` but kept the transaction row.
@@ -229,6 +251,16 @@ This file records all notable changes to this project. The format follows
 
   The handlers now return `400 enabled is required`, the same guard the `PUT` handlers have.
   An explicit `enabled: false` is still an accepted, intentional disable.
+- A CEL rule whose double division returns a non-finite value now fails secure to `.err`.
+  Double division by zero returns `NaN` or `Inf` with no evaluation error.
+  Before this change, the value passed through and band matching treated `NaN` as no match.
+  The rule became `.pass` with `no matching band`, a silent false-negative.
+  The non-finite `Score` then broke `SaveEvaluation` because `encoding/json` rejects `NaN` and `Inf`.
+  Now the rule gives `.err`, the `Score` field stays `0.0`, and TADP forces `ALRT`.
+
+  The most common trigger is a ratio rule such as `new_balance / old_balance`.
+  Both variables default to `0.0` when the request omits them, so the rule runs `0.0 / 0.0`.
+  The result is `NaN`, which before this change silently passed and then failed to persist.
 - `docs/api/openapi.yaml` no longer documents fields that `GET /evaluations/{id}` never returns.
   Before this change, the `EvaluationMetadata` schema listed `ingestMs` and `rulesMs`, and the `RuleContribution` schema listed `triggered`.
   The Go structs for stored evaluations never serialized these keys.

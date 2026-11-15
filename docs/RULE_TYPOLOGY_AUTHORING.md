@@ -61,6 +61,10 @@ Thus, a rule that uses these variables does not cause an error if the request do
 To use real values, send them in `metadata` as numbers.
 If one of these values is not a number or `null`, `POST /evaluate` returns `400`.
 
+A ratio rule that divides by `old_balance` or `new_balance` gives a non-finite value when the request omits the balance.
+Double division by zero returns `NaN` or `Inf` with no error.
+The rule gives `.err` and the decision becomes `ALRT`.
+
 ### Custom fields and enrichment (`meta` / `enrichment`)
 
 Rules can also read two open maps.

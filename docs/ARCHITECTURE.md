@@ -252,11 +252,13 @@ alert if score >= threshold OR any rule returns .fail or .err
 ### Compliance
 
 ```
-typology_score = sum(rule_score * typology_rule_weight)
+typology_score = min(1, sum(rule_score * typology_rule_weight))
 alert if any typology is triggered OR any rule returns .fail or .err
 ```
 
 A typology triggers when its score is equal to or more than its `alertThreshold`.
+The score is capped at `1`, the same range as detection mode. A typology whose
+rule weights sum above `1` can still fire, but its score never crosses `1`.
 
 ## Extensibility
 

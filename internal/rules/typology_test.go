@@ -1,6 +1,9 @@
 package rules
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/opensource-finance/osprey/internal/domain"
@@ -385,5 +388,141 @@ func TestTypologyEngine_ZeroWeightIsNoContribution(t *testing.T) {
 	}
 	if monitorContrib.Contribution != 0.0 {
 		t.Errorf("expected monitor contribution 0 (score * weight 0), got %v", monitorContrib.Contribution)
+	}
+}
+
+// TestTypologyEngine_CompositeScoreCappedAtOne is the regression test for the
+// out-of-range compliance-mode score. The shipped mule-account typology has
+// rule weights 0.5 + 0.25 + 0.25 + 0.25 + 0.25 = 1.5. When every rule fires at
+// score 1.0, the raw weighted sum is 1.5. Before the fix, result.Score was
+// 1.5, which violates the documented 0.0-1.0 range. Now the sum is capped at
+// 1.0. The per-rule contributions keep the raw (uncapped) values so the
+// breakdown still shows what each rule added.
+func TestTypologyEngine_CompositeScoreCappedAtOne(t *testing.T) {
+	engine := NewTypologyEngine()
+	engine.LoadTypologies([]*domain.Typology{{
+		ID:             "typology-mule-account",
+		Name:           "Mule Account Activity",
+		AlertThreshold: 0.75,
+		Enabled:        true,
+		Rules: []domain.TypologyRuleWeight{
+			{RuleID: "pass-through-001", Weight: 0.5},
+			{RuleID: "velocity-001", Weight: 0.25},
+			{RuleID: "fan-out-001", Weight: 0.25},
+			{RuleID: "account-drain-001", Weight: 0.25},
+			{RuleID: "partial-drain-001", Weight: 0.25},
+		},
+	}})
+
+	ruleResults := []domain.RuleResult{
+		{RuleID: "pass-through-001", Score: 1.0},
+		{RuleID: "velocity-001", Score: 1.0},
+		{RuleID: "fan-out-001", Score: 1.0},
+		{RuleID: "account-drain-001", Score: 1.0},
+		{RuleID: "partial-drain-001", Score: 1.0},
+	}
+
+	results := engine.EvaluateTypologies(ruleResults)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	// Raw sum is 1.5. The score must be capped at 1.0, not 1.5.
+	if results[0].Score != 1.0 {
+		t.Errorf("expected capped score 1.0, got %v (raw weighted sum was 1.5)", results[0].Score)
+	}
+	// Any score at or above the threshold still triggers. The cap must not
+	// change the alert decision.
+	if !results[0].Triggered {
+		t.Error("expected the typology to trigger (capped 1.0 >= threshold 0.75)")
+	}
+
+	// Contributions stay raw and honest. Their sum is 1.5, the uncapped
+	// weighted sum, while the aggregate score is capped. This keeps the
+	// per-rule breakdown visible to reviewers.
+	var contribSum float64
+	for _, c := range results[0].Contributions {
+		contribSum += c.Contribution
+	}
+	if contribSum < 1.499 || contribSum > 1.501 {
+		t.Errorf("expected raw contributions to still sum to 1.5, got %v", contribSum)
+	}
+}
+
+// TestTypologyEngine_ScoreCapDoesNotSuppressSubOneScores is a regression guard
+// that the cap only clamps the top. A score below 1.0 must pass through
+// unchanged, including the float-noise case just under the threshold.
+func TestTypologyEngine_ScoreCapDoesNotSuppressSubOneScores(t *testing.T) {
+	engine := NewTypologyEngine()
+	engine.LoadTypologies([]*domain.Typology{{
+		ID: "below-one", AlertThreshold: 0.9, Enabled: true,
+		Rules: []domain.TypologyRuleWeight{
+			{RuleID: "a", Weight: 0.5},
+			{RuleID: "b", Weight: 0.25},
+		},
+	}})
+
+	// 0.8*0.5 + 1.0*0.25 = 0.65. Below 1.0, so the cap is a no-op.
+	res := engine.EvaluateTypologies([]domain.RuleResult{
+		{RuleID: "a", Score: 0.8},
+		{RuleID: "b", Score: 1.0},
+	})
+	if len(res) != 1 || res[0].Score != 0.65 {
+		t.Fatalf("expected score 0.65 (cap must not change sub-1.0 sums), got %+v", res)
+	}
+	if res[0].Triggered {
+		t.Error("expected NOT triggered (0.65 < 0.9)")
+	}
+}
+
+// TestTypologyEngine_SeedTypologiesScoreBounded loads the shipped seed config
+// and asserts every typology score stays in the documented 0.0-1.0 range when
+// every referenced rule fires at score 1.0 (the strictest case). This guards
+// the actual shipped data: commit 669d572 raised four typology weight sums to
+// 1.125-1.5, so without the cap this test reports 1.125 and 1.5.
+func TestTypologyEngine_SeedTypologiesScoreBounded(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "configs", "typologies", "fatf-typologies.json"))
+	if err != nil {
+		t.Fatalf("read seed typologies: %v", err)
+	}
+
+	var file struct {
+		Typologies []domain.Typology `json:"typologies"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		t.Fatalf("unmarshal seed typologies: %v", err)
+	}
+
+	enabled := make([]*domain.Typology, 0, len(file.Typologies))
+	ruleIDs := make(map[string]struct{})
+	for i := range file.Typologies {
+		if !file.Typologies[i].Enabled {
+			continue
+		}
+		enabled = append(enabled, &file.Typologies[i])
+		for _, r := range file.Typologies[i].Rules {
+			ruleIDs[r.RuleID] = struct{}{}
+		}
+	}
+	if len(enabled) == 0 {
+		t.Fatal("seed file has no enabled typologies; the test is no longer meaningful")
+	}
+
+	// Evaluate every referenced rule at score 1.0, the case that maximizes
+	// the weighted sum and so maximizes the chance of exceeding 1.0.
+	ruleResults := make([]domain.RuleResult, 0, len(ruleIDs))
+	for id := range ruleIDs {
+		ruleResults = append(ruleResults, domain.RuleResult{RuleID: id, Score: 1.0})
+	}
+
+	engine := NewTypologyEngine()
+	engine.LoadTypologies(enabled)
+	results := engine.EvaluateTypologies(ruleResults)
+
+	for _, r := range results {
+		if r.Score < 0.0 || r.Score > 1.0 {
+			t.Errorf("typology %s: score %v is outside the documented 0.0-1.0 range",
+				r.TypologyID, r.Score)
+		}
 	}
 }
