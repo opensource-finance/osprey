@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
@@ -29,8 +30,27 @@ func (e *TypologyEngine) LoadTypologies(typologies []*domain.Typology) {
 	e.typologies = make(map[string]*domain.Typology)
 	for _, t := range typologies {
 		if t.Enabled {
+			warnDuplicateTypologyRules(t)
 			e.typologies[t.ID] = t
 		}
+	}
+}
+
+// warnDuplicateTypologyRules logs one warning per ruleId that a typology lists
+// more than once. The API rejects duplicates, but file-loaded or legacy
+// typologies can still reach the engine. evaluateTypology counts only the
+// first entry; this warning makes the misconfiguration visible at load time.
+func warnDuplicateTypologyRules(t *domain.Typology) {
+	seen := make(map[string]bool, len(t.Rules))
+	for _, rw := range t.Rules {
+		if seen[rw.RuleID] {
+			slog.Warn("typology has a duplicate ruleId; later entries are ignored at evaluation",
+				"typology_id", t.ID,
+				"rule_id", rw.RuleID,
+			)
+			continue
+		}
+		seen[rw.RuleID] = true
 	}
 }
 
@@ -103,6 +123,7 @@ func (e *TypologyEngine) evaluateTypology(typology *domain.Typology, ruleScores 
 	}
 
 	var totalScore float64
+	seen := make(map[string]bool, len(typology.Rules))
 
 	for _, ruleWeight := range typology.Rules {
 		ruleScore, exists := ruleScores[ruleWeight.RuleID]
@@ -110,6 +131,14 @@ func (e *TypologyEngine) evaluateTypology(typology *domain.Typology, ruleScores 
 			// Rule not evaluated - skip
 			continue
 		}
+
+		if seen[ruleWeight.RuleID] {
+			// A typology may list a rule more than once. The API rejects this,
+			// but file-loaded or legacy typologies can still reach the engine.
+			// Count only the first entry so the score is not inflated.
+			continue
+		}
+		seen[ruleWeight.RuleID] = true
 
 		contribution := ruleScore * ruleWeight.Weight
 		totalScore += contribution

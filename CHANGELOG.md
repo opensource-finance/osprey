@@ -190,6 +190,12 @@ This file records all notable changes to this project. The format follows
   Clients that built from the spec read `undefined` for fields the contract promised.
   The spec now matches the actual payload. The `ingestMs` field on the `POST /evaluate` response schema is unchanged.
 
+- A typology no longer counts a duplicated rule more than once.
+  Before this change, a typology that listed the same `ruleId` twice added the rule score twice.
+  The typology score was too high, so a duplicate could trigger a false alert.
+  Now `POST /typologies` and `PUT /typologies/{id}` reject a request with a duplicate `ruleId` and return 400.
+  The typology engine also ignores the second and later entries for a repeated `ruleId`, so a file-loaded typology scores correctly.
+
 ### Security
 
 - Account-drain rules now fire when `metadata.new_balance` is `null`.
