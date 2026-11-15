@@ -77,7 +77,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: This tenant already has a transaction with this ID.
+          description: This tenant already has a fully evaluated transaction with this ID. Retry with the same ID cannot re-evaluate it. Use a new ID to submit a new transaction.
           content:
             application/json:
               schema:
@@ -89,7 +89,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Osprey could not evaluate the transaction or save the result.
+          description: Osprey could not evaluate the transaction or save the result. The transaction is not stored on a 500. Retry with the same ID is safe.
           content:
             application/json:
               schema:

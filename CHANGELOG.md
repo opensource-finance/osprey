@@ -52,6 +52,16 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- A failed `POST /evaluate` no longer leaves a stored transaction with no evaluation.
+  Before this change, the handler stored the transaction before it ran the rules.
+  If a later step failed, it returned `500` but kept the transaction row.
+  A retry with the same transaction ID got `409` and could never evaluate it.
+  There was no recovery path. The transaction stayed in the database with no alert in an AML system.
+
+  Now the handler removes the transaction when rule evaluation or evaluation storage fails.
+  A retry with the same ID succeeds and produces the evaluation.
+  A `409` now always means a fully evaluated transaction with that ID already exists.
+  The save-first order stays, so `velocity_count` still includes the current transaction.
 - The Pro tier event bus now reconnects to NATS without a limit.
   Before this change, the bus made only 10 reconnect attempts.
   A NATS outage of about one minute left the connection in the closed state forever.

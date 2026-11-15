@@ -296,6 +296,32 @@ func (r *SQLRepository) SaveTransaction(ctx context.Context, tenantID string, tx
 	return err
 }
 
+// DeleteTransaction removes a transaction by (tenantID, txID).
+//
+// It is the rollback counterpart to SaveTransaction. The synchronous evaluator
+// inserts the transaction before it runs the rules so velocity_count includes
+// the current transaction. If a later step (rule evaluation or SaveEvaluation)
+// then fails, the handler calls DeleteTransaction to remove the orphaned row so
+// a client retry with the same id is not hard-blocked by ErrDuplicateTransaction.
+//
+// The delete is plain and unconditional: the handler only calls this for a row it
+// just inserted in the same request and for which it never saved an evaluation,
+// so no evaluations row references the transaction. A missing row is not an
+// error because the caller treats cleanup as best-effort and idempotent.
+func (r *SQLRepository) DeleteTransaction(ctx context.Context, tenantID string, txID string) error {
+	if tenantID == "" {
+		return fmt.Errorf("%w: tenantID is required", ErrInvalidInput)
+	}
+
+	query := `
+		DELETE FROM transactions
+		WHERE tenant_id = ? AND id = ?
+	`
+
+	_, err := r.db.ExecContext(ctx, r.rebind(query), tenantID, txID)
+	return err
+}
+
 func isDuplicateTransactionError(err error) bool {
 	if err == nil {
 		return false
