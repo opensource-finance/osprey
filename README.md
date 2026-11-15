@@ -222,4 +222,4 @@ To run the full sandbox gate, run this command:
 
 ## License
 
-Apache License 2.0
+Apache License 2.0. Refer to [LICENSE](LICENSE). If you distribute Osprey or a changed version, obey section 4 of the License. For a changed version, section 4(d) tells you to include the attribution notices from [NOTICE](NOTICE) that apply to your version.

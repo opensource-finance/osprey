@@ -4,5 +4,16 @@ Copyright 2025-2026 opensource.finance
 This product includes software developed at opensource.finance
 (https://opensource.finance).
 
+Original project: https://github.com/opensource-finance/osprey
+
 Licensed under the Apache License, Version 2.0. See the LICENSE file for the
 full license text.
+
+If you distribute Osprey or a changed version, obey section 4 of the License.
+For a changed version, section 4(d) tells you to include the attribution
+notices from this file that apply to your version. This applies also if your
+version has a different name.
+
+Section 6 of the License does not give permission to use the names "Osprey"
+or "opensource.finance". The exception is reasonable and customary use to
+describe the origin of Osprey and to copy the content of this file.
