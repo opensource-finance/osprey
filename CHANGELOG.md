@@ -6,6 +6,8 @@ This file records all notable changes to this project. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-15
+
 ### Added
 
 - Sanctions screening against the OFAC SDN list.
@@ -388,6 +390,7 @@ It returns an `ALRT` or `NALT` decision from a single service that you can deplo
 - Mutation endpoints require `OSPREY_ADMIN_TOKEN`.
   The server does not start without it.
 
-[Unreleased]: https://github.com/opensource-finance/osprey/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/opensource-finance/osprey/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/opensource-finance/osprey/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/opensource-finance/osprey/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/opensource-finance/osprey/releases/tag/v0.1.0
