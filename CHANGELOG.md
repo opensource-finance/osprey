@@ -11,10 +11,16 @@ This file records all notable changes to this project. The format follows
 - `Unsubscribe` on the in-memory bus now stops delivery.
   Before this change, the subscription stayed registered, so its handler could still run for later publishes.
   Repeated subscribe and unsubscribe also kept every old subscription in memory.
-  Now `Unsubscribe` removes the subscription from the bus, and a cancelled subscription never runs its handler.
-- The repository stores transaction times in UTC.
-  Before this change, a transaction saved with a non-UTC offset fell outside the SQLite velocity windows, and the received-time window failed with a scan error.
-  The HTTP API and the worker already convert times to UTC, so this affected only direct callers of the repository.
+  Now `Unsubscribe` removes the subscription from the bus and drops the messages that are still queued for it.
+  A handler call that already started can still finish after `Unsubscribe` returns.
+  A subscription whose context ends is also removed from the bus.
+- `Unsubscribe` on the NATS bus now removes the subscription from the bus.
+  Before this change, repeated subscribe and unsubscribe kept every old subscription in memory.
+- The repository stores transaction and evaluation times in UTC.
+  Before this change, a transaction saved with a non-UTC offset fell outside the velocity windows on SQLite and PostgreSQL.
+  On SQLite, the received-time window also failed with a scan error.
+  An evaluation saved with such an offset failed with the same scan error when it was read back.
+  The HTTP API and the decision processor already use UTC, so this affected only direct callers of the repository.
 
 ## [0.1.2] - 2026-11-15
 
