@@ -87,6 +87,42 @@ func TestScreen(t *testing.T) {
 	}
 }
 
+// TestScreenEarlyLetterTypo regression-tests the Screen prefilter: a typo in
+// the first three letters of a token (e.g. "Vlaemont" vs "Valemont") yields a
+// different indexKey, so the candidate shares only one of the query's prefix
+// keys. The entry must still be scored, because tokenSim compares whole tokens
+// and still matches above the floor, landing in the fail band (>= 0.88).
+func TestScreenEarlyLetterTypo(t *testing.T) {
+	l, err := LoadOFACDir("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		query    string
+		entryID  string
+		minScore float64 // fail band per configs/rules/fatf-rules.json sanctions-001
+	}{
+		{"Orin Vlaemont", "1006", 0.88},         // vs "ORIN ORIN VALEMONT, Teodor": keys "ori"+"vla" vs entry "ori"+"val"
+		{"Maximilian Edlacourte", "1004", 0.88}, // vs "DELACOURTE, Maximilian": keys "max"+"edl" vs entry "max"+"del"
+	} {
+		m := l.Screen(c.query)
+		if m.EntryID != c.entryID || m.Score < c.minScore {
+			t.Errorf("Screen(%q) = {EntryID: %s, Score: %.4f}, want EntryID %s and Score >= %.2f",
+				c.query, m.EntryID, m.Score, c.entryID, c.minScore)
+		}
+	}
+
+	// A two-letter transposition in a self-built list: "Simth" for "Smith".
+	// "sim" vs "smi" are different indexKeys, so the entry shares exactly one
+	// of the two query keys; tokenSim("simth","smith") = 0.94 carries it.
+	custom := &List{index: map[string][]int{}}
+	custom.add("1", "John Smith", "SDGT", "John Smith")
+	if m := custom.Screen("John Simth"); m.EntryID != "1" || m.Score < 0.88 {
+		t.Errorf("Screen(\"John Simth\") = {EntryID: %s, Score: %.4f}, want EntryID 1 and Score >= 0.88",
+			m.EntryID, m.Score)
+	}
+}
+
 func TestLoadRejectsNonOFACFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "SDN.CSV"), []byte("<html>,error,page,body\nname,type,program,title\n"), 0o600); err != nil {
