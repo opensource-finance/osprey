@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,11 +77,12 @@ func createTestServerWithMode(mode domain.EvaluationMode, loadTypologies bool) *
 
 type failingRepository struct {
 	domain.Repository
-	saveTransactionErr error
-	saveEvaluationErr  error
-	getTransactionErr  error
-	getEvaluationErr   error
-	deleteTypologyErr  error
+	saveTransactionErr   error
+	saveEvaluationErr    error
+	getTransactionErr    error
+	getEvaluationErr     error
+	deleteTypologyErr    error
+	deleteTransactionErr error
 }
 
 const testAdminToken = "test-admin-token"
@@ -108,6 +111,10 @@ func (r *failingRepository) SaveTransaction(_ context.Context, _ string, _ *doma
 
 func (r *failingRepository) SaveEvaluation(_ context.Context, _ string, _ *domain.Evaluation) error {
 	return r.saveEvaluationErr
+}
+
+func (r *failingRepository) DeleteTransaction(_ context.Context, _ string, _ string) error {
+	return r.deleteTransactionErr
 }
 
 func (r *failingRepository) DeleteTypology(_ context.Context, _ string, _ string) error {
@@ -1902,4 +1909,385 @@ func TestVelocityNotBypassableByBackdatedTimestamp(t *testing.T) {
 			t.Fatalf("expected honest 4th transaction to ALRT (sanity), got %v", honest)
 		}
 	})
+}
+
+// saveEvaluationFailingRepo wraps a real repository and fails SaveEvaluation on a
+// configurable schedule, while every other method (notably SaveTransaction,
+// GetTransaction and DeleteTransaction) delegates to the real implementation.
+// This isolates the orphan-and-retry bug in POST /evaluate: only the second
+// write fails, exactly as a transient DB error or a client disconnect between
+// the two writes would cause in production.
+type saveEvaluationFailingRepo struct {
+	domain.Repository
+	failN    int // number of SaveEvaluation calls to fail starting from the first
+	failed   int // calls failed so far
+	allowAll bool
+	mu       sync.Mutex
+}
+
+func (r *saveEvaluationFailingRepo) SaveEvaluation(ctx context.Context, tenantID string, eval *domain.Evaluation) error {
+	r.mu.Lock()
+	failing := r.allowAll && r.failed < r.failN
+	if failing {
+		r.failed++
+	}
+	r.mu.Unlock()
+	if failing {
+		return errors.New("write failed")
+	}
+	return r.Repository.SaveEvaluation(ctx, tenantID, eval)
+}
+
+// createOrphanTestServer builds a detection-mode server on a real SQLite repo
+// wrapped by saveEvaluationFailingRepo, with a simple non-alerting rule loaded.
+// It returns the server, the underlying real repo (for direct state checks),
+// and a cleanup function.
+func createOrphanTestServer(t *testing.T, failN int) (*Server, domain.Repository, func()) {
+	t.Helper()
+	dbFile, err := os.CreateTemp("", "osprey-orphan-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp database: %v", err)
+	}
+	dbPath := dbFile.Name()
+	if err := dbFile.Close(); err != nil {
+		t.Fatalf("failed to close temp database: %v", err)
+	}
+	repo, err := repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: dbPath})
+	if err != nil {
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create repository: %v", err)
+	}
+	cleanup := func() {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+	}
+	engine, _ := rules.NewEngine(nil, 5)
+	if err := engine.LoadRule(&domain.RuleConfig{
+		ID:         "test-rule-001",
+		Name:       "High Value Test Rule",
+		Expression: "amount > 100000.0 ? 1.0 : 0.0",
+		Weight:     1.0,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("failed to load test rule: %v", err)
+	}
+	wrapped := &saveEvaluationFailingRepo{Repository: repo, failN: failN, allowAll: true}
+	server := NewServer(
+		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: testAdminToken},
+		wrapped, nil, nil, engine, rules.NewTypologyEngine(), tadp.NewProcessor(), "test-v1", domain.ModeDetection,
+	)
+	return server, repo, cleanup
+}
+
+func postEvaluate(server *Server, tenantID, txID string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(TransactionRequest{
+		ID:       txID,
+		Type:     "transfer",
+		Debtor:   PartyInfo{ID: "d-orphan", AccountID: "a1"},
+		Creditor: PartyInfo{ID: "c-orphan", AccountID: "a2"},
+		Amount:   AmountInfo{Value: 100, Currency: "USD"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	rr := httptest.NewRecorder()
+	server.Router().ServeHTTP(rr, req)
+	return rr
+}
+
+func getTransaction(server *Server, tenantID, txID string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/transactions/"+txID, nil)
+	req.Header.Set("X-Tenant-ID", tenantID)
+	rr := httptest.NewRecorder()
+	server.Router().ServeHTTP(rr, req)
+	return rr
+}
+
+// The four tests below cover the orphan-window bug in POST /evaluate. The
+// handler persists the transaction before evaluation so velocity_count
+// includes the current transaction. If a later step then fails, it must remove
+// the orphan so a retry with the same id is not hard-blocked by a 409. Before
+// the fix, a failed SaveEvaluation left the transaction persisted and a retry
+// got 409 forever, so the transaction could never be evaluated.
+
+// TestSaveEvaluationFailureRollsBackAndRetries drives SaveEvaluation to fail on
+// the first evaluate, then asserts the transaction is gone and a retry succeeds.
+func TestSaveEvaluationFailureRollsBackAndRetries(t *testing.T) {
+	const tenant = "tenant-orphan"
+	server, repo, cleanup := createOrphanTestServer(t, 1)
+	defer cleanup()
+
+	const txID = "orphan-tx-1"
+
+	first := postEvaluate(server, tenant, txID)
+	if first.Code != http.StatusInternalServerError {
+		t.Fatalf("first evaluate: expected 500, got %d: %s", first.Code, first.Body.String())
+	}
+	if !strings.Contains(first.Body.String(), "failed to persist evaluation") {
+		t.Fatalf("first evaluate: unexpected body %s", first.Body.String())
+	}
+
+	// The transaction must NOT be left behind: GET returns 404, not 200.
+	if rr := getTransaction(server, tenant, txID); rr.Code != http.StatusNotFound {
+		t.Fatalf("after failed save, GET transaction: expected 404 (rolled back), got %d: %s", rr.Code, rr.Body.String())
+	}
+	// And nothing is in the underlying repo either.
+	if _, err := repo.GetTransaction(context.Background(), tenant, txID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("underlying repo: expected ErrNotFound after rollback, got %v", err)
+	}
+
+	// Retry with the same id must succeed, not 409.
+	retry := postEvaluate(server, tenant, txID)
+	if retry.Code != http.StatusOK {
+		t.Fatalf("retry evaluate: expected 200, got %d: %s", retry.Code, retry.Body.String())
+	}
+	var resp EvaluateResponse
+	if err := json.Unmarshal(retry.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("retry evaluate: failed to parse response: %v", err)
+	}
+	if resp.TxID != txID || resp.EvaluationID == "" {
+		t.Fatalf("retry evaluate: expected txId=%s and non-empty evaluationId, got %+v", txID, resp)
+	}
+
+	// Now both the transaction and the evaluation are present.
+	if rr := getTransaction(server, tenant, txID); rr.Code != http.StatusOK {
+		t.Fatalf("after retry, GET transaction: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	getEvalReq := httptest.NewRequest(http.MethodGet, "/evaluations/"+resp.EvaluationID, nil)
+	getEvalReq.Header.Set("X-Tenant-ID", tenant)
+	getEvalRR := httptest.NewRecorder()
+	server.Router().ServeHTTP(getEvalRR, getEvalReq)
+	if getEvalRR.Code != http.StatusOK {
+		t.Fatalf("after retry, GET evaluation: expected 200, got %d: %s", getEvalRR.Code, getEvalRR.Body.String())
+	}
+}
+
+// TestRepeatedSaveEvaluationFailureStaysRetryable fails SaveEvaluation every
+// time. Each attempt returns 500 and rolls back, so a retry is never
+// hard-blocked by a 409 for an id that has no evaluation.
+func TestRepeatedSaveEvaluationFailureStaysRetryable(t *testing.T) {
+	const tenant = "tenant-orphan"
+	server, _, cleanup := createOrphanTestServer(t, 1000)
+	defer cleanup()
+
+	const txID = "orphan-tx-2"
+	for attempt := 1; attempt <= 3; attempt++ {
+		rr := postEvaluate(server, tenant, txID)
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("attempt %d: expected 500 (SaveEvaluation still failing), got %d: %s", attempt, rr.Code, rr.Body.String())
+		}
+		if rr2 := getTransaction(server, tenant, txID); rr2.Code != http.StatusNotFound {
+			t.Fatalf("attempt %d: GET transaction expected 404 (rolled back), got %d: %s", attempt, rr2.Code, rr2.Body.String())
+		}
+	}
+}
+
+// TestRuleEvaluationFailureRollsBack forces EvaluateAll to error on the first
+// evaluation (fail-secure velocity lookup), then asserts rollback and a
+// successful retry.
+func TestRuleEvaluationFailureRollsBack(t *testing.T) {
+	const tenant = "tenant-orphan"
+	dbFile, err := os.CreateTemp("", "osprey-orphan-rule-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp database: %v", err)
+	}
+	dbPath := dbFile.Name()
+	if err := dbFile.Close(); err != nil {
+		t.Fatalf("failed to close temp database: %v", err)
+	}
+	repo, err := repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: dbPath})
+	if err != nil {
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create repository: %v", err)
+	}
+	defer func() {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+	}()
+
+	engine, _ := rules.NewEngine(nil, 5)
+	if err := engine.LoadRule(&domain.RuleConfig{
+		ID:         "vel-rule",
+		Name:       "Velocity Rule",
+		Expression: "velocity_count > 5 ? 1.0 : 0.0",
+		Weight:     1.0,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("failed to load velocity rule: %v", err)
+	}
+	// Force EvaluateAll to error on the first evaluation, then succeed after.
+	var velocityCalls int
+	engine.SetAggregatesGetter(func(_ context.Context, _, _, _ string, _ int, _ time.Time) (rules.VelocityAggregates, error) {
+		velocityCalls++
+		if velocityCalls == 1 {
+			return rules.VelocityAggregates{}, errors.New("velocity store unavailable")
+		}
+		return rules.VelocityAggregates{}, nil
+	})
+
+	server := NewServer(
+		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: testAdminToken},
+		repo, nil, nil, engine, rules.NewTypologyEngine(), tadp.NewProcessor(), "test-v1", domain.ModeDetection,
+	)
+
+	const txID = "orphan-tx-3"
+	first := postEvaluate(server, tenant, txID)
+	if first.Code != http.StatusInternalServerError {
+		t.Fatalf("first evaluate: expected 500 (rule evaluation failed), got %d: %s", first.Code, first.Body.String())
+	}
+	if !strings.Contains(first.Body.String(), "rule evaluation failed") {
+		t.Fatalf("first evaluate: unexpected body %s", first.Body.String())
+	}
+	if rr := getTransaction(server, tenant, txID); rr.Code != http.StatusNotFound {
+		t.Fatalf("after rule-eval failure, GET transaction: expected 404 (rolled back), got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	retry := postEvaluate(server, tenant, txID)
+	if retry.Code != http.StatusOK {
+		t.Fatalf("retry evaluate: expected 200, got %d: %s", retry.Code, retry.Body.String())
+	}
+}
+
+// TestGenuineDuplicateStillReturns409 ensures a fully successful first request
+// still protects its id with a 409 on a second request with the same id. The
+// rollback must not weaken idempotency for transactions that have an evaluation.
+func TestGenuineDuplicateStillReturns409(t *testing.T) {
+	const tenant = "tenant-orphan"
+	server, _, cleanup := createOrphanTestServer(t, 0)
+	defer cleanup()
+
+	const txID = "dup-tx-ok"
+	first := postEvaluate(server, tenant, txID)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first evaluate: expected 200, got %d: %s", first.Code, first.Body.String())
+	}
+	second := postEvaluate(server, tenant, txID)
+	if second.Code != http.StatusConflict {
+		t.Fatalf("second evaluate: expected 409 for a genuine duplicate, got %d: %s", second.Code, second.Body.String())
+	}
+}
+
+// cancelBlockingRepo wraps a real repo. On the first SaveTransaction it signals
+// reached1. The first SaveEvaluation signals reached2 then blocks until the
+// request context is done and returns an error; later SaveEvaluation calls
+// succeed so the retry completes. DeleteTransaction delegates to the real
+// repo and signals deleteCh. This reconstructs the realistic orphan cause
+// (a client disconnect cancels r.Context() while SaveEvaluation is in flight),
+// so the rollback must run on a context decoupled from the request.
+type cancelBlockingRepo struct {
+	domain.Repository
+	once1    sync.Once
+	once2    sync.Once
+	onceDel  sync.Once
+	reached1 chan struct{}
+	reached2 chan struct{}
+	deleteCh chan struct{}
+	evalCall int32 // atomic; first call blocks, later calls succeed
+}
+
+func (r *cancelBlockingRepo) SaveTransaction(_ context.Context, tenantID string, tx *domain.Transaction) error {
+	r.once1.Do(func() { close(r.reached1) })
+	return r.Repository.SaveTransaction(context.Background(), tenantID, tx)
+}
+
+func (r *cancelBlockingRepo) SaveEvaluation(ctx context.Context, tenantID string, eval *domain.Evaluation) error {
+	if atomic.AddInt32(&r.evalCall, 1) == 1 {
+		r.once2.Do(func() { close(r.reached2) })
+		<-ctx.Done()
+		return errors.New("save canceled by client disconnect")
+	}
+	return r.Repository.SaveEvaluation(ctx, tenantID, eval)
+}
+
+func (r *cancelBlockingRepo) DeleteTransaction(ctx context.Context, tenantID string, txID string) error {
+	err := r.Repository.DeleteTransaction(ctx, tenantID, txID)
+	r.onceDel.Do(func() { close(r.deleteCh) })
+	return err
+}
+
+// TestEvaluateRollbackSurvivesRequestCancellation runs the rollback on a context
+// decoupled from the request: the client cancels mid-SaveEvaluation, and the
+// handler must still call DeleteTransaction and roll the tx back (No 409 on retry).
+func TestEvaluateRollbackSurvivesRequestCancellation(t *testing.T) {
+	const tenant = "tenant-cancel"
+	dbFile, err := os.CreateTemp("", "osprey-cancel-*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp database: %v", err)
+	}
+	dbPath := dbFile.Name()
+	if err := dbFile.Close(); err != nil {
+		t.Fatalf("failed to close temp database: %v", err)
+	}
+	repo, err := repository.New(domain.RepositoryConfig{Driver: "sqlite", SQLitePath: dbPath})
+	if err != nil {
+		_ = os.Remove(dbPath)
+		t.Fatalf("failed to create repository: %v", err)
+	}
+	defer func() {
+		_ = repo.Close()
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+	}()
+	engine, _ := rules.NewEngine(nil, 5)
+	if err := engine.LoadRule(&domain.RuleConfig{
+		ID: "cancel-test-rule", Name: "Cancel Test Rule",
+		Expression: "amount > 100000.0 ? 1.0 : 0.0", Weight: 1.0, Enabled: true,
+	}); err != nil {
+		t.Fatalf("failed to load rule: %v", err)
+	}
+	wrapped := &cancelBlockingRepo{
+		Repository: repo,
+		reached1:   make(chan struct{}),
+		reached2:   make(chan struct{}),
+		deleteCh:   make(chan struct{}),
+	}
+	server := NewServer(
+		domain.ServerConfig{Host: "localhost", Port: 8080, ReadTimeout: 30, WriteTimeout: 30, AdminToken: testAdminToken},
+		wrapped, nil, nil, engine, rules.NewTypologyEngine(), tadp.NewProcessor(), "test-v1", domain.ModeDetection,
+	)
+
+	body, _ := json.Marshal(TransactionRequest{
+		ID:       "cancel-tx",
+		Type:     "transfer",
+		Debtor:   PartyInfo{ID: "d-cancel", AccountID: "a1"},
+		Creditor: PartyInfo{ID: "c-cancel", AccountID: "a2"},
+		Amount:   AmountInfo{Value: 100, Currency: "USD"},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/evaluate", bytes.NewBuffer(body)).
+		WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenant)
+
+	done := make(chan struct{})
+	go func() {
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+		done <- struct{}{}
+	}()
+
+	<-wrapped.reached2
+	cancel()
+	<-done
+
+	select {
+	case <-wrapped.deleteCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("DeleteTransaction was not called within 5s of the canceled SaveEvaluation")
+	}
+
+	// The rollback ran on a decoupled context: the row is gone.
+	if _, err := repo.GetTransaction(context.Background(), tenant, "cancel-tx"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("after cancel, GetTransaction: expected ErrNotFound (rolled back), got %v", err)
+	}
+	// And a retry succeeds.
+	retry := postEvaluate(server, tenant, "cancel-tx")
+	if retry.Code != http.StatusOK {
+		t.Fatalf("retry evaluate: expected 200, got %d: %s", retry.Code, retry.Body.String())
+	}
 }

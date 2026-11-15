@@ -77,7 +77,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: This tenant already has a transaction with this ID.
+          description: This tenant already has a fully evaluated transaction with this ID. Retry with the same ID cannot re-evaluate it. Use a new ID to submit a new transaction.
           content:
             application/json:
               schema:
@@ -89,7 +89,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Osprey could not evaluate the transaction or save the result.
+          description: Osprey could not evaluate the transaction or save the result. The transaction is not stored on a 500. Retry with the same ID is safe.
           content:
             application/json:
               schema:
@@ -815,10 +815,6 @@ components:
       properties:
         traceId:
           type: string
-        ingestMs:
-          type: integer
-        rulesMs:
-          type: integer
         decisionMs:
           type: integer
         totalMs:
@@ -859,8 +855,6 @@ components:
           type: number
         contribution:
           type: number
-        triggered:
-          type: boolean
     TypologyResult:
       type: object
       properties:
@@ -986,6 +980,7 @@ components:
         rules:
           type: array
           minItems: 1
+          description: The rule weights for the typology. Each ruleId must appear at most once. A repeated ruleId is rejected.
           items:
             $ref: "#/components/schemas/TypologyRuleWeight"
     TypologyRuleWeight:
