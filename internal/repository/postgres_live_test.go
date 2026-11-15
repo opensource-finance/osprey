@@ -207,3 +207,40 @@ func TestLivePostgresEntityWindows(t *testing.T) {
 		t.Errorf("event clock: got [%s], want out, in and self (old is 2 hours earlier)", ids(inWindow))
 	}
 }
+
+// TestLivePostgresNonUTCEventWindow is the PostgreSQL side of
+// TestSQLiteWindowsFindNonUTCTimestamps. The columns are TIMESTAMP without a
+// time zone, so PostgreSQL drops the offset: a 12:00Z time saved as 14:00+02:00
+// was stored as 14:00 and fell outside a window around 12:00.
+func TestLivePostgresNonUTCEventWindow(t *testing.T) {
+	db := livePostgres(t)
+	repo := &SQLRepository{db: db, driver: "postgres"}
+	if err := repo.migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	plus2 := time.FixedZone("UTC+2", 2*60*60)
+	tx := liveTransaction("pg-tz-1", 10)
+	tx.Timestamp = time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC).In(plus2)
+	tx.CreatedAt = time.Now().In(plus2)
+	if err := repo.SaveTransaction(ctx, "tenant-pg", tx); err != nil {
+		t.Fatalf("SaveTransaction: %v", err)
+	}
+
+	from := time.Date(2026, 11, 15, 11, 59, 0, 0, time.UTC)
+	to := time.Date(2026, 11, 15, 12, 1, 0, 0, time.UTC)
+	got, err := repo.GetTransactionsByEntityInEventWindow(ctx, "tenant-pg", tx.DebtorID, from, to)
+	if err != nil {
+		t.Fatalf("event window: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("event window [11:59Z, 12:01Z]: want the 12:00Z transaction, got %d rows", len(got))
+	}
+	received, err := repo.GetTransactionsByEntity(ctx, "tenant-pg", tx.DebtorID, time.Now().UTC().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("received window: %v", err)
+	}
+	if len(received) != 1 {
+		t.Errorf("received window (last hour): want 1 row, got %d", len(received))
+	}
+}

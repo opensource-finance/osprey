@@ -170,3 +170,19 @@ func TestNATSBusReconnectConfigLive(t *testing.T) {
 		t.Fatalf("expected MaxReconnect == -1 (unbounded), got %d", opts.MaxReconnect)
 	}
 }
+
+// Unsubscribe removes the subscription from the bus map, so repeated
+// subscribe and unsubscribe do not keep old subscriptions in memory. The
+// zero nats.Subscription has no connection, so its Unsubscribe returns an
+// error, but the bus entry must still go.
+func TestNATSSubscriptionUnsubscribeLeavesBus(t *testing.T) {
+	b := &NATSBus{subscriptions: make(map[string]*natsSubscription)}
+	sub := &natsSubscription{id: "sub-1", topic: "topic", sub: &nats.Subscription{}, bus: b}
+	b.subscriptions[sub.id] = sub
+
+	_ = sub.Unsubscribe()
+
+	if n := len(b.subscriptions); n != 0 {
+		t.Errorf("%d subscriptions still registered after Unsubscribe", n)
+	}
+}
