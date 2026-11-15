@@ -52,6 +52,11 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- `velocity_distinct_creditors` no longer counts a self-transfer as a payee.
+  Before this change, a self-transfer added the entity to its own creditor set and inflated the count by 1.
+  With 4 genuine payees plus one self-transfer, the count reached 5.
+  That fired the starter-kit `fan-out-001` rule and sent the entity to `.review` as a layering signal.
+  A window with only self-transfers now reports 0 distinct payees.
 - `velocity_amount_sum` and `velocity_inbound_amount_sum` now sum only transactions whose currency matches the evaluated transaction.
   Before this change, they added raw amounts across every currency the entity touched in the window.
   A multi-currency window produced a currency-incoherent total (for example 100 USD received plus 100 EUR sent read as 200).
