@@ -63,6 +63,17 @@ This file records all notable changes to this project. The format follows
   A non-matching rule now adds `0` to the aggregate, matching `docs/ARCHITECTURE.md`: "With `sum`, a rule that does not match adds `0`".
   Every rule score stays within `docs/QUICKSTART.md`'s "Risk score from `0` to `1`".
   Band matching still uses the raw expression value, so a band outside `0` to `1` (for example `amount` at `10000`) keeps working.
+- Compliance-mode typology scores are now capped at `1.0`.
+  Before this change, the typology composite was a raw weighted sum with no cap.
+  Typologies whose rule weights sum above `1.0` produced a score above `1.0`.
+  A fully-firing mule-account evaluation reported `1.5`, while `docs/QUICKSTART.md` documents the score as `0` to `1`.
+  The detection path already capped its aggregate at `1.0`, so the two paths disagreed.
+  The decision itself was correct since any score at or above `1.0` already triggers, but the stored score was out of range.
+
+  Now the typology engine caps the weighted sum at `1.0` at the source.
+  The compliance evaluation score, the max typology score, inherits that cap.
+  The stored evaluation, `GET /evaluations/{id}`, and the published event stay in the `0.0` to `1.0` range.
+  The OpenAPI spec carries the range on each `score` field.
 - A failed `POST /evaluate` no longer leaves a stored transaction with no evaluation.
   Before this change, the handler stored the transaction before it ran the rules.
   If a later step failed, it returned `500` but kept the transaction row.
