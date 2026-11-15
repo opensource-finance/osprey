@@ -52,6 +52,18 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- The Pro tier event bus now reconnects to NATS without a limit.
+  Before this change, the bus made only 10 reconnect attempts.
+  A NATS outage of about one minute left the connection in the closed state forever.
+  The async event pipeline stopped, and `/health` stayed green.
+  The orchestrator did not restart the service.
+
+  Now the bus uses unbounded reconnects.
+  When the NATS server returns, the connection and the subscriptions recover automatically.
+  The `/health` endpoint also pings the event bus.
+  A closed bus now reports `degraded`, so the orchestrator can restart the service.
+  A positive `NATSMaxReconnects` value still sets a bounded budget for operators who want fail-fast wiring.
+
 - The async worker now honors the documented `metadata` key on the bus message.
   Before this change, the worker `TransactionMessage` had no `metadata` field.
   A producer that sent `metadata` lost it on unmarshal, so the `meta` map was empty and `old_balance` and `new_balance` stayed at their `0.0` defaults.
