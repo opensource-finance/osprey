@@ -52,6 +52,17 @@ This file records all notable changes to this project. The format follows
 
 ### Fixed
 
+- The async worker now honors the documented `metadata` key on the bus message.
+  Before this change, the worker `TransactionMessage` had no `metadata` field.
+  A producer that sent `metadata` lost it on unmarshal, so the `meta` map was empty and `old_balance` and `new_balance` stayed at their `0.0` defaults.
+  The shipped account-drain rules never fired on the async path.
+  The same transaction alerted on `POST /evaluate` and passed on the bus.
+
+  Now `TransactionMessage` carries a `metadata` field with the same contract as `TransactionRequest.metadata`.
+  The legacy `additionalData` field stays as an alias, and `metadata` wins when a producer sends both keys.
+  The worker also runs `rules.ValidateMetadata` and drops a message with a non-numeric balance, the same gate `POST /evaluate` has.
+  The bus message schema is now documented in `docs/ASYNC_BUS.md`.
+
 - Sanctions screening now scores candidates that share only one name-token prefix.
   Before this change, `Screen` skipped a list entry that shared fewer than two 3-letter prefix keys with a multi-token query.
   It assumed such an entry could only score at the partial-match cap.
