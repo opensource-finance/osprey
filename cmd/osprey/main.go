@@ -212,10 +212,18 @@ func main() {
 	if cfg.Tier == domain.TierPro || os.Getenv("OSPREY_ASYNC_WORKER") == "true" {
 		asyncWorker = worker.NewWorker(busImpl, repo, engine, typologyEngine, processor, cfg.EvaluationMode)
 
-		// Get tenant IDs to process (from environment or default)
-		tenantIDs := []string{}
-		if envTenants := os.Getenv("OSPREY_TENANTS"); envTenants != "" {
-			tenantIDs = parseTenantIDs(envTenants)
+		// Get tenant IDs to process. The async worker is only useful with at
+		// least one tenant: an empty list used to select the dev-only global
+		// subscription, which both buses keyed by the exact tenant and so could
+		// never receive a real publish. Fail loudly instead of logging an
+		// info-level success that hides an inert worker.
+		tenantIDs, err := resolveAsyncTenantIDs()
+		if err != nil {
+			slog.Error("cannot start async worker",
+				"error", err,
+				"hint", "set OSPREY_TENANTS to a comma-separated list of tenant IDs, or unset OSPREY_TIER and OSPREY_ASYNC_WORKER to disable the async worker",
+			)
+			os.Exit(1)
 		}
 
 		workerCfg := worker.Config{
@@ -279,6 +287,22 @@ func parseTenantIDs(value string) []string {
 		}
 	}
 	return tenantIDs
+}
+
+// resolveAsyncTenantIDs reads OSPREY_TENANTS and returns the tenant list for
+// the async worker. It returns an error when the list is empty so main() can
+// fail loudly instead of starting a worker that no publisher can reach. An
+// unset variable and a value that trims to nothing (for example ", ,") both
+// resolve to an empty list and are rejected.
+func resolveAsyncTenantIDs() ([]string, error) {
+	tenantIDs := []string{}
+	if envTenants := os.Getenv("OSPREY_TENANTS"); envTenants != "" {
+		tenantIDs = parseTenantIDs(envTenants)
+	}
+	if len(tenantIDs) == 0 {
+		return nil, fmt.Errorf("OSPREY_TENANTS is not set or empty; the async worker needs at least one tenant ID")
+	}
+	return tenantIDs, nil
 }
 
 // loadRulesFromDatabase loads rules from the database into the engine.

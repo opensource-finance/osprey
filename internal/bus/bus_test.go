@@ -279,3 +279,124 @@ func TestChannelBusHighLoad(t *testing.T) {
 		t.Fatalf("timeout: received %d/%d messages", received.Load(), messageCount)
 	}
 }
+
+// TestChannelBusWildcardSubscription verifies that a subscription on the
+// special tenant domain.GlobalTenantID ("*") is a wildcard: it receives every
+// publish on the topic regardless of the publishing tenant, the delivered
+// message keeps the real tenant, and exact-tenant delivery is unchanged.
+func TestChannelBusWildcardSubscription(t *testing.T) {
+	bus := NewChannelBus(100)
+	defer func() { _ = bus.Close() }()
+
+	ctx := context.Background()
+
+	t.Run("ReceivesEveryTenant", func(t *testing.T) {
+		tenantCh := make(chan string, 4)
+		_, err := bus.Subscribe(ctx, domain.GlobalTenantID, "wildcard.topic", func(_ context.Context, msg *domain.Message) error {
+			select {
+			case tenantCh <- msg.TenantID:
+			default:
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("subscribe failed: %v", err)
+		}
+
+		time.Sleep(10 * time.Millisecond)
+
+		_ = bus.Publish(ctx, "tenant-001", "wildcard.topic", []byte("a"))
+		_ = bus.Publish(ctx, "tenant-002", "wildcard.topic", []byte("b"))
+
+		got := map[string]bool{}
+		for i := range 2 {
+			select {
+			case tid := <-tenantCh:
+				got[tid] = true
+			case <-time.After(time.Second):
+				t.Fatalf("timed out waiting for wildcard message %d; got %v", i, got)
+			}
+		}
+		// The wildcard subscriber must receive both tenants, and the message
+		// must carry the real publishing tenant (not "*"), so a global worker
+		// can attribute the evaluation to the right tenant.
+		if !got["tenant-001"] || !got["tenant-002"] {
+			t.Errorf("wildcard delivered tenants = %v, want both tenant-001 and tenant-002", got)
+		}
+	})
+
+	t.Run("DoesNotBreakExactTenantDelivery", func(t *testing.T) {
+		var exact, wildcard atomic.Int32
+
+		_, _ = bus.Subscribe(ctx, "tenant-x", "coexist.topic", func(_ context.Context, _ *domain.Message) error {
+			exact.Add(1)
+			return nil
+		})
+		_, _ = bus.Subscribe(ctx, domain.GlobalTenantID, "coexist.topic", func(_ context.Context, _ *domain.Message) error {
+			wildcard.Add(1)
+			return nil
+		})
+
+		time.Sleep(10 * time.Millisecond)
+
+		_ = bus.Publish(ctx, "tenant-x", "coexist.topic", []byte("x"))
+		_ = bus.Publish(ctx, "tenant-y", "coexist.topic", []byte("y"))
+
+		time.Sleep(50 * time.Millisecond)
+
+		// Exact subscriber only gets its own tenant; wildcard gets both.
+		if exact.Load() != 1 {
+			t.Errorf("exact subscriber: want 1, got %d", exact.Load())
+		}
+		if wildcard.Load() != 2 {
+			t.Errorf("wildcard subscriber: want 2, got %d", wildcard.Load())
+		}
+	})
+
+	t.Run("TenantIsolationUnchanged", func(t *testing.T) {
+		var a, b atomic.Int32
+
+		_, _ = bus.Subscribe(ctx, "iso-a", "iso.topic", func(_ context.Context, _ *domain.Message) error {
+			a.Add(1)
+			return nil
+		})
+		_, _ = bus.Subscribe(ctx, "iso-b", "iso.topic", func(_ context.Context, _ *domain.Message) error {
+			b.Add(1)
+			return nil
+		})
+
+		time.Sleep(10 * time.Millisecond)
+
+		_ = bus.Publish(ctx, "iso-a", "iso.topic", []byte("only-a"))
+
+		time.Sleep(50 * time.Millisecond)
+
+		if a.Load() != 1 {
+			t.Errorf("iso-a: want 1, got %d", a.Load())
+		}
+		if b.Load() != 0 {
+			t.Errorf("iso-b: want 0, got %d", b.Load())
+		}
+	})
+
+	t.Run("NoDoubleDeliveryForWildcardTenantPublish", func(t *testing.T) {
+		// Publishing on the wildcard tenant itself is a degenerate case.
+		// The exact-tenant bucket is the wildcard bucket, so the publish
+		// must deliver to the wildcard subscriber exactly once.
+		var count atomic.Int32
+		_, _ = bus.Subscribe(ctx, domain.GlobalTenantID, "wild.pub.topic", func(_ context.Context, _ *domain.Message) error {
+			count.Add(1)
+			return nil
+		})
+
+		time.Sleep(10 * time.Millisecond)
+
+		_ = bus.Publish(ctx, domain.GlobalTenantID, "wild.pub.topic", []byte("once"))
+
+		time.Sleep(50 * time.Millisecond)
+
+		if count.Load() != 1 {
+			t.Errorf("wildcard tenant publish: want 1 delivery, got %d", count.Load())
+		}
+	})
+}

@@ -63,12 +63,30 @@ func (b *ChannelBus) Publish(ctx context.Context, tenantID string, topic string,
 		Timestamp: time.Now().UnixNano(),
 	}
 
-	// Get subscriptions for this topic
+	// Get the exact-tenant subscriptions for this topic.
 	subs := b.subscriptions[b.makeKey(tenantID, topic)]
+	// Also get the wildcard subscriptions (tenant domain.GlobalTenantID). A
+	// wildcard subscriber receives every publish on this topic regardless of
+	// tenant, so the global worker can process all tenants. The published
+	// message keeps the real tenantID, so the handler can attribute it.
+	// Skip the wildcard bucket when the publisher used the wildcard tenant
+	// itself, because then the exact-tenant bucket is already the wildcard
+	// bucket and delivering both would duplicate the message.
+	var wildcardSubs []*channelSubscription
+	if tenantID != domain.GlobalTenantID {
+		wildcardSubs = b.subscriptions[b.makeKey(domain.GlobalTenantID, topic)]
+	}
 	b.mu.RUnlock()
 
 	// Send to all matching subscribers (non-blocking)
 	for _, sub := range subs {
+		select {
+		case sub.msgCh <- msg:
+		default:
+			// Channel full, skip this message for this subscriber
+		}
+	}
+	for _, sub := range wildcardSubs {
 		select {
 		case sub.msgCh <- msg:
 		default:
@@ -80,6 +98,12 @@ func (b *ChannelBus) Publish(ctx context.Context, tenantID string, topic string,
 }
 
 // Subscribe registers a handler for a topic.
+//
+// tenantID scopes the subscription. A regular tenantID receives only the
+// messages published for that tenant. The special value domain.GlobalTenantID
+// ("*") registers a wildcard subscription: Publish delivers to it for every
+// tenant on the topic, and the delivered message carries the real publishing
+// tenant, so the handler can attribute the work.
 func (b *ChannelBus) Subscribe(ctx context.Context, tenantID string, topic string, handler domain.MessageHandler) (domain.Subscription, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("tenantID is required")
